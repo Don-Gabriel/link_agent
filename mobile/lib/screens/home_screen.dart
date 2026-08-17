@@ -13,6 +13,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import 'composer_screen.dart';
 import 'queue_screen.dart';
+import 'schedule_screen.dart';
 import 'status_screen.dart';
 import 'voice_screen.dart';
 
@@ -27,13 +28,21 @@ class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   int _seenComposeRequest = 0;
 
-  static const _titles = ['Queue', 'Compose', 'Voice', 'Status'];
-  static const _composeTab = 1;
+  static const _titles = ['Queue', 'Schedule', 'Compose', 'Voice', 'Status'];
+  static const _composeTab = 2;
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final pending = state.status?.queue.where((p) => p.isDraft).length ?? 0;
+    // Count what needs a DECISION, not what merely exists. A cleared draft is
+    // still in the queue but is no longer asking anything of you, and a badge
+    // that never clears is a badge people learn to ignore.
+    final status = state.status;
+    final pending = status == null
+        ? 0
+        : status.needingReview > 0
+            ? status.needingReview
+            : status.queue.where((p) => p.isDraft && !p.isScheduled).length;
 
     // "Edit this draft" is raised by the queue and lands here: the composer is
     // a sibling tab, so something above both has to bring it forward.
@@ -77,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
           index: _index,
           children: const [
             QueueScreen(),
+            ScheduleScreen(),
             ComposerScreen(),
             VoiceScreen(),
             StatusScreen(),
@@ -103,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(Icons.inbox),
             ),
             label: 'Queue',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Schedule',
           ),
           const NavigationDestination(
             icon: Icon(Icons.edit_outlined),

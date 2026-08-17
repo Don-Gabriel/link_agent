@@ -14,6 +14,7 @@ import 'package:linkdin_mobile/api/models.dart';
 import 'package:linkdin_mobile/screens/composer_screen.dart';
 import 'package:linkdin_mobile/screens/gate_screen.dart';
 import 'package:linkdin_mobile/screens/queue_screen.dart';
+import 'package:linkdin_mobile/screens/schedule_screen.dart';
 import 'package:linkdin_mobile/screens/status_screen.dart';
 import 'package:linkdin_mobile/screens/voice_screen.dart';
 import 'package:linkdin_mobile/state/app_state.dart';
@@ -96,7 +97,66 @@ Map<String, dynamic> statusFixture({
       ],
       'history': [],
       'ambiguous': [],
+      'slots': [
+        {
+          'id': 's1',
+          'localTime': '09:30',
+          'daysMask': 62,
+          'daysLabel': 'Mon-Fri',
+          'leadMinutes': 15,
+          'autoPublish': false,
+          'categories': ['music-tech-software'],
+          'enabled': true,
+          'position': 0,
+          'nextRunLocal': 'Tue 18 Aug, 09:30',
+        },
+        {
+          'id': 's2',
+          'localTime': '18:00',
+          'daysMask': 127,
+          'daysLabel': 'Every day',
+          'leadMinutes': 30,
+          'autoPublish': true,
+          'categories': <String>[],
+          'enabled': true,
+          'position': 1,
+          'nextRunLocal': 'Mon 17 Aug, 18:00',
+        },
+      ],
+      'timeline': [
+        {
+          'slotId': 's1',
+          'localTime': '09:30',
+          'runDate': _todayLocal(),
+          'scheduledFor': '2026-08-17T04:00:00.000Z',
+          'outcome': 'published',
+          'postSeq': 12,
+        },
+        {
+          'slotId': 's2',
+          'localTime': '18:00',
+          'runDate': _todayLocal(),
+          'scheduledFor': '2026-08-17T12:30:00.000Z',
+          'outcome': 'silent',
+          'detail': 'Nothing cleared 6.5 — best was 5.8 across 24 candidates.',
+        },
+      ],
+      'slotLimits': {
+        'maxSlots': 5,
+        'minLeadMinutes': 10,
+        'maxLeadMinutes': 720,
+        'missedAfterMinutes': 45,
+      },
     };
+
+/// The schedule screen filters today's timeline by local date, so the fixture
+/// has to be stamped with the machine's today rather than a frozen date.
+String _todayLocal() {
+  final now = DateTime.now();
+  return '${now.year.toString().padLeft(4, '0')}-'
+      '${now.month.toString().padLeft(2, '0')}-'
+      '${now.day.toString().padLeft(2, '0')}';
+}
 
 Future<AppState> buildState(Map<String, dynamic>? status) async {
   SharedPreferences.setMockInitialValues({});
@@ -539,5 +599,67 @@ void main() {
     // control with no reason, or a reason with a control that still fires.
     expect(toggle.onChanged, isNull);
     expect(find.textContaining('Connect LinkedIn before enabling'), findsOneWidget);
+  });
+
+  testWidgets('ScheduleScreen renders the timetable without overflow', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    // Scrolling to the bottom control builds every row on the way, so an
+    // overflow below the fold fails here rather than hiding until someone looks.
+    // The target has to be unique: a time like "18:00" appears BOTH in today's
+    // timeline and on its slot tile, and an ambiguous finder throws before it
+    // ever scrolls.
+    await scrollTo(tester, find.text('Add a posting time'));
+
+    expect(find.text('Mon-Fri'), findsOneWidget);
+    expect(find.text('Every day'), findsOneWidget);
+  });
+
+  // A slot that found nothing must SAY so, with the score. Rendered as a gap it
+  // is indistinguishable from a broken cron, which is the anxiety this row
+  // exists to remove — silence here is a judgment, not a failure.
+  testWidgets('ScheduleScreen explains a silent slot instead of leaving a gap', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    expect(find.text('Stayed quiet'), findsOneWidget);
+    expect(find.textContaining('best was 5.8'), findsOneWidget);
+  });
+
+  testWidgets('ScheduleScreen distinguishes hold-mode from publish-without-me', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    // s1 waits for a human, s2 does not, and the blurb has to say which.
+    await scrollTo(tester, find.textContaining('Waits for you to clear it'));
+    expect(find.textContaining('Waits for you to clear it'), findsOneWidget);
+    expect(find.textContaining('whether or not you have read it'), findsOneWidget);
+  });
+
+  // The last remaining day cannot be turned off: an empty mask is a slot that
+  // never fires, and a schedule that silently never runs is the worst outcome
+  // this screen can produce. A single-slot fixture keeps the day chips
+  // unambiguous — with two slots there are fourteen of them.
+  testWidgets('ScheduleScreen refuses to clear the last enabled day', (tester) async {
+    final oneDay = statusFixture();
+    oneDay['slots'] = [
+      {
+        ...(oneDay['slots'] as List).first as Map<String, dynamic>,
+        'daysMask': 1 << 1, // Monday only
+        'daysLabel': 'Mon',
+      },
+    ];
+    final state = await buildState(oneDay);
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    await scrollTo(tester, find.text('Add a posting time'));
+
+    // Tapping the only selected day must change nothing and fire no request.
+    await tester.tap(find.text('M'));
+    await tester.pumpAndSettle();
+
+    expect(state.error, isNull);
+    expect(find.text('Mon'), findsOneWidget, reason: 'the mask must be unchanged');
   });
 }
