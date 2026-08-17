@@ -1,0 +1,35 @@
+# Secrets — never commit.
+# Order matters: gitignore applies the LAST matching rule, so the negation for
+# .env.example has to come after the broad .env* pattern, not before it.
+.env*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+dist/
+*.tsbuildinfo
+
+# Deployment
+.vercel
+
+# Logs
+*.log
+
+# Local tooling state
+.claude/
+.claude-flow/
+.playwright-mcp/
+.swarm/
+.idea/
+
+# Agent memory databases. Local caches rebuilt on demand — large, binary, and
+# they churn every run, so committing them makes every diff unreadable.
+*.db
+
+# Flutter/Android build state that the sub-.gitignores only cover relative to
+# their own directory.
+.dart_tool/
+.flutter-plugins-dependencies

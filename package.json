@@ -1,0 +1,28 @@
+{
+  "name": "linkedin-creator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "tsx scripts/selftest.ts",
+    "check:feeds": "node scripts/check-feeds.mjs",
+    "keygen": "node -e \"console.log('TOKEN_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64')); console.log('APP_SECRET=' + require('crypto').randomBytes(32).toString('hex')); console.log('CRON_SECRET=' + require('crypto').randomBytes(24).toString('hex'))\""
+  },
+  "dependencies": {
+    "@google/genai": "^2.16.0",
+    "next": "^15.4.5",
+    "pg": "^8.13.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.0"
+  }
+}

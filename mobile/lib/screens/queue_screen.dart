@@ -1,0 +1,423 @@
+/// The editorial tab: what needs deciding, what went out, and what was passed
+/// over.
+///
+/// Three segments rather than three tabs. They are the same subject — the
+/// agent's output — viewed at different stages, and the bottom bar is already
+/// carrying four destinations. Reading a draft properly IS the job, so the
+/// queue is first and its text is always fully expanded; the only thing hidden
+/// is what LinkedIn itself hides, and that boundary is drawn rather than
+/// applied.
+///
+/// "Passed over" earns its place: seeing what the judge rejected, and why, is
+/// the fastest way to tell whether the categories and the threshold are set
+/// right. A queue that is empty for three days means something different if the
+/// rejection log is full than if it is also empty.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../api/models.dart';
+import '../state/app_state.dart';
+import '../theme.dart';
+import '../widgets/panel.dart';
+import '../widgets/post_card.dart';
+
+enum _Segment { queue, published, passed }
+
+class QueueScreen extends StatefulWidget {
+  const QueueScreen({super.key});
+
+  @override
+  State<QueueScreen> createState() => _QueueScreenState();
+}
+
+class _QueueScreenState extends State<QueueScreen> {
+  _Segment _segment = _Segment.queue;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final status = state.status;
+
+    return RefreshIndicator(
+      onRefresh: state.refresh,
+      backgroundColor: C.surface2,
+      color: C.accent,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
+        children: [
+          _SegmentBar(
+            value: _segment,
+            queueCount: status?.queue.where((p) => p.isDraft).length ?? 0,
+            onChanged: (v) => setState(() => _segment = v),
+          ),
+          const SizedBox(height: S.x4),
+          ...switch (_segment) {
+            _Segment.queue => _queue(context, state, status),
+            _Segment.published => _published(status),
+            _Segment.passed => _passed(status),
+          },
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------ segments
+
+  List<Widget> _queue(BuildContext context, AppState state, AppStatus? status) {
+    final queue = status?.queue ?? const <Post>[];
+    final drafts = queue.where((p) => p.isDraft).toList();
+    final other = queue.where((p) => !p.isDraft).toList();
+
+    return [
+      if (status != null && !status.liveMode) ...[
+        const _Notice(
+          tone: BadgeTone.warn,
+          icon: Icons.science_outlined,
+          title: 'Dry run',
+          body: 'Publishing is disabled. Approving a draft will not reach LinkedIn.',
+        ),
+        const SizedBox(height: S.x4),
+      ],
+      if (status != null && status.account.needsReauth) ...[
+        const _Notice(
+          tone: BadgeTone.bad,
+          icon: Icons.link_off,
+          title: 'LinkedIn needs reconnecting',
+          body: 'The access token expired. Reconnect from the web dashboard to resume posting.',
+        ),
+        const SizedBox(height: S.x4),
+      ] else if (status != null && status.account.expiringSoon) ...[
+        _Notice(
+          tone: BadgeTone.warn,
+          icon: Icons.schedule,
+          title: 'Token expires in ${status.account.daysRemaining} days',
+          body: 'LinkedIn tokens last 60 days and cannot refresh themselves.',
+        ),
+        const SizedBox(height: S.x4),
+      ],
+      if (state.error != null) ...[
+        Panel(child: ErrorText(state.error!)),
+        const SizedBox(height: S.x4),
+      ],
+      if (queue.isEmpty && !state.loading)
+        const EmptyState(
+          icon: Icons.inbox_outlined,
+          title: 'Nothing waiting',
+          blurb: 'Drafts from the daily cycle land here for your approval.\n'
+              'Check Passed over to see what the judge turned down.',
+        ),
+      for (final post in drafts) ...[
+        _DraftCard(post: post),
+        const SizedBox(height: S.x4),
+      ],
+      if (other.isNotEmpty) ...[
+        const SizedBox(height: S.x2),
+        const _SectionHeading('Needs attention'),
+        for (final post in other) ...[
+          Text(_explain(post.status), style: T.xs),
+          const SizedBox(height: S.x2),
+          _DraftCard(post: post, actionable: post.status != 'unknown'),
+          const SizedBox(height: S.x4),
+        ],
+      ],
+    ];
+  }
+
+  List<Widget> _published(AppStatus? status) {
+    final history = status?.history ?? const <Post>[];
+    if (history.isEmpty) {
+      return [
+        const EmptyState(
+          icon: Icons.send_outlined,
+          title: 'Nothing published yet',
+          blurb: 'Posts that reached LinkedIn appear here, newest first.',
+        ),
+      ];
+    }
+    return [
+      for (final post in history) ...[
+        PostCard(post: post),
+        const SizedBox(height: S.x4),
+      ],
+    ];
+  }
+
+  List<Widget> _passed(AppStatus? status) {
+    final rejections = status?.rejections ?? const <Rejection>[];
+    if (rejections.isEmpty) {
+      return [
+        const EmptyState(
+          icon: Icons.filter_alt_outlined,
+          title: 'Nothing passed over',
+          blurb: 'Stories the judge scored and turned down appear here, with its reasoning.',
+        ),
+      ];
+    }
+    return [
+      Text(
+        'What the judge read and turned down. If everything here looks like '
+        'something you would have posted, the bar is too high — or the '
+        'categories are too narrow.',
+        style: T.xs,
+      ),
+      const SizedBox(height: S.x4),
+      for (final item in rejections) ...[
+        _RejectionCard(item: item),
+        const SizedBox(height: S.x3),
+      ],
+    ];
+  }
+}
+
+// ---------------------------------------------------------------- pieces
+
+/// Why a post is sitting outside the draft list, in the user's terms.
+String _explain(String status) => switch (status) {
+      'approved' => 'Approved but never sent — the publish failed. Try again, or discard it.',
+      'failed' => 'The last send was rejected. Fix the text and try again.',
+      'unknown' => 'LinkedIn never confirmed this send. Check your profile, then resolve it '
+          'from the web dashboard before touching it here.',
+      _ => '',
+    };
+
+class _SegmentBar extends StatelessWidget {
+  const _SegmentBar({required this.value, required this.queueCount, required this.onChanged});
+
+  final _Segment value;
+  final int queueCount;
+  final ValueChanged<_Segment> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: C.surface,
+        border: Border.all(color: C.border),
+        borderRadius: BorderRadius.circular(R.sm),
+      ),
+      child: Row(
+        children: [
+          _tab(_Segment.queue, queueCount > 0 ? 'Queue  $queueCount' : 'Queue'),
+          _tab(_Segment.published, 'Published'),
+          _tab(_Segment.passed, 'Passed over'),
+        ],
+      ),
+    );
+  }
+
+  Widget _tab(_Segment segment, String label) {
+    final selected = segment == value;
+    return Expanded(
+      child: InkWell(
+        onTap: () => onChanged(segment),
+        borderRadius: BorderRadius.circular(R.sm - 1),
+        child: Container(
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? C.surface3 : Colors.transparent,
+            borderRadius: BorderRadius.circular(R.sm - 1),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected ? C.text : C.textDim,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A heading between groups of cards, with a rule to separate it from what
+/// came before.
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: S.x3),
+        child: Row(
+          children: [
+            Text(label.toUpperCase(), style: T.panelHead),
+            const SizedBox(width: S.x3),
+            const Expanded(child: Divider(color: C.border, height: 1)),
+          ],
+        ),
+      );
+}
+
+class _RejectionCard extends StatelessWidget {
+  const _RejectionCard({required this.item});
+
+  final Rejection item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(item.title, style: T.lg.copyWith(fontSize: 15)),
+          const SizedBox(height: S.x2),
+          Container(
+            padding: const EdgeInsets.only(left: S.x3),
+            decoration: const BoxDecoration(
+              border: Border(left: BorderSide(color: C.borderStrong, width: 2)),
+            ),
+            child: Text(item.reason, style: T.sm),
+          ),
+          if (item.url.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            Text(_host(item.url), style: T.xs.copyWith(color: C.accent)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _host(String url) {
+    final parsed = Uri.tryParse(url);
+    return parsed?.host.isNotEmpty == true ? parsed!.host : url;
+  }
+}
+
+class _DraftCard extends StatelessWidget {
+  const _DraftCard({required this.post, this.actionable = true});
+
+  final Post post;
+
+  /// False for ambiguous sends, which must not be republished blind.
+  final bool actionable;
+
+  Future<void> _confirmPublish(BuildContext context) async {
+    final state = context.read<AppState>();
+    final live = state.status?.liveMode ?? false;
+
+    // Publishing is irreversible on LinkedIn's side, so it always asks — even
+    // in dry run, so the habit is the same when live mode is on.
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.surface2,
+        title: Text(live ? 'Publish to LinkedIn?' : 'Publish (dry run)?'),
+        content: Text(
+          live
+              ? 'This posts to your profile now. It cannot be unpublished from here.'
+              : 'Live mode is off, so nothing will actually reach LinkedIn.',
+          style: T.sm,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Publish')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+
+    final error = await state.approve(post.seq);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error ?? 'Published ${post.id}.')),
+    );
+  }
+
+  Future<void> _confirmDiscard(BuildContext context) async {
+    final state = context.read<AppState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.surface2,
+        title: const Text('Discard this draft?'),
+        content: const Text('It leaves the queue. The story will not be written about again.',
+            style: T.sm),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: C.bad),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+
+    final error = await state.discard(post.seq);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error ?? 'Discarded ${post.id}.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!actionable) return PostCard(post: post);
+
+    final busy = context.watch<AppState>().loading;
+    return PostCard(
+      post: post,
+      busy: busy,
+      onApprove: () => _confirmPublish(context),
+      onDiscard: () => _confirmDiscard(context),
+      // Editing happens on the Compose tab, which has the attachments, the
+      // rewrite action and the live voice summary. The shell switches tabs.
+      onEdit: () => context.read<AppState>().startEditing(post),
+    );
+  }
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice({required this.tone, required this.icon, required this.title, required this.body});
+
+  final BadgeTone tone;
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (tone) {
+      BadgeTone.bad => C.bad,
+      BadgeTone.warn => C.warn,
+      BadgeTone.good => C.good,
+      BadgeTone.live => C.live,
+      BadgeTone.neutral => C.textFaint,
+    };
+    return Container(
+      padding: const EdgeInsets.all(S.x3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(R.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 14, color: color, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(body, style: T.xs),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
