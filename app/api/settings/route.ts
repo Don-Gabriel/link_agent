@@ -11,6 +11,7 @@ import { getAccountStatus } from "../../../lib/accounts";
 import { parseCategories } from "../../../lib/categories";
 import { query } from "../../../lib/db";
 import { nextDailyRun, normalizeHhMm } from "../../../lib/schedule";
+import { rescheduleAllSlots } from "../../../lib/slots";
 import { PRESETS, type StyleConfig } from "../../../lib/style";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +96,15 @@ export async function PATCH(request: Request) {
        ON CONFLICT (agent_id) DO UPDATE SET next_run_at = $2`,
       [agent.agentId, nextDailyRun(updated.timezone, updated.postTimeLocal).toISOString()],
     );
+  }
+
+  // A timezone change moves every slot. Each slot stores its next occurrence as
+  // an absolute instant derived from the old zone, so without this they would
+  // all keep firing at the previous offset — the posts would still go out, just
+  // silently at the wrong hour, which is the kind of bug nobody reports because
+  // it looks like the schedule was simply set wrong.
+  if (body.timezone) {
+    await rescheduleAllSlots(agent.agentId, updated.timezone);
   }
 
   return NextResponse.json({ ok: true, agent: updated });

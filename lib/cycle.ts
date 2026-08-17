@@ -1,8 +1,8 @@
 /**
- * One daily cycle, end to end:
+ * One cycle, end to end:
  *   discover -> recall memory -> judge (1 LLM call, batched) ->
  *   persist rejections -> [write (1 LLM call) -> save draft] ->
- *   optionally publish -> schedule tomorrow -> record episodes.
+ *   record episodes.
  *
  * Runs behind a Postgres advisory lock (transaction-scoped, so it survives
  * Neon's pgbouncer pooling and is released even if the process dies) — the
@@ -10,19 +10,31 @@
  * triggers can never double-fire.
  *
  * The important difference from the feed-publishing original: a cycle produces
- * a DRAFT. Whether that draft reaches LinkedIn is a separate decision, made by
- * the agent's auto_publish flag, and the publish itself is guarded again by
- * its own idempotency key in lib/distribute.ts. A failed cycle is a logged
- * non-event: it never throws, never corrupts state, and tomorrow it tries
- * again.
+ * a DRAFT. It no longer publishes anything at all. That used to happen inline
+ * here when auto_publish was set, which meant the moment a post was written was
+ * also the moment it was sent — leaving no window in which a human could read
+ * it. Sending is now a separate pass (publishDuePosts in lib/distribute.ts)
+ * driven by the post's own scheduled_for, and the gap between the two is the
+ * review window that lib/slots.ts exists to create.
+ *
+ * A failed cycle is a logged non-event: it never throws, never corrupts state,
+ * and the next slot tries again.
  */
 import { getAgentSettings, getPersona, type AgentSettings } from "./agents";
+import type { CategoryId } from "./categories";
 import { getPool, query } from "./db";
 import { discover } from "./discovery";
-import { publishPost } from "./distribute";
 import { judgeCandidates, PUBLISH_THRESHOLD } from "./judge";
 import { recall, rememberPublish, rememberRejections } from "./memory";
 import { nextDailyRun } from "./schedule";
+import {
+  claimSlotRun,
+  listDueSlots,
+  rescheduleSlot,
+  settleSlotRun,
+  withSlotLock,
+  type DueSlot,
+} from "./slots";
 import { writePost, type PriorPost } from "./writer";
 
 /** Nothing published in this long widens discovery (more sources, higher caps). */
@@ -34,11 +46,23 @@ export interface CycleResult {
   agentId: string;
   ran: boolean;
   drafted: boolean;
+  /** Always false now — cycles draft, they never send. Kept so callers and logs
+   *  that read this field do not silently break. */
   published: boolean;
   postId?: string;
+  seq?: number;
   skippedReason?: string;
   stats?: { n: number; min: number; max: number; mean: number };
   servedBy?: string[];
+}
+
+/** What a slot contributes to a cycle: its categories, and where the post lands. */
+export interface CycleContext {
+  /** Overrides the agent's categories when non-empty. */
+  categories?: CategoryId[];
+  slotId?: string;
+  /** Stamped onto the draft as posts.scheduled_for — when it should go out. */
+  scheduledFor?: Date;
 }
 
 async function scheduleNext(
@@ -59,7 +83,7 @@ async function scheduleNext(
 }
 
 /** The cycle body. Assumes the advisory lock is already held. */
-async function runCycle(agentId: string): Promise<CycleResult> {
+async function runCycle(agentId: string, context: CycleContext = {}): Promise<CycleResult> {
   const servedBy: string[] = [];
   const settings = await getAgentSettings(agentId);
   if (!settings) return { agentId, ran: false, drafted: false, published: false, skippedReason: "unknown_agent" };
@@ -89,8 +113,12 @@ async function runCycle(agentId: string): Promise<CycleResult> {
     );
   }
 
-  // 1. Discover across the agent's active categories.
-  const discovered = await discover({ categories: settings.categories, wide: staleFeed });
+  // 1. Discover. A slot may narrow the agent's categories to its own — that is
+  // what stops three posts a day all sounding like the same beat — but it can
+  // never widen them beyond what the agent is watching.
+  const slotCategories = (context.categories ?? []).filter((c) => settings.categories.includes(c));
+  const activeCategories = slotCategories.length > 0 ? slotCategories : settings.categories;
+  const discovered = await discover({ categories: activeCategories, wide: staleFeed });
 
   // Hard dedup: never re-judge a URL already written about (drafts included —
   // a rejected draft still consumed the story).
@@ -140,7 +168,7 @@ async function runCycle(agentId: string): Promise<CycleResult> {
   // 3. Judge — ONE batched call for all candidates.
   const judged = await judgeCandidates(
     persona,
-    settings.categories,
+    activeCategories,
     candidates,
     judgeMemory,
     priorFingerprints,
@@ -231,8 +259,10 @@ async function runCycle(agentId: string): Promise<CycleResult> {
 
   const inserted = await query<{ id: string; seq: number }>(
     `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint, scores_json,
-                        continuity, cycle_id, status, kind, category, hashtags_json, used_quote)
-     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7, $8, 'draft', 'auto', $9, $10, $11
+                        continuity, cycle_id, status, kind, category, hashtags_json, used_quote,
+                        slot_id, scheduled_for)
+     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7, $8, 'draft', 'auto', $9, $10, $11,
+            $12, $13
        FROM posts WHERE agent_id = $1
      RETURNING id, seq`,
     [
@@ -247,26 +277,24 @@ async function runCycle(agentId: string): Promise<CycleResult> {
       winner.category,
       JSON.stringify(draft.data.hashtags ?? []),
       draft.data.used_quote,
+      context.slotId ?? null,
+      context.scheduledFor?.toISOString() ?? null,
     ],
   );
   const postId = inserted[0]?.id;
   const seq = inserted[0]?.seq;
 
-  // 6. Publish, but only if the operator has handed over that decision.
-  let published = false;
-  if (settings.autoPublish && seq !== undefined) {
-    // 'auto' — counted against the agent's own small allowance, never the
-    // author's. A busy day of manual posting must not silence tomorrow's cycle.
-    const result = await publishPost(agentId, seq, "auto");
-    published = result.ok;
-    if (!result.ok) {
-      console.warn(`[cycle] agent=${agentId} ${postId} auto-publish failed: ${result.reason}`);
-    }
-  } else {
-    console.log(`[cycle] agent=${agentId} ${postId} drafted — waiting for approval`);
-  }
+  // NOTE: nothing is published here, deliberately. This used to auto-publish
+  // inline, which collapsed writing and sending into one instant and left no
+  // window to read the draft. Sending is now publishDuePosts() in
+  // lib/distribute.ts, driven by the scheduled_for stamped just above.
+  console.log(
+    context.scheduledFor
+      ? `[cycle] agent=${agentId} ${postId} drafted for ${context.scheduledFor.toISOString()}`
+      : `[cycle] agent=${agentId} ${postId} drafted — unscheduled, waiting in the queue`,
+  );
 
-  // 7. Editorial memory — the publish episode carries intent.
+  // 6. Editorial memory — the publish episode carries intent.
   await rememberPublish(agentId, name, {
     title: winner.title,
     rationale: draft.data.rationale,
@@ -281,9 +309,9 @@ async function runCycle(agentId: string): Promise<CycleResult> {
   await scheduleNext(agentId, settings);
 
   console.log(
-    `[cycle] agent=${agentId} scored n=${stats.n} min=${stats.min} max=${stats.max} mean=${stats.mean} drafted=${postId} published=${published} servedBy=${servedBy.join(",") || "n/a"}`,
+    `[cycle] agent=${agentId} scored n=${stats.n} min=${stats.min} max=${stats.max} mean=${stats.mean} drafted=${postId} servedBy=${servedBy.join(",") || "n/a"}`,
   );
-  return { agentId, ran: true, drafted: true, published, postId, stats, servedBy };
+  return { agentId, ran: true, drafted: true, published: false, postId, seq, stats, servedBy };
 }
 
 /**
@@ -337,6 +365,103 @@ export async function runCycleWithLock(agentId: string, force = false): Promise<
   } finally {
     client.release();
   }
+}
+
+/**
+ * Generate for one due slot, under that slot's own lock.
+ *
+ * Order matters here and each step is load-bearing:
+ *   1. A slot noticed far past its time is marked missed and rescheduled
+ *      WITHOUT generating. Publishing a 09:00 thought at lunchtime is worse
+ *      than staying quiet, and we would rather show you that it happened.
+ *   2. The run is claimed via the (slot_id, run_date) primary key, so however
+ *      many ticks overlap, a slot generates at most once per local day.
+ *   3. The slot is rescheduled in a `finally`, so a crash inside the pipeline
+ *      cannot leave next_run_at in the past and wedge the slot into retrying
+ *      forever.
+ */
+export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
+  const { slot, runDate, scheduledFor } = due;
+  const base: CycleResult = {
+    agentId: slot.agentId,
+    ran: false,
+    drafted: false,
+    published: false,
+  };
+
+  return withSlotLock(
+    slot.id,
+    async () => {
+      if (!(await claimSlotRun(due))) {
+        return { ...base, skippedReason: "already_ran_today" };
+      }
+
+      try {
+        if (due.missed) {
+          await settleSlotRun(slot.id, runDate, "missed", {
+            detail: `Noticed more than ${MISSED_AFTER_LABEL} after ${slot.localTime}; not published late.`,
+          });
+          console.warn(`[cycle] slot=${slot.id} ${slot.localTime} MISSED for ${runDate}`);
+          return { ...base, skippedReason: "missed" };
+        }
+
+        const result = await runCycle(slot.agentId, {
+          categories: slot.categories,
+          slotId: slot.id,
+          scheduledFor,
+        });
+
+        if (result.drafted) {
+          await settleSlotRun(slot.id, runDate, "drafted", { postSeq: result.seq });
+        } else if (result.skippedReason === "below_threshold") {
+          // The silent day, made legible. Without the score the app can only
+          // show a gap, which is indistinguishable from a broken cron.
+          await settleSlotRun(slot.id, runDate, "silent", {
+            detail: result.stats
+              ? `Nothing cleared ${PUBLISH_THRESHOLD} — best was ${result.stats.max} across ${result.stats.n} candidates.`
+              : "Nothing cleared the threshold.",
+          });
+        } else {
+          await settleSlotRun(slot.id, runDate, "failed", { detail: result.skippedReason });
+        }
+        return result;
+      } finally {
+        await rescheduleSlot(slot, due.timezone).catch((err) =>
+          console.error(`[cycle] slot=${slot.id} reschedule failed:`, err),
+        );
+      }
+    },
+    { ...base, skippedReason: "locked" },
+  );
+}
+
+const MISSED_AFTER_LABEL = "45 minutes";
+
+/**
+ * The generation pass: every slot whose review window has opened.
+ *
+ * Serialized rather than parallel, matching the tick's existing reasoning —
+ * cycles share a per-model LLM rate limit, so running them concurrently just
+ * produces 429s and a cascade down to the weaker models.
+ */
+export async function runDueSlots(): Promise<CycleResult[]> {
+  const due = await listDueSlots();
+  const results: CycleResult[] = [];
+  for (const item of due) {
+    results.push(
+      await runSlotCycle(item).catch((err): CycleResult => {
+        console.error(`[cycle] slot=${item.slot.id} crashed:`, err);
+        return {
+          agentId: item.slot.agentId,
+          ran: true,
+          drafted: false,
+          published: false,
+          skippedReason: String(err),
+        };
+      }),
+    );
+  }
+  return results;
 }
 
 /** All active, unpaused agents whose cycles are due right now. */

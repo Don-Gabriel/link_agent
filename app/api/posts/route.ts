@@ -28,6 +28,8 @@ export async function POST(request: Request) {
     hashtags?: string[];
     polish?: boolean;
     publishNow?: boolean;
+    /** ISO instant. Puts a hand-written post on the timetable like any other. */
+    scheduledFor?: string;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -80,10 +82,30 @@ export async function POST(request: Request) {
     );
   }
 
+  // A hand-written post can be put on the timetable exactly like a generated
+  // one: the send pass does not care who wrote the text, only that the time has
+  // come and it is cleared. Scheduling one counts as clearing it — you wrote
+  // it, so there is nothing left for you to review.
+  let scheduledFor: Date | null = null;
+  if (body.scheduledFor && !body.publishNow) {
+    const when = new Date(body.scheduledFor);
+    if (Number.isNaN(when.getTime())) {
+      return NextResponse.json({ error: "bad_scheduled_for" }, { status: 400 });
+    }
+    if (when.getTime() < Date.now()) {
+      return NextResponse.json(
+        { error: "scheduled_in_the_past", detail: "Pick a time in the future." },
+        { status: 400 },
+      );
+    }
+    scheduledFor = when;
+  }
+
   const inserted = await query<{ id: string; seq: number }>(
     `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint, status, kind,
-                        category, media_json, hashtags_json)
-     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, '[]'::jsonb, $4, $5, 'custom', $6, $7, $8
+                        category, media_json, hashtags_json, scheduled_for, cleared_at)
+     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, '[]'::jsonb, $4, $5, 'custom', $6, $7, $8,
+            $9, CASE WHEN $9::timestamptz IS NULL THEN NULL ELSE now() END
        FROM posts WHERE agent_id = $1
      RETURNING id, seq`,
     [
@@ -95,6 +117,7 @@ export async function POST(request: Request) {
       category,
       JSON.stringify(mediaIds),
       JSON.stringify(hashtags),
+      scheduledFor?.toISOString() ?? null,
     ],
   );
 
@@ -112,5 +135,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, id: post.id, seq: post.seq, permalink: result.permalink });
   }
 
-  return NextResponse.json({ ok: true, id: post.id, seq: post.seq, status: "draft", polishedBy });
+  return NextResponse.json({
+    ok: true,
+    id: post.id,
+    seq: post.seq,
+    status: "draft",
+    scheduledFor: scheduledFor?.toISOString() ?? null,
+    polishedBy,
+  });
 }

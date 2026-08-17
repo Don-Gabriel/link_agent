@@ -16,6 +16,8 @@ export interface LocalClock {
   hour: number;
   minute: number;
   date: string; // YYYY-MM-DD in the given zone
+  /** 0 = Sunday, matching JS getDay() and Postgres EXTRACT(DOW). */
+  weekday: number;
 }
 
 /**
@@ -54,11 +56,17 @@ export function localClock(timezone: string, at: Date = new Date()): LocalClock 
       minute: "2-digit",
     }).formatToParts(at);
     const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
+    const date = `${get("year")}-${get("month")}-${get("day")}`;
     return {
       // Intl renders midnight as "24" in some ICU versions; normalise it.
       hour: Number(get("hour")) % 24,
       minute: Number(get("minute")),
-      date: `${get("year")}-${get("month")}-${get("day")}`,
+      date,
+      // Read the weekday off the LOCAL calendar date rather than asking Intl for
+      // it separately: parsing "YYYY-MM-DD" as UTC and taking getUTCDay() is
+      // locale-independent, where a formatted weekday name would need mapping
+      // and would break under a non-English default locale.
+      weekday: new Date(`${date}T00:00:00Z`).getUTCDay(),
     };
   } catch {
     // An invalid timezone string must not break the scheduler.
@@ -67,6 +75,7 @@ export function localClock(timezone: string, at: Date = new Date()): LocalClock 
       hour: at.getUTCHours(),
       minute: at.getUTCMinutes(),
       date: at.toISOString().slice(0, 10),
+      weekday: at.getUTCDay(),
     };
   }
 }
@@ -111,6 +120,71 @@ export function nextDailyRun(timezone: string, hhmm: string, from: Date = new Da
   let deltaMinutes = target.hour * 60 + target.minute - (now.hour * 60 + now.minute);
   if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
   return new Date(from.getTime() + deltaMinutes * 60_000);
+}
+
+// ------------------------------------------------------------------ weekdays
+
+/** Every day. */
+export const MASK_DAILY = 0b1111111;
+/** Monday to Friday — the default, because 3 posts × 7 days is 21 a week. */
+export const MASK_WEEKDAYS = 0b0111110;
+/** Saturday and Sunday. */
+export const MASK_WEEKENDS = 0b1000001;
+
+export function isDayEnabled(daysMask: number, weekday: number): boolean {
+  return (daysMask & (1 << weekday)) !== 0;
+}
+
+/** Coerce anything into a usable mask. An empty mask would never fire, so it becomes daily. */
+export function parseDaysMask(v: unknown): number {
+  const n = typeof v === "number" ? Math.round(v) : Number(v);
+  if (!Number.isFinite(n)) return MASK_WEEKDAYS;
+  const masked = n & MASK_DAILY;
+  return masked === 0 ? MASK_DAILY : masked;
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Mon-Fri", "Every day", "Mon, Wed, Fri" — for the UI and for logs. */
+export function describeDays(daysMask: number): string {
+  const mask = parseDaysMask(daysMask);
+  if (mask === MASK_DAILY) return "Every day";
+  if (mask === MASK_WEEKDAYS) return "Mon-Fri";
+  if (mask === MASK_WEEKENDS) return "Weekends";
+  return DAY_NAMES.filter((_, i) => isDayEnabled(mask, i)).join(", ");
+}
+
+/**
+ * The next occurrence of `hhmm` local time on a weekday the mask allows, as a
+ * UTC Date. Always strictly in the future.
+ *
+ * Generalises nextDailyRun. The loop re-derives the local clock for each
+ * candidate day rather than assuming 24-hour days, so a DST transition shifts
+ * the answer by an hour instead of landing on the wrong weekday — the same
+ * tolerance the rest of this module documents.
+ *
+ * Returns null only if the mask is empty, which parseDaysMask makes impossible.
+ */
+export function nextSlotRun(
+  timezone: string,
+  hhmm: string,
+  daysMask: number,
+  from: Date = new Date(),
+): Date | null {
+  const mask = parseDaysMask(daysMask);
+  const now = localClock(timezone, from);
+  const target = parseHhMm(hhmm);
+
+  let deltaMinutes = target.hour * 60 + target.minute - (now.hour * 60 + now.minute);
+  // Strictly future: asking at exactly the slot time gives the next allowed day,
+  // which is what stops a just-completed run immediately re-qualifying as due.
+  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
+
+  for (let addDays = 0; addDays < 8; addDays++) {
+    const candidate = new Date(from.getTime() + (deltaMinutes + addDays * 24 * 60) * 60_000);
+    if (isDayEnabled(mask, localClock(timezone, candidate).weekday)) return candidate;
+  }
+  return null;
 }
 
 /** Human-readable local time, for the dashboard. */

@@ -19,7 +19,16 @@ import {
 import { hookOf } from "../../../lib/format";
 import { getTodayCalls } from "../../../lib/llm";
 import { memoryDegraded } from "../../../lib/memory";
-import { formatInZone } from "../../../lib/schedule";
+import { describeDays, formatInZone } from "../../../lib/schedule";
+import {
+  ensureSlotsMigrated,
+  listSlots,
+  MAX_LEAD_MINUTES,
+  MAX_SLOTS,
+  MIN_LEAD_MINUTES,
+  MISSED_AFTER_MINUTES,
+  slotTimeline,
+} from "../../../lib/slots";
 import { PRESETS } from "../../../lib/style";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +49,10 @@ interface PostRow {
   used_quote: boolean;
   created_at: Date;
   published_at: Date | null;
+  scheduled_for: Date | null;
+  slot_id: string | null;
+  cleared_at: Date | null;
+  hold_until: Date | null;
 }
 
 function serializePost(r: PostRow) {
@@ -60,12 +73,21 @@ function serializePost(r: PostRow) {
     usedQuote: r.used_quote,
     createdAt: r.created_at.toISOString(),
     publishedAt: r.published_at?.toISOString() ?? null,
+    // Scheduling. `scheduledFor` null means the post is not on the timetable
+    // and will only ever go out if a human sends it by hand.
+    scheduledFor: r.scheduled_for?.toISOString() ?? null,
+    slotId: r.slot_id,
+    clearedAt: r.cleared_at?.toISOString() ?? null,
+    // Only reported while genuinely in effect, so the client never has to work
+    // out whether an expired hold still counts.
+    heldUntil:
+      r.hold_until && r.hold_until.getTime() > Date.now() ? r.hold_until.toISOString() : null,
   };
 }
 
 const POST_COLUMNS = `id, seq, text, rationale, status, kind, category, scores_json,
                       sources_json, media_json, hashtags_json, continuity, used_quote,
-                      created_at, published_at`;
+                      created_at, published_at, scheduled_for, slot_id, cleared_at, hold_until`;
 
 export async function GET() {
   try {
@@ -77,12 +99,28 @@ export async function GET() {
       });
     }
 
-    const [account, queue, history, rejections, schedule, llm, ambiguous, sent] = await Promise.all([
+    // Migrate before reading, so an agent that predates slots never renders an
+    // empty timetable. Idempotent and a single cheap SELECT after the first run.
+    await ensureSlotsMigrated(
+      agent.agentId,
+      agent.postTimeLocal,
+      agent.timezone,
+      agent.autoPublish,
+    ).catch((err) => {
+      console.warn("[status] slot migration skipped:", err);
+      return [];
+    });
+
+    const [account, queue, history, rejections, schedule, llm, ambiguous, sent, slots, timeline] =
+      await Promise.all([
       getAccountStatus(agent.agentId),
+      // Ordered by when it GOES OUT rather than when it was written: with
+      // several drafts waiting at once, the one with the nearest deadline is
+      // the one that needs reading. Unscheduled drafts sort last.
       query<PostRow>(
         `SELECT ${POST_COLUMNS} FROM posts
-          WHERE agent_id = $1 AND status IN ('draft', 'approved', 'failed', 'unknown')
-          ORDER BY created_at DESC LIMIT 20`,
+          WHERE agent_id = $1 AND status IN ('draft', 'approved', 'failed', 'unknown', 'missed')
+          ORDER BY scheduled_for ASC NULLS LAST, created_at DESC LIMIT 20`,
         [agent.agentId],
       ),
       query<PostRow>(
@@ -103,6 +141,8 @@ export async function GET() {
       getTodayCalls().catch(() => []),
       listAmbiguousSends(agent.agentId),
       sendsToday(agent.agentId, agent.timezone),
+      listSlots(agent.agentId),
+      slotTimeline(agent.agentId, 7),
     ]);
 
     const nextRunAt = schedule[0]?.next_run_at ?? null;
@@ -137,6 +177,21 @@ export async function GET() {
         nextRunAt: nextRunAt?.toISOString() ?? null,
         nextRunLocal: nextRunAt ? formatInZone(nextRunAt, agent.timezone) : null,
         cycleCount: schedule[0]?.cycle_count ?? 0,
+      },
+      // The timetable, and what each slot actually did over the last week —
+      // including the days it stayed silent, which is what stops a deliberate
+      // silence from looking like a broken cron.
+      slots: slots.map((s) => ({
+        ...s,
+        daysLabel: describeDays(s.daysMask),
+        nextRunLocal: s.nextRunAt ? formatInZone(new Date(s.nextRunAt), agent.timezone) : null,
+      })),
+      timeline,
+      slotLimits: {
+        maxSlots: MAX_SLOTS,
+        minLeadMinutes: MIN_LEAD_MINUTES,
+        maxLeadMinutes: MAX_LEAD_MINUTES,
+        missedAfterMinutes: MISSED_AFTER_MINUTES,
       },
       queue: queue.map(serializePost),
       history: history.map(serializePost),

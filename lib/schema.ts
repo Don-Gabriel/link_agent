@@ -67,8 +67,23 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT;
 -- Ordered media_assets.id values attached to this post.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_json JSONB NOT NULL DEFAULT '[]';
+-- When this post is due to reach LinkedIn. NULL means "not on a schedule" —
+-- an old-style draft, or one the author will send by hand.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+-- Which slot produced this, if any. Deliberately NOT a foreign key: deleting a
+-- slot must not cascade into published history, and a post that outlives its
+-- slot is normal rather than an error.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS slot_id UUID;
+-- When a human said yes. The publisher requires either this or the slot's own
+-- auto_publish — an unreviewed draft never goes out on hold-mode slots.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS cleared_at TIMESTAMPTZ;
+-- Set while the composer has this post open, so the scheduled send cannot fire
+-- mid-edit and publish half a sentence. Carries an expiry rather than a flag:
+-- a crashed app must not be able to silence a slot forever.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS hold_until TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS posts_due_idx ON posts (agent_id, status, scheduled_for);
 -- Hashtags chosen by the writer; appended deterministically at assembly time.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS hashtags_json JSONB NOT NULL DEFAULT '[]';
 -- Whether this post used a Marvel line, so the writer can ration the signature.
@@ -95,6 +110,68 @@ CREATE TABLE IF NOT EXISTS scheduler_state (
   next_run_at  TIMESTAMPTZ,
   cycle_count  INT NOT NULL DEFAULT 0
 );
+
+/*
+ * The daily timetable. One row per recurring posting time.
+ *
+ * This replaces agents.post_time_local, which held a single HH:MM and could
+ * therefore only ever describe one post a day. That column is left in place and
+ * still populated — it is the migration source (see lib/slots.ts) and the value
+ * the web dashboard reads — but the scheduler no longer consults it.
+ *
+ * next_run_at stores the next OCCURRENCE (when the post should go out), not the
+ * next generation time. Generation is derived as next_run_at - lead_minutes in
+ * the due query, so the two can never drift apart the way two stored timestamps
+ * eventually would.
+ */
+CREATE TABLE IF NOT EXISTS post_slots (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id         UUID NOT NULL REFERENCES agents(id),
+  local_time       TEXT NOT NULL,
+  -- Bit per weekday, 0 = Sunday, matching both JS getDay() and Postgres DOW.
+  -- 127 = every day, 62 = Mon-Fri (the default: three posts every single day
+  -- is 21 a week, which almost nobody actually wants).
+  days_mask        INT  NOT NULL DEFAULT 62,
+  -- The review window, in minutes. Treated as a MINIMUM, never a target — see
+  -- lib/slots.ts for why a drifting cron must only ever give you more warning.
+  lead_minutes     INT  NOT NULL DEFAULT 15,
+  -- Per slot, not per agent: the morning slot can be trusted to publish itself
+  -- while an evening one still waits for a human.
+  auto_publish     BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Empty array = whatever the agent as a whole is watching.
+  categories_json  JSONB NOT NULL DEFAULT '[]',
+  enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+  position         INT  NOT NULL DEFAULT 0,
+  next_run_at      TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS post_slots_due_idx ON post_slots (agent_id, enabled, next_run_at);
+
+/*
+ * One row per slot per local day — the INSTANCE of a recurring rule.
+ *
+ * Three jobs. It is the idempotency guard that stops a slot generating twice in
+ * a day however often the cron fires. It is the timeline the UI renders,
+ * including the days when nothing cleared the threshold, so silence is visible
+ * as a judgment rather than looking like a broken cron. And because today's row
+ * is separate from the recurring rule, a one-off change — skip tonight, move
+ * this morning to 11:00 — is an update here and never a edit to the schedule.
+ *
+ * outcome: pending | drafted | silent | missed | failed | published
+ */
+CREATE TABLE IF NOT EXISTS slot_runs (
+  slot_id       UUID NOT NULL REFERENCES post_slots(id) ON DELETE CASCADE,
+  run_date      DATE NOT NULL,
+  scheduled_for TIMESTAMPTZ NOT NULL,
+  generated_at  TIMESTAMPTZ,
+  post_seq      INT,
+  outcome       TEXT NOT NULL DEFAULT 'pending',
+  detail        TEXT,
+  PRIMARY KEY (slot_id, run_date)
+);
+
+CREATE INDEX IF NOT EXISTS slot_runs_date_idx ON slot_runs (run_date DESC);
 
 CREATE TABLE IF NOT EXISTS llm_calls (
   day          DATE NOT NULL,

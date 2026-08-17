@@ -30,6 +30,7 @@ import { query } from "./db";
 import { assemblePost, checkLength } from "./format";
 import { createPost, postPermalink, type PostImage } from "./linkedin";
 import { safeTimeZone } from "./schedule";
+import { settleSlotRun } from "./slots";
 import { parseStyle } from "./style";
 
 /**
@@ -49,8 +50,12 @@ export const MANUAL_DAILY_CAP = Number(process.env.MANUAL_DAILY_CAP ?? 40);
 /** LinkedIn's documented per-member ceiling, for reporting headroom. */
 export const LINKEDIN_DAILY_REQUESTS = 150;
 
-/** Hard bounds on what a user may set the agent's own allowance to. */
-export const MAX_AUTO_CAP = 3;
+/**
+ * Hard bounds on the agent's own allowance. Matches MAX_SLOTS in lib/slots.ts —
+ * the cap is derived from how many slots the author actually scheduled, so the
+ * two ceilings have to agree or a legal fifth slot would fail at send time.
+ */
+export const MAX_AUTO_CAP = 5;
 
 export type PublishSource = "auto" | "manual";
 
@@ -277,6 +282,105 @@ export async function publishPost(
 
   await releaseClaim(created.reason);
   return { ok: false, reason: created.reason, needsReauth: created.needsReauth };
+}
+
+// -------------------------------------------------------------- the send pass
+
+interface DuePostRow {
+  agent_id: string;
+  seq: number;
+  slot_id: string | null;
+  scheduled_for: Date;
+  run_date: Date | null;
+  minutes_late: string;
+}
+
+export interface DuePublishResult {
+  agentId: string;
+  seq: number;
+  outcome: "published" | "failed" | "missed" | "ambiguous";
+  detail?: string;
+}
+
+/**
+ * Publish everything whose time has come. The other half of the split that
+ * lib/slots.ts creates — cycles write, this sends.
+ *
+ * A post qualifies only if ALL of these hold:
+ *   - its scheduled_for has passed,
+ *   - it is not held open in the composer,
+ *   - and EITHER a human cleared it OR its slot is set to publish on its own.
+ *
+ * That last clause is the safety property the whole feature turns on. On a
+ * hold-mode slot an unreviewed draft simply never qualifies: it does not fail,
+ * it is not retried, it just waits — which is exactly what "nothing I have not
+ * read reaches my profile" has to mean.
+ *
+ * Sends count against the AGENT's allowance even when a human pressed Clear,
+ * because a cleared slot post is still part of the scheduled cadence. Only the
+ * explicit "Send now" override counts as manual.
+ */
+export async function publishDuePosts(missedAfterMinutes = 45): Promise<DuePublishResult[]> {
+  const due = await query<DuePostRow>(
+    `SELECT p.agent_id, p.seq, p.slot_id, p.scheduled_for,
+            r.run_date,
+            EXTRACT(EPOCH FROM (now() - p.scheduled_for)) / 60 AS minutes_late
+       FROM posts p
+       JOIN agents a ON a.id = p.agent_id
+       LEFT JOIN post_slots s ON s.id = p.slot_id
+       LEFT JOIN slot_runs r ON r.slot_id = p.slot_id AND r.post_seq = p.seq
+      WHERE p.scheduled_for IS NOT NULL
+        AND p.scheduled_for <= now()
+        AND p.status IN ('draft', 'approved', 'failed')
+        AND (p.hold_until IS NULL OR p.hold_until <= now())
+        AND (p.cleared_at IS NOT NULL OR COALESCE(s.auto_publish, FALSE))
+        AND a.active AND NOT a.paused
+      ORDER BY p.scheduled_for`,
+  );
+
+  const results: DuePublishResult[] = [];
+
+  for (const row of due) {
+    const runDate = row.run_date ? row.run_date.toISOString().slice(0, 10) : null;
+
+    // Too late to be worth sending. This also bounds retries: a definite
+    // failure leaves the post eligible on the next tick, and this window is
+    // what stops that becoming an unbounded loop.
+    if (Number(row.minutes_late) > missedAfterMinutes) {
+      await query("UPDATE posts SET status = 'missed' WHERE agent_id = $1 AND seq = $2", [
+        row.agent_id,
+        row.seq,
+      ]);
+      if (row.slot_id && runDate) {
+        await settleSlotRun(row.slot_id, runDate, "missed", {
+          detail: `Not sent within ${missedAfterMinutes} minutes of its time.`,
+        });
+      }
+      console.warn(`[distribute] agent=${row.agent_id} p${row.seq} MISSED its slot`);
+      results.push({ agentId: row.agent_id, seq: row.seq, outcome: "missed" });
+      continue;
+    }
+
+    const result = await publishPost(row.agent_id, row.seq, "auto");
+
+    if (result.ok) {
+      if (row.slot_id && runDate) {
+        await settleSlotRun(row.slot_id, runDate, "published", { postSeq: row.seq });
+      }
+      results.push({ agentId: row.agent_id, seq: row.seq, outcome: "published" });
+      continue;
+    }
+
+    // Ambiguous outcomes are already frozen by publishPost and must never be
+    // retried, so they are reported and left exactly as it left them.
+    const outcome = result.ambiguous ? "ambiguous" : "failed";
+    if (row.slot_id && runDate) {
+      await settleSlotRun(row.slot_id, runDate, "failed", { detail: result.reason });
+    }
+    results.push({ agentId: row.agent_id, seq: row.seq, outcome, detail: result.reason });
+  }
+
+  return results;
 }
 
 /** Sends stuck in_flight — surfaced in the UI because only a human can resolve them. */

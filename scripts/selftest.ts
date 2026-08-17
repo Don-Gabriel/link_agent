@@ -15,7 +15,22 @@ import {
   normalizeHhMm,
   isValidTimeZone,
   safeTimeZone,
+  nextSlotRun,
+  isDayEnabled,
+  parseDaysMask,
+  describeDays,
+  MASK_DAILY,
+  MASK_WEEKDAYS,
+  MASK_WEEKENDS,
 } from "../lib/schedule";
+import {
+  clampLead,
+  MAX_LEAD_MINUTES,
+  MAX_SLOTS,
+  MIN_LEAD_MINUTES,
+  MISSED_AFTER_MINUTES,
+} from "../lib/slots";
+import { MAX_AUTO_CAP } from "../lib/distribute";
 import { DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
 
 let failures = 0;
@@ -217,6 +232,100 @@ console.log("\ndaily scheduler");
   check("bad timezone falls back instead of throwing",
     typeof localClock("Not/AZone").hour === "number");
   check("bad time string falls back to a default", parseHhMm("nonsense").hour === 9);
+}
+
+console.log("\nweekday masks");
+{
+  check("daily includes every day", [0, 1, 2, 3, 4, 5, 6].every((d) => isDayEnabled(MASK_DAILY, d)));
+  check("weekdays excludes Sunday", !isDayEnabled(MASK_WEEKDAYS, 0));
+  check("weekdays excludes Saturday", !isDayEnabled(MASK_WEEKDAYS, 6));
+  check("weekdays includes Mon-Fri", [1, 2, 3, 4, 5].every((d) => isDayEnabled(MASK_WEEKDAYS, d)));
+  check("weekends is Sat and Sun only",
+    isDayEnabled(MASK_WEEKENDS, 0) && isDayEnabled(MASK_WEEKENDS, 6) &&
+    ![1, 2, 3, 4, 5].some((d) => isDayEnabled(MASK_WEEKENDS, d)));
+
+  // An empty mask would mean a slot that can never fire — a schedule that
+  // silently never runs is the worst possible failure here, so it becomes daily.
+  check("empty mask becomes daily", parseDaysMask(0) === MASK_DAILY);
+  check("out-of-range bits are stripped", parseDaysMask(0b11111111111) === MASK_DAILY);
+  check("nonsense falls back to weekdays", parseDaysMask("banana") === MASK_WEEKDAYS);
+  check("a real mask survives", parseDaysMask(MASK_WEEKDAYS) === MASK_WEEKDAYS);
+
+  check("describes weekdays", describeDays(MASK_WEEKDAYS) === "Mon-Fri", describeDays(MASK_WEEKDAYS));
+  check("describes daily", describeDays(MASK_DAILY) === "Every day");
+  check("describes a custom set",
+    describeDays(0b0101010) === "Mon, Wed, Fri", describeDays(0b0101010));
+}
+
+console.log("\nslot scheduling");
+{
+  // A Thursday, 08:00 UTC.
+  const thu = new Date(Date.UTC(2026, 7, 13, 8, 0, 0));
+  check("reference day is a Thursday", thu.getUTCDay() === 4);
+
+  const sameDay = nextSlotRun("UTC", "18:00", MASK_DAILY, thu)!;
+  check("later today is today", sameDay.getTime() === Date.UTC(2026, 7, 13, 18, 0, 0),
+    sameDay.toISOString());
+
+  const tomorrow = nextSlotRun("UTC", "06:00", MASK_DAILY, thu)!;
+  check("earlier than now rolls to tomorrow",
+    tomorrow.getTime() === Date.UTC(2026, 7, 14, 6, 0, 0), tomorrow.toISOString());
+
+  // Friday 18:00 exists, so a Mon-Fri slot asked on Thursday evening lands Friday.
+  const friday = nextSlotRun("UTC", "06:00", MASK_WEEKDAYS, thu)!;
+  check("weekday mask lands on Friday", friday.getUTCDay() === 5, friday.toISOString());
+
+  // Asked on Friday after the time, a Mon-Fri slot must skip the weekend.
+  const friEvening = new Date(Date.UTC(2026, 7, 14, 20, 0, 0));
+  const monday = nextSlotRun("UTC", "09:00", MASK_WEEKDAYS, friEvening)!;
+  check("weekday mask skips the weekend", monday.getUTCDay() === 1, monday.toISOString());
+  check("and lands on the right instant",
+    monday.getTime() === Date.UTC(2026, 7, 17, 9, 0, 0), monday.toISOString());
+
+  // Weekend-only, asked on a Thursday, must reach Saturday.
+  const saturday = nextSlotRun("UTC", "10:00", MASK_WEEKENDS, thu)!;
+  check("weekend mask reaches Saturday", saturday.getUTCDay() === 6, saturday.toISOString());
+
+  // Strictly future: asking AT the slot time gives the next occurrence, which is
+  // what stops a just-completed run immediately re-qualifying as due and looping.
+  const atExactly = nextSlotRun("UTC", "08:00", MASK_DAILY, thu)!;
+  check("asking at the slot time rolls forward",
+    atExactly.getTime() === Date.UTC(2026, 7, 14, 8, 0, 0), atExactly.toISOString());
+
+  check("every result is in the future", nextSlotRun("Asia/Kolkata", "09:30", MASK_DAILY)!.getTime() > Date.now());
+  check("a bad timezone still returns a date",
+    nextSlotRun("Not/AZone", "09:30", MASK_DAILY) instanceof Date);
+}
+
+console.log("\nlead time (the review window)");
+{
+  // The window is a MINIMUM, never a target: a late tick must give MORE warning
+  // than promised, never less. Anything under 10 minutes is a notification
+  // rather than a chance to read the post, so it is clamped rather than obeyed.
+  check("clamps below the floor", clampLead(1) === MIN_LEAD_MINUTES);
+  check("clamps a zero lead", clampLead(0) === MIN_LEAD_MINUTES);
+  check("clamps a negative lead", clampLead(-30) === MIN_LEAD_MINUTES);
+  check("clamps above the ceiling", clampLead(99999) === MAX_LEAD_MINUTES);
+  check("keeps a sensible value", clampLead(15) === 15);
+  check("rounds a fractional value", clampLead(15.4) === 15);
+  check("nonsense falls back to the default", clampLead("soon") === 15);
+
+  // The floor must leave room for a 5-minute cron to fire at least once inside
+  // the window. If this ever fails, slots would be noticed after their moment.
+  check("the floor exceeds a 5-minute tick", MIN_LEAD_MINUTES > 5);
+  // And a missed slot must be declared late enough that a couple of ticks can
+  // retry a definite publish failure before it expires.
+  check("missed window leaves room to retry", MISSED_AFTER_MINUTES >= 3 * 5);
+}
+
+console.log("\nslot and cap ceilings agree");
+{
+  // The auto-publish cap is derived from the slot count. If MAX_AUTO_CAP were
+  // lower than MAX_SLOTS, a legal final slot would be created happily and then
+  // fail at send time with auto_cap_reached — a limit you only discover by
+  // having a post silently not go out.
+  check("MAX_AUTO_CAP is not below MAX_SLOTS", MAX_AUTO_CAP >= MAX_SLOTS,
+    `cap ${MAX_AUTO_CAP} vs slots ${MAX_SLOTS}`);
 }
 
 console.log("\ntimezone guard (feeds Postgres AT TIME ZONE)");

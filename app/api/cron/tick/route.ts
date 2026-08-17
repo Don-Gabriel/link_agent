@@ -1,19 +1,38 @@
 /**
- * The sole cycle driver. Authenticated by the X-Cron-Secret header only, and
- * a mismatch returns 404 rather than 401 so the endpoint does not advertise
+ * The sole scheduler driver. Authenticated by the X-Cron-Secret header only,
+ * and a mismatch returns 404 rather than 401 so the endpoint does not advertise
  * that it exists.
  *
- * ACK-THEN-WORK: responds in ~1s with the list of due agents and runs the
- * cycles in after(). Cron providers typically time out client-side around
- * 30 seconds, and a cycle takes longer than that — but the work MUST go
- * through after() with maxDuration set, because serverless kills background
- * work the moment the response returns.
+ * TWO PASSES, AND THE ORDER IS LOAD-BEARING:
  *
- * Double triggers are harmless: every cycle passes through the same advisory
- * lock and due-check, and every publish through its own idempotency key.
+ *   1. SEND everything whose time has come.
+ *   2. GENERATE for every slot whose review window has opened.
+ *
+ * Sending first because a generation takes 30-60 seconds of LLM work and can
+ * fail slowly, and a post that was ready to go out at 09:00 must not sit behind
+ * a cycle that is busy judging feeds. Publishing is cheap, bounded, and the
+ * thing with a deadline; writing is neither.
+ *
+ * ACK-THEN-WORK: responds in ~1s and does the work in after(). Cron providers
+ * typically time out client-side around 30 seconds, and a cycle takes longer —
+ * but the work MUST go through after() with maxDuration set, because serverless
+ * kills background work the moment the response returns.
+ *
+ * TICK FREQUENCY: every 5 minutes or better. The review window is defined as a
+ * MINIMUM (see lib/slots.ts), so a late tick gives more warning rather than
+ * less — but a tick slower than the shortest lead time means slots are noticed
+ * after their moment and marked missed. GitHub Actions cannot hold this: it
+ * floors at 5 minutes and routinely runs 15+ minutes late. Vercel's Hobby cron
+ * permits once per day. cron-job.org runs every minute, free.
+ *
+ * Double triggers are harmless: generation is claimed per (slot, local day),
+ * every cycle passes an advisory lock on its own slot, and every publish goes
+ * through its own idempotency key.
  */
 import { after, NextResponse } from "next/server";
-import { listDueAgents, runCycleWithLock } from "../../../../lib/cycle";
+import { listDueAgents, runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
+import { publishDuePosts } from "../../../../lib/distribute";
+import { MISSED_AFTER_MINUTES } from "../../../../lib/slots";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -32,20 +51,47 @@ export async function GET(request: Request) {
   if (!authorized(request)) return new NextResponse("Not Found", { status: 404 });
 
   const url = new URL(request.url);
-  const forced = url.searchParams.get("agent");
+  const forcedAgent = url.searchParams.get("agent");
   const force = url.searchParams.get("force") === "1";
 
   try {
-    const due = forced ? [forced] : await listDueAgents();
+    // A forced single-agent run is the manual escape hatch and keeps the old
+    // whole-agent behaviour, bypassing slots entirely.
+    if (forcedAgent) {
+      after(async () => {
+        const result = await runCycleWithLock(forcedAgent, force);
+        console.log(`[tick] forced ${forcedAgent}: ${JSON.stringify(result)}`);
+      });
+      return NextResponse.json({ ok: true, forced: forcedAgent });
+    }
+
     after(async () => {
-      // Serialized on purpose: cycles share a per-model LLM rate limit, so
-      // running them concurrently just produces 429s.
-      for (const agentId of due) {
-        const result = await runCycleWithLock(agentId, force);
-        console.log(`[tick] ${agentId}: ${JSON.stringify(result)}`);
+      // ---- 1. SEND. Never let this wait behind generation.
+      try {
+        const sent = await publishDuePosts(MISSED_AFTER_MINUTES);
+        for (const s of sent) {
+          console.log(`[tick] send agent=${s.agentId} p${s.seq} ${s.outcome}${s.detail ? ` (${s.detail})` : ""}`);
+        }
+      } catch (err) {
+        console.error("[tick] send pass failed:", err);
+      }
+
+      // ---- 2. GENERATE. Serialized inside runDueSlots — cycles share a
+      // per-model LLM rate limit, so concurrency here just produces 429s.
+      try {
+        const generated = await runDueSlots();
+        for (const g of generated) {
+          console.log(`[tick] slot agent=${g.agentId}: ${JSON.stringify(g)}`);
+        }
+      } catch (err) {
+        console.error("[tick] generate pass failed:", err);
       }
     });
-    return NextResponse.json({ ok: true, agentsDue: due.length });
+
+    // Reported before the work runs, so this is what is DUE rather than what
+    // happened. The logs above carry the outcomes.
+    const dueAgents = await listDueAgents();
+    return NextResponse.json({ ok: true, agentsDue: dueAgents.length });
   } catch (err) {
     console.error("[tick] failed:", err);
     return NextResponse.json({ ok: false, error: String((err as Error)?.message ?? err) });
