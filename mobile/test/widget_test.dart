@@ -177,8 +177,63 @@ void main() {
       await tester.pumpWidget(wrap(PostCard(post: post)));
       expect(find.text('Publish'), findsNothing);
 
-      await tester.pumpWidget(wrap(PostCard(post: post, onApprove: () {})));
+      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
       expect(find.text('Publish'), findsOneWidget);
+    });
+
+    // An unscheduled post has no time to be cleared FOR, so the only thing
+    // approving it can mean is sending it. Offering "Clear" here would promise
+    // a scheduled send that nothing would ever perform.
+    testWidgets('an unscheduled post offers Publish, never Clear', (tester) async {
+      final post = Post.fromJson({'id': 'p4', 'seq': 4, 'text': 'Body text.', 'status': 'draft'});
+
+      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
+
+      expect(find.text('Publish'), findsOneWidget);
+      expect(find.textContaining('Clear'), findsNothing);
+    });
+
+    // The regression that would quietly destroy the review window: if the
+    // primary button on a scheduled draft ever publishes instead of clearing,
+    // reviewing a post at 08:48 sends it at 08:48.
+    testWidgets('a scheduled post leads with Clear, not Publish', (tester) async {
+      final at = DateTime.now().add(const Duration(minutes: 20));
+      final post = Post.fromJson({
+        'id': 'p5',
+        'seq': 5,
+        'text': 'Body text.',
+        'status': 'draft',
+        'scheduledFor': at.toUtc().toIso8601String(),
+      });
+
+      await tester.pumpWidget(
+        wrap(PostCard(post: post, onClear: () {}, onSendNow: () {})),
+      );
+
+      final hhmm =
+          '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+      expect(find.text('Clear for $hhmm'), findsOneWidget);
+      expect(find.text('Publish'), findsNothing);
+      // And the countdown must be on screen — a review window you cannot see
+      // the end of is not a review window.
+      expect(find.textContaining('Sends at $hhmm'), findsOneWidget);
+    });
+
+    testWidgets('a cleared post says so and stops offering Clear', (tester) async {
+      final at = DateTime.now().add(const Duration(minutes: 20));
+      final post = Post.fromJson({
+        'id': 'p6',
+        'seq': 6,
+        'text': 'Body text.',
+        'status': 'approved',
+        'scheduledFor': at.toUtc().toIso8601String(),
+        'clearedAt': DateTime.now().toUtc().toIso8601String(),
+      });
+
+      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
+
+      expect(find.textContaining('Cleared'), findsOneWidget);
+      expect(find.text('Send now'), findsOneWidget);
     });
   });
 }

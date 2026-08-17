@@ -7,6 +7,8 @@
 /// this screen does that the LinkedIn composer does not.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/models.dart';
@@ -27,31 +29,150 @@ String relativeTime(DateTime when) {
   return '${seconds ~/ 604800}w ago';
 }
 
+String _hhmm(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// "in 12 min", "in 3h 40m", "2 min ago" — coarse on purpose above an hour.
+String _countdown(Duration d) {
+  final late = d.isNegative;
+  final total = d.abs();
+  final label = total.inMinutes < 1
+      ? 'less than a minute'
+      : total.inMinutes < 60
+          ? '${total.inMinutes} min'
+          : total.inHours < 24
+              ? '${total.inHours}h ${total.inMinutes % 60}m'
+              : '${total.inDays}d ${total.inHours % 24}h';
+  return late ? '$label ago' : 'in $label';
+}
+
+/// When this post goes out, and whether anything still has to happen first.
+///
+/// Ticks once a second rather than rendering a static string: the number that
+/// matters here is how much of the review window is left, and a countdown that
+/// only updates on pull-to-refresh is worse than none — it invites you to trust
+/// a figure that is already stale.
+class _ScheduleStrip extends StatefulWidget {
+  const _ScheduleStrip({required this.post});
+
+  final Post post;
+
+  @override
+  State<_ScheduleStrip> createState() => _ScheduleStripState();
+}
+
+class _ScheduleStripState extends State<_ScheduleStrip> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final post = widget.post;
+    final at = post.scheduledFor!;
+    final remaining = at.difference(DateTime.now());
+
+    // Three states worth distinguishing, because each needs a different action.
+    final (Color tone, IconData icon, String message) = switch (post) {
+      _ when post.isMissed => (
+          C.bad,
+          Icons.event_busy,
+          'Missed its ${_hhmm(at)} slot — not sent late.',
+        ),
+      _ when post.isHeld => (
+          C.warn,
+          Icons.lock_clock,
+          'Held while you edit. It will not send until you save.',
+        ),
+      _ when post.isCleared => (
+          C.good,
+          Icons.check_circle_outline,
+          'Cleared — sends at ${_hhmm(at)}, ${_countdown(remaining)}.',
+        ),
+      _ when remaining.isNegative => (
+          C.warn,
+          Icons.error_outline,
+          'Due at ${_hhmm(at)} and not cleared. It will not send until you clear it.',
+        ),
+      _ => (
+          C.accent,
+          Icons.schedule,
+          'Sends at ${_hhmm(at)}, ${_countdown(remaining)}. Clear it before then.',
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.10),
+        border: Border.all(color: tone.withValues(alpha: 0.40)),
+        borderRadius: BorderRadius.circular(R.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: tone),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(fontSize: 13, height: 1.4, color: tone, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class PostCard extends StatelessWidget {
   const PostCard({
     super.key,
     required this.post,
-    this.onApprove,
+    this.onClear,
+    this.onSendNow,
     this.onDiscard,
     this.onEdit,
     this.busy = false,
   });
 
   final Post post;
-  final VoidCallback? onApprove;
+
+  /// "Let it go at its scheduled time." Null when there is no time to clear it
+  /// for, or when it has already been cleared.
+  final VoidCallback? onClear;
+
+  /// "Send it right now." The override.
+  final VoidCallback? onSendNow;
   final VoidCallback? onDiscard;
   final VoidCallback? onEdit;
   final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    final actionable = onApprove != null || onDiscard != null || onEdit != null;
+    final actionable = onClear != null || onSendNow != null || onDiscard != null || onEdit != null;
 
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _header(),
+          if (post.isScheduled && !post.isPublished) ...[
+            const SizedBox(height: S.x3),
+            _ScheduleStrip(post: post),
+          ],
           const SizedBox(height: S.x3),
           _FoldedText(post.text),
           if (post.hashtags.isNotEmpty) ...[
@@ -103,7 +224,9 @@ class PostCard extends StatelessWidget {
                 tone: switch (post.status) {
                   'published' => BadgeTone.live,
                   'draft' => BadgeTone.neutral,
+                  'approved' => BadgeTone.good,
                   'failed' => BadgeTone.bad,
+                  'missed' => BadgeTone.bad,
                   'unknown' => BadgeTone.warn,
                   _ => BadgeTone.neutral,
                 },
@@ -122,16 +245,46 @@ class PostCard extends StatelessWidget {
   }
 
   Widget _actions() {
+    // The primary action depends on whether this post has a time of its own.
+    // Scheduled: clearing is primary and sending now is the override tucked
+    // behind an icon. Unscheduled: sending is the only thing approval can mean.
+    final primary = onClear != null
+        ? FilledButton.icon(
+            onPressed: busy ? null : onClear,
+            icon: const Icon(Icons.check, size: 18),
+            label: Text(
+              post.scheduledFor == null
+                  ? 'Clear to send'
+                  : 'Clear for ${_hhmm(post.scheduledFor!)}',
+            ),
+          )
+        : onSendNow != null
+            ? FilledButton.icon(
+                onPressed: busy ? null : onSendNow,
+                icon: const Icon(Icons.send, size: 18),
+                label: Text(post.isCleared ? 'Send now' : 'Publish'),
+              )
+            : null;
+
     return Row(
       children: [
-        if (onApprove != null)
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: busy ? null : onApprove,
-              icon: const Icon(Icons.send, size: 18),
-              label: const Text('Publish'),
+        if (primary != null) Expanded(child: primary),
+        // Both available at once only when clearing is primary — then this is
+        // the "never mind the schedule" escape hatch.
+        if (onClear != null && onSendNow != null) ...[
+          const SizedBox(width: S.x2),
+          IconButton(
+            onPressed: busy ? null : onSendNow,
+            icon: const Icon(Icons.send_outlined),
+            tooltip: 'Send now instead',
+            style: IconButton.styleFrom(
+              minimumSize: const Size(kMinTouch, kMinTouch),
+              side: const BorderSide(color: C.borderStrong),
+              foregroundColor: C.textDim,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
             ),
           ),
+        ],
         if (onEdit != null) ...[
           const SizedBox(width: S.x2),
           IconButton(

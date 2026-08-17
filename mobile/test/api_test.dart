@@ -70,14 +70,59 @@ void main() {
   }
 
   group('post actions use the verb the route actually exports', () {
-    test('approve sends PATCH /api/posts/<seq> with action publish', () async {
+    // Clearing and sending are DIFFERENT verbs, and conflating them is the
+    // regression these two tests exist to catch. Clearing says "let it go at
+    // its scheduled time"; sending says "go now". If clear ever starts emitting
+    // action:publish again, every cleared draft publishes the instant it is
+    // reviewed and the whole review window silently disappears.
+    test('clear sends PATCH /api/posts/<seq> with action clear', () async {
       final state = await buildState();
-      await state.approve(7);
+      await state.clear(7);
 
       final call = calls.first;
       expect(call.method, 'PATCH', reason: 'the route exports PATCH; POST returns 405');
       expect(call.path, '/api/posts/7');
+      expect(call.body['action'], 'clear',
+          reason: 'clearing must not publish — it authorises the scheduled send');
+    });
+
+    test('sendNow sends PATCH with action publish', () async {
+      final state = await buildState();
+      await state.sendNow(7);
+
+      final call = calls.first;
+      expect(call.method, 'PATCH');
+      expect(call.path, '/api/posts/7');
       expect(call.body['action'], 'publish');
+    });
+
+    test('unclear withdraws the clearance', () async {
+      final state = await buildState();
+      await state.unclear(2);
+      expect(calls.first.body['action'], 'unclear');
+    });
+
+    test('holdForEditing takes the edit lock', () async {
+      final state = await buildState();
+      await state.holdForEditing(5);
+      expect(calls.first.path, '/api/posts/5');
+      expect(calls.first.body['action'], 'hold');
+    });
+
+    test('reschedule sends an ISO instant in UTC', () async {
+      final state = await buildState();
+      final when = DateTime.utc(2026, 8, 20, 9, 30);
+      await state.reschedule(6, when);
+
+      expect(calls.first.body['action'], 'reschedule');
+      expect(calls.first.body['scheduledFor'], when.toIso8601String());
+    });
+
+    test('reschedule with null lifts a post off the timetable', () async {
+      final state = await buildState();
+      await state.reschedule(6, null);
+      expect(calls.first.body['action'], 'reschedule');
+      expect(calls.first.body['scheduledFor'], isNull);
     });
 
     test('discard sends PATCH with action discard', () async {
@@ -208,7 +253,7 @@ void main() {
   group('session handling', () {
     test('the session cookie is attached to authenticated calls', () async {
       final state = await buildState();
-      await state.approve(1);
+      await state.clear(1);
       expect(calls.first.headers['cookie'], 'lc_session=abc');
     });
 
@@ -264,6 +309,113 @@ void main() {
       state.startEditing(Post.fromJson({'id': 'p2', 'seq': 2, 'text': 'Body', 'status': 'draft'}));
       state.stopEditing();
       expect(state.editing, isNull);
+    });
+  });
+
+  group('scheduling state on a post', () {
+    Post post(Map<String, dynamic> extra) => Post.fromJson({
+          'id': 'p1',
+          'seq': 1,
+          'text': 'Body text long enough to be a post.',
+          'status': 'draft',
+          ...extra,
+        });
+
+    final future = DateTime.now().toUtc().add(const Duration(minutes: 12));
+    final past = DateTime.now().toUtc().subtract(const Duration(minutes: 5));
+
+    test('an unscheduled draft is not scheduled and never overdue', () {
+      final p = post({});
+      expect(p.isScheduled, isFalse);
+      expect(p.isOverdue, isFalse);
+      expect(p.timeUntilSend, isNull);
+    });
+
+    test('a scheduled draft reports the time remaining', () {
+      final p = post({'scheduledFor': future.toIso8601String()});
+      expect(p.isScheduled, isTrue);
+      expect(p.isCleared, isFalse);
+      expect(p.timeUntilSend!.inMinutes, inInclusiveRange(10, 12));
+      expect(p.isOverdue, isFalse);
+    });
+
+    test('past its time and not cleared is overdue', () {
+      final p = post({'scheduledFor': past.toIso8601String()});
+      expect(p.isOverdue, isTrue,
+          reason: 'this is the state worth shouting about — it usually means it was never cleared');
+    });
+
+    // A published post is never overdue however long ago its time was: it went
+    // out. Getting this wrong would leave every historical post flagged red.
+    test('a published post is never overdue', () {
+      final p = post({
+        'scheduledFor': past.toIso8601String(),
+        'status': 'published',
+        'publishedAt': past.toIso8601String(),
+      });
+      expect(p.isOverdue, isFalse);
+    });
+
+    test('a missed post is never overdue either', () {
+      final p = post({'scheduledFor': past.toIso8601String(), 'status': 'missed'});
+      expect(p.isMissed, isTrue);
+      expect(p.isOverdue, isFalse);
+    });
+
+    test('clearedAt and heldUntil are read back', () {
+      final p = post({
+        'scheduledFor': future.toIso8601String(),
+        'clearedAt': past.toIso8601String(),
+        'heldUntil': future.toIso8601String(),
+      });
+      expect(p.isCleared, isTrue);
+      expect(p.isHeld, isTrue);
+    });
+
+    test('a slot parses its display fields', () {
+      final s = PostSlot.fromJson({
+        'id': 's1',
+        'localTime': '09:30',
+        'daysMask': 62,
+        'daysLabel': 'Mon-Fri',
+        'leadMinutes': 15,
+        'autoPublish': false,
+        'categories': ['emerging-tech'],
+        'enabled': true,
+      });
+      expect(s.localTime, '09:30');
+      expect(s.daysLabel, 'Mon-Fri');
+      expect(s.leadMinutes, 15);
+      expect(s.autoPublish, isFalse);
+      expect(s.categories, ['emerging-tech']);
+      // Absent `enabled` must read as true, not false — a slot that silently
+      // defaults to disabled is a schedule that never runs.
+      expect(PostSlot.fromJson({'id': 's2', 'localTime': '18:00'}).enabled, isTrue);
+    });
+
+    test('nextDue picks the soonest pending post, not the newest', () {
+      final status = AppStatus.fromJson({
+        'initialized': true,
+        'queue': [
+          {
+            'id': 'p9',
+            'seq': 9,
+            'text': 'Later today.',
+            'status': 'draft',
+            'scheduledFor': DateTime.now().toUtc().add(const Duration(hours: 8)).toIso8601String(),
+          },
+          {
+            'id': 'p8',
+            'seq': 8,
+            'text': 'Very soon.',
+            'status': 'draft',
+            'scheduledFor': future.toIso8601String(),
+          },
+        ],
+      });
+      expect(status.nextDue!.seq, 8,
+          reason: 'the one with the nearest deadline is the one that needs reading');
+      expect(status.needingReview, 2);
     });
   });
 }

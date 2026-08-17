@@ -7,7 +7,7 @@
 /// is precisely the bug class an approval queue must not have.
 library;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 
 import '../api/client.dart';
 import '../api/models.dart';
@@ -173,7 +173,50 @@ class AppState extends ChangeNotifier {
 
   // PATCH, not POST: /api/posts/[seq] exports PATCH and answers anything else
   // with a 405. Only /api/posts (compose) is a POST.
-  Future<String?> approve(int seq) => mutate(() => _api.patch('/api/posts/$seq', {'action': 'publish'}));
+
+  /// "I have read this — let it go out at its scheduled time."
+  ///
+  /// The primary action on a scheduled draft, and deliberately NOT the same
+  /// thing as publishing. Before slots existed, approving a draft sent it
+  /// immediately; that is the wrong default once a post has a time of its own,
+  /// because clearing something at 08:48 should not publish it at 08:48.
+  Future<String?> clear(int seq) => mutate(() => _api.patch('/api/posts/$seq', {'action': 'clear'}));
+
+  /// Withdraw clearance. On a hold-mode slot this is enough to stop the send.
+  Future<String?> unclear(int seq) =>
+      mutate(() => _api.patch('/api/posts/$seq', {'action': 'unclear'}));
+
+  /// Send right now, ignoring the schedule. The override, not the default.
+  Future<String?> sendNow(int seq) =>
+      mutate(() => _api.patch('/api/posts/$seq', {'action': 'publish'}));
+
+  /// Move a post to a different time, or lift it off the schedule with null.
+  Future<String?> reschedule(int seq, DateTime? when) => mutate(() => _api.patch(
+        '/api/posts/$seq',
+        {'action': 'reschedule', 'scheduledFor': when?.toUtc().toIso8601String()},
+      ));
+
+  /// Take the composer's edit lock so a scheduled send cannot fire mid-edit.
+  ///
+  /// Failure is swallowed on purpose: the hold is a courtesy, and refusing to
+  /// let someone open a draft because a lock call failed would be worse than
+  /// the race it prevents. The server expires holds on its own, so the cost of
+  /// a missed release is bounded.
+  Future<void> holdForEditing(int seq) async {
+    try {
+      await _api.patch('/api/posts/$seq', {'action': 'hold'});
+    } on ApiException catch (e) {
+      debugPrint('[state] could not hold p$seq for editing: $e');
+    }
+  }
+
+  Future<void> releaseEditing(int seq) async {
+    try {
+      await _api.patch('/api/posts/$seq', {'action': 'release'});
+    } on ApiException catch (e) {
+      debugPrint('[state] could not release p$seq: $e');
+    }
+  }
 
   Future<String?> discard(int seq) => mutate(() => _api.patch('/api/posts/$seq', {'action': 'discard'}));
 
@@ -231,6 +274,7 @@ class AppState extends ChangeNotifier {
     String? category,
     List<String> hashtags = const [],
     List<String> mediaIds = const [],
+    DateTime? scheduledFor,
   }) =>
       mutate(() => _api.post('/api/posts', {
             'text': text,
@@ -239,7 +283,60 @@ class AppState extends ChangeNotifier {
             'category': ?category,
             'hashtags': hashtags,
             'mediaIds': mediaIds,
+            // Your own post goes on the same timetable as a generated one —
+            // the send pass does not care who wrote the text. Scheduling counts
+            // as clearing it: you wrote it, so there is nothing left to review.
+            'scheduledFor': ?scheduledFor?.toUtc().toIso8601String(),
           }));
+
+  // ------------------------------------------------------------------ slots
+
+  List<PostSlot> get slots => status?.slots ?? const [];
+  SlotLimits get slotLimits => status?.slotLimits ?? SlotLimits.fallback;
+
+  bool get canAddSlot => slots.length < slotLimits.maxSlots;
+
+  Future<String?> addSlot({
+    required String localTime,
+    int? daysMask,
+    int? leadMinutes,
+    bool autoPublish = false,
+    List<String> categories = const [],
+  }) =>
+      mutate(() => _api.post('/api/slots', {
+            'localTime': localTime,
+            'daysMask': ?daysMask,
+            'leadMinutes': ?leadMinutes,
+            'autoPublish': autoPublish,
+            'categories': categories,
+          }));
+
+  Future<String?> updateSlot(String id, Map<String, dynamic> patch) =>
+      mutate(() => _api.patch('/api/slots/$id', patch));
+
+  Future<String?> setSlotTime(String id, String localTime) =>
+      updateSlot(id, {'localTime': localTime});
+
+  Future<String?> setSlotDays(String id, int daysMask) =>
+      updateSlot(id, {'daysMask': daysMask});
+
+  /// The review window for this slot, in minutes. The server clamps it to its
+  /// own floor and ceiling, so an out-of-range value lands at the bound rather
+  /// than being rejected.
+  Future<String?> setSlotLead(String id, int minutes) =>
+      updateSlot(id, {'leadMinutes': minutes});
+
+  /// Whether this slot may send without a human clearing the draft first.
+  Future<String?> setSlotAutoPublish(String id, bool value) =>
+      updateSlot(id, {'autoPublish': value});
+
+  Future<String?> setSlotEnabled(String id, bool value) =>
+      updateSlot(id, {'enabled': value});
+
+  Future<String?> setSlotCategories(String id, List<String> categories) =>
+      updateSlot(id, {'categories': categories});
+
+  Future<String?> removeSlot(String id) => mutate(() => _api.delete('/api/slots/$id'));
 
   /// Preview a candidate voice without saving it. Returns the server payload
   /// rather than storing it — a preview is screen-local by nature.

@@ -300,9 +300,29 @@ class _DraftCard extends StatelessWidget {
   /// False for ambiguous sends, which must not be republished blind.
   final bool actionable;
 
-  Future<void> _confirmPublish(BuildContext context) async {
+  /// Clearing is NOT publishing, and the difference is the point of the whole
+  /// schedule. This says "I have read it, let it go at its time" — nothing
+  /// reaches LinkedIn now, so it does not need the irreversibility warning that
+  /// [_confirmSendNow] does. It is reversible with one tap until the time comes.
+  Future<void> _clear(BuildContext context) async {
+    final state = context.read<AppState>();
+    final error = await state.clear(post.seq);
+    if (!context.mounted) return;
+    final at = post.scheduledFor;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? 'Cleared — goes out at ${at == null ? "its time" : _hhmm(at)}.'),
+        action: error != null
+            ? null
+            : SnackBarAction(label: 'Undo', onPressed: () => state.unclear(post.seq)),
+      ),
+    );
+  }
+
+  Future<void> _confirmSendNow(BuildContext context) async {
     final state = context.read<AppState>();
     final live = state.status?.liveMode ?? false;
+    final scheduled = post.scheduledFor;
 
     // Publishing is irreversible on LinkedIn's side, so it always asks — even
     // in dry run, so the habit is the same when live mode is on.
@@ -310,27 +330,32 @@ class _DraftCard extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: C.surface2,
-        title: Text(live ? 'Publish to LinkedIn?' : 'Publish (dry run)?'),
+        title: Text(live ? 'Send now?' : 'Send now (dry run)?'),
         content: Text(
-          live
-              ? 'This posts to your profile now. It cannot be unpublished from here.'
-              : 'Live mode is off, so nothing will actually reach LinkedIn.',
+          !live
+              ? 'Live mode is off, so nothing will actually reach LinkedIn.'
+              : scheduled != null
+                  ? 'This posts to your profile immediately, instead of at ${_hhmm(scheduled)}. It cannot be unpublished from here.'
+                  : 'This posts to your profile now. It cannot be unpublished from here.',
           style: T.sm,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Publish')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send now')),
         ],
       ),
     );
     if (ok != true || !context.mounted) return;
 
-    final error = await state.approve(post.seq);
+    final error = await state.sendNow(post.seq);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error ?? 'Published ${post.id}.')),
     );
   }
+
+  static String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   Future<void> _confirmDiscard(BuildContext context) async {
     final state = context.read<AppState>();
@@ -368,7 +393,11 @@ class _DraftCard extends StatelessWidget {
     return PostCard(
       post: post,
       busy: busy,
-      onApprove: () => _confirmPublish(context),
+      // On a scheduled post the primary action clears it for its own time and
+      // "Send now" is the override. On an unscheduled one there is no time to
+      // clear it for, so sending is the only thing approving can mean.
+      onClear: post.isScheduled && !post.isCleared ? () => _clear(context) : null,
+      onSendNow: () => _confirmSendNow(context),
       onDiscard: () => _confirmDiscard(context),
       // Editing happens on the Compose tab, which has the attachments, the
       // rewrite action and the live voice summary. The shell switches tabs.

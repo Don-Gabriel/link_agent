@@ -66,6 +66,10 @@ class _ComposerScreenState extends State<ComposerScreen> {
   /// the target actually changes rather than on every rebuild.
   int? _loadedSeq;
 
+  /// When this post should go out, or null for "not on the timetable". A
+  /// hand-written post can be scheduled exactly like a generated one.
+  DateTime? _scheduledFor;
+
   /// The voice summary at the moment the current text was loaded or generated.
   /// Compared against the live one to decide whether the text is stale.
   String? _voiceAtLoad;
@@ -108,12 +112,16 @@ class _ComposerScreenState extends State<ComposerScreen> {
 
     if (target == null) {
       if (_loadedSeq != null) {
-        // Left edit mode — clear back to a blank composer.
+        // Left edit mode — clear back to a blank composer. Release the edit
+        // lock on the way out, or a scheduled post stays blocked until the
+        // server expires the hold.
+        state.releaseEditing(_loadedSeq!);
         _loadedSeq = null;
         _text.clear();
         _pending.clear();
         _existingMedia = [];
         _hashtags = [];
+        _scheduledFor = null;
         _variant = null;
         _voiceAtLoad = state.style.summary;
       }
@@ -121,13 +129,21 @@ class _ComposerScreenState extends State<ComposerScreen> {
     }
 
     if (_loadedSeq == target.seq) return;
+    // Opening a different post releases the previous one's lock.
+    if (_loadedSeq != null) state.releaseEditing(_loadedSeq!);
     _loadedSeq = target.seq;
     _text.text = target.text;
     _existingMedia = List.of(target.media);
     _hashtags = List.of(target.hashtags);
+    _scheduledFor = target.scheduledFor;
     _pending.clear();
     _variant = null;
     _voiceAtLoad = state.style.summary;
+
+    // Take the edit lock so the scheduled send cannot fire while this is open
+    // and publish half a sentence. Time-bounded on the server, so forgetting to
+    // release it costs a delay rather than a silenced slot.
+    if (target.isScheduled) state.holdForEditing(target.seq);
   }
 
   bool get _editing => _loadedSeq != null;
@@ -256,7 +272,10 @@ class _ComposerScreenState extends State<ComposerScreen> {
     final seq = _loadedSeq;
     if (seq != null) {
       error = await state.editPost(seq, _text.text.trim(), _hashtags, mediaIds: mediaIds);
-      if (error == null && publishNow) error = await state.approve(seq);
+      // Saving ends the edit, so the hold goes with it — otherwise a scheduled
+      // post would sit blocked until the server expired the lock.
+      if (error == null) await state.releaseEditing(seq);
+      if (error == null && publishNow) error = await state.sendNow(seq);
     } else {
       error = await state.compose(
         text: _text.text.trim(),
@@ -264,6 +283,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
         publishNow: publishNow,
         hashtags: _hashtags,
         mediaIds: mediaIds,
+        scheduledFor: _scheduledFor,
       );
     }
 

@@ -154,6 +154,9 @@ class ApiClient {
   Future<dynamic> patch(String path, Map<String, dynamic> body) =>
       _send(() => _http.patch(_uri(path), headers: _authHeaders, body: jsonEncode(body)));
 
+  Future<dynamic> delete(String path) =>
+      _send(() => _http.delete(_uri(path), headers: _authHeaders));
+
   /// Upload one image and return its media asset id.
   ///
   /// Multipart rather than JSON because /api/media reads `request.formData()`.

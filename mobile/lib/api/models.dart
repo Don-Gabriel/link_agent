@@ -266,6 +266,10 @@ class Post {
     required this.usedQuote,
     required this.createdAt,
     required this.publishedAt,
+    required this.scheduledFor,
+    required this.slotId,
+    required this.clearedAt,
+    required this.heldUntil,
   });
 
   final String id;
@@ -286,8 +290,35 @@ class Post {
   final DateTime? createdAt;
   final DateTime? publishedAt;
 
+  /// When this goes out. Null means it is not on the timetable and will only
+  /// ever be sent by hand.
+  final DateTime? scheduledFor;
+  final String? slotId;
+
+  /// When a human said yes. The server sends nothing without either this or the
+  /// slot's own auto-publish, so on a hold-mode slot this is the difference
+  /// between a post that goes out and one that quietly does not.
+  final DateTime? clearedAt;
+
+  /// Set while the composer holds this open, so a scheduled send cannot fire
+  /// mid-edit. Already expiry-filtered by the server — if it is non-null here,
+  /// the hold is genuinely in effect.
+  final DateTime? heldUntil;
+
   bool get isDraft => status == 'draft';
   bool get isPublished => status == 'published';
+  bool get isMissed => status == 'missed';
+  bool get isScheduled => scheduledFor != null;
+  bool get isCleared => clearedAt != null;
+  bool get isHeld => heldUntil != null;
+
+  /// How long until this goes out. Negative once the time has passed.
+  Duration? get timeUntilSend => scheduledFor?.difference(DateTime.now());
+
+  /// True when the send time has passed but it has not gone out — the state
+  /// worth surfacing loudly, because it usually means it was never cleared.
+  bool get isOverdue =>
+      scheduledFor != null && !isPublished && !isMissed && scheduledFor!.isBefore(DateTime.now());
 
   factory Post.fromJson(Map<String, dynamic> j) => Post(
         id: _str(j['id'], ''),
@@ -307,7 +338,143 @@ class Post {
         usedQuote: _bool(j['usedQuote']),
         createdAt: DateTime.tryParse(_str(j['createdAt'], '')),
         publishedAt: DateTime.tryParse(_str(j['publishedAt'], '')),
+        scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
+        slotId: j['slotId'] as String?,
+        clearedAt: DateTime.tryParse(_str(j['clearedAt'], ''))?.toLocal(),
+        heldUntil: DateTime.tryParse(_str(j['heldUntil'], ''))?.toLocal(),
       );
+}
+
+/// One recurring posting time.
+class PostSlot {
+  const PostSlot({
+    required this.id,
+    required this.localTime,
+    required this.daysMask,
+    required this.daysLabel,
+    required this.leadMinutes,
+    required this.autoPublish,
+    required this.categories,
+    required this.enabled,
+    required this.position,
+    required this.nextRunAt,
+    required this.nextRunLocal,
+  });
+
+  final String id;
+  final String localTime;
+  final int daysMask;
+
+  /// "Mon-Fri", "Every day" — rendered by the server so both clients agree.
+  final String daysLabel;
+
+  /// The review window. Always at least 10 minutes, and treated by the server
+  /// as a floor rather than a target, so a late tick gives more warning.
+  final int leadMinutes;
+
+  /// Whether this slot may send without a human clearing the draft first.
+  final bool autoPublish;
+
+  /// Empty means "whatever the agent as a whole is watching".
+  final List<String> categories;
+  final bool enabled;
+  final int position;
+  final DateTime? nextRunAt;
+  final String? nextRunLocal;
+
+  factory PostSlot.fromJson(Map<String, dynamic> j) => PostSlot(
+        id: _str(j['id'], ''),
+        localTime: _str(j['localTime'], '09:30'),
+        daysMask: _int(j['daysMask'], 127),
+        daysLabel: _str(j['daysLabel'], ''),
+        leadMinutes: _int(j['leadMinutes'], 15),
+        autoPublish: _bool(j['autoPublish']),
+        categories: _strList(j['categories']),
+        enabled: j['enabled'] == null ? true : _bool(j['enabled']),
+        position: _int(j['position'], 0),
+        nextRunAt: DateTime.tryParse(_str(j['nextRunAt'], ''))?.toLocal(),
+        nextRunLocal: j['nextRunLocal'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'localTime': localTime,
+        'daysMask': daysMask,
+        'leadMinutes': leadMinutes,
+        'autoPublish': autoPublish,
+        'categories': categories,
+        'enabled': enabled,
+      };
+}
+
+/// What one slot did on one day. `silent` and `missed` are the important ones:
+/// they are why a gap in the timeline is a decision rather than a broken cron.
+class TimelineEntry {
+  const TimelineEntry({
+    required this.slotId,
+    required this.localTime,
+    required this.runDate,
+    required this.scheduledFor,
+    required this.outcome,
+    required this.postSeq,
+    required this.detail,
+  });
+
+  final String slotId;
+  final String localTime;
+  final String runDate;
+  final DateTime? scheduledFor;
+
+  /// pending | drafted | silent | missed | failed | published
+  final String outcome;
+  final int? postSeq;
+  final String? detail;
+
+  bool get isSilent => outcome == 'silent';
+  bool get isMissed => outcome == 'missed';
+  bool get isFailed => outcome == 'failed';
+  bool get isPublished => outcome == 'published';
+
+  factory TimelineEntry.fromJson(Map<String, dynamic> j) => TimelineEntry(
+        slotId: _str(j['slotId'], ''),
+        localTime: _str(j['localTime'], ''),
+        runDate: _str(j['runDate'], ''),
+        scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
+        outcome: _str(j['outcome'], 'pending'),
+        postSeq: j['postSeq'] is num ? (j['postSeq'] as num).toInt() : null,
+        detail: j['detail'] as String?,
+      );
+}
+
+/// Server-authoritative bounds for the schedule editor, so the app never offers
+/// a value the API would clamp or refuse.
+class SlotLimits {
+  const SlotLimits({
+    required this.maxSlots,
+    required this.minLeadMinutes,
+    required this.maxLeadMinutes,
+    required this.missedAfterMinutes,
+  });
+
+  final int maxSlots;
+  final int minLeadMinutes;
+  final int maxLeadMinutes;
+  final int missedAfterMinutes;
+
+  static const fallback = SlotLimits(
+    maxSlots: 5,
+    minLeadMinutes: 10,
+    maxLeadMinutes: 720,
+    missedAfterMinutes: 45,
+  );
+
+  factory SlotLimits.fromJson(Map<String, dynamic>? j) => j == null
+      ? fallback
+      : SlotLimits(
+          maxSlots: _int(j['maxSlots'], 5),
+          minLeadMinutes: _int(j['minLeadMinutes'], 10),
+          maxLeadMinutes: _int(j['maxLeadMinutes'], 720),
+          missedAfterMinutes: _int(j['missedAfterMinutes'], 45),
+        );
 }
 
 /// Both publishing allowances, counted over a rolling 24 hours.
@@ -385,6 +552,9 @@ class AppStatus {
     required this.nextRunLocal,
     required this.cycleCount,
     required this.ambiguousCount,
+    required this.slots,
+    required this.timeline,
+    required this.slotLimits,
   });
 
   final bool initialized;
@@ -401,6 +571,29 @@ class AppStatus {
   final String? nextRunLocal;
   final int cycleCount;
   final int ambiguousCount;
+
+  /// The timetable, in display order.
+  final List<PostSlot> slots;
+
+  /// What each slot did over the last week, newest first.
+  final List<TimelineEntry> timeline;
+  final SlotLimits slotLimits;
+
+  List<PostSlot> get enabledSlots => slots.where((s) => s.enabled).toList();
+
+  /// The draft that needs reading soonest — the single most useful thing to put
+  /// at the top of a screen, because it is the one with a deadline.
+  Post? get nextDue {
+    final pending = queue
+        .where((p) => p.isScheduled && !p.isPublished && !p.isMissed)
+        .toList()
+      ..sort((a, b) => a.scheduledFor!.compareTo(b.scheduledFor!));
+    return pending.isEmpty ? null : pending.first;
+  }
+
+  /// Drafts waiting on a decision before their time runs out.
+  int get needingReview =>
+      queue.where((p) => p.isScheduled && !p.isCleared && !p.isPublished && !p.isMissed).length;
 
   factory AppStatus.fromJson(Map<String, dynamic> j) {
     final config = _map(j['config']) ?? const <String, dynamic>{};
@@ -423,6 +616,9 @@ class AppStatus {
       nextRunLocal: schedule['nextRunLocal'] as String?,
       cycleCount: _int(schedule['cycleCount'], 0),
       ambiguousCount: _list(j['ambiguous']).length,
+      slots: _list(j['slots']).map(PostSlot.fromJson).toList(),
+      timeline: _list(j['timeline']).map(TimelineEntry.fromJson).toList(),
+      slotLimits: SlotLimits.fromJson(_map(j['slotLimits'])),
     );
   }
 }
