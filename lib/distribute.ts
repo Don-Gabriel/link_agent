@@ -29,6 +29,7 @@ import { getUsableToken, recordAccountError, recordAccountOk } from "./accounts"
 import { query } from "./db";
 import { assemblePost, checkLength } from "./format";
 import { createPost, postPermalink, type PostImage } from "./linkedin";
+import { safeTimeZone } from "./schedule";
 import { parseStyle } from "./style";
 
 /**
@@ -68,6 +69,8 @@ interface PostRow {
   /** Joined from agents — the hashtag cap has to match what the author chose. */
   style_json: unknown;
   auto_publish_cap: number | null;
+  /** Joined from agents — the cap is counted against the author's calendar day. */
+  timezone: string | null;
 }
 
 /** Publishing is disabled entirely unless this is explicitly turned on. */
@@ -75,13 +78,31 @@ export function liveModeEnabled(): boolean {
   return process.env.LINKEDIN_LIVE === "true";
 }
 
-/** Sends in the last rolling 24h, split by who initiated them. */
-export async function sendsToday(agentId: string): Promise<{ auto: number; manual: number }> {
+/**
+ * Sends so far TODAY in the operator's own timezone, split by who initiated them.
+ *
+ * Deliberately a calendar day rather than a rolling 24 hours. The rolling
+ * version is subtly wrong the moment more than one post is scheduled per day:
+ * a post sent at 21:00 yesterday is still inside a rolling window when the
+ * 09:00 slot fires this morning, so a later slot gets refused with
+ * `auto_cap_reached` for no reason a human could see. "Three posts a day" means
+ * three per calendar day, and the day that matters is the author's, not UTC's.
+ *
+ * The boundary is computed in Postgres so DST transitions are handled by the
+ * timezone database rather than by arithmetic here. safeTimeZone guards the
+ * input because `AT TIME ZONE` throws on an unknown zone.
+ */
+export async function sendsToday(
+  agentId: string,
+  timezone?: string | null,
+): Promise<{ auto: number; manual: number }> {
+  const zone = safeTimeZone(timezone);
   const rows = await query<{ source: string; n: string }>(
     `SELECT source, count(*)::text AS n FROM distributions
-      WHERE agent_id = $1 AND status = 'sent' AND settled_at > now() - interval '24 hours'
+      WHERE agent_id = $1 AND status = 'sent'
+        AND settled_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)
       GROUP BY source`,
-    [agentId],
+    [agentId, zone],
   );
   const by = new Map(rows.map((r) => [r.source, Number(r.n)]));
   return { auto: by.get("auto") ?? 0, manual: by.get("manual") ?? 0 };
@@ -113,7 +134,7 @@ export async function publishPost(
 ): Promise<DistributeResult> {
   const rows = await query<PostRow>(
     `SELECT p.seq, p.text, p.status, p.category, p.media_json, p.sources_json, p.hashtags_json,
-            a.style_json, a.auto_publish_cap
+            a.style_json, a.auto_publish_cap, a.timezone
        FROM posts p JOIN agents a ON a.id = p.agent_id
       WHERE p.agent_id = $1 AND p.seq = $2`,
     [agentId, seq],
@@ -128,7 +149,7 @@ export async function publishPost(
 
   // The agent's allowance and the author's are counted separately, so a day of
   // manual posting never blocks tomorrow's scheduled one, and vice versa.
-  const sent = await sendsToday(agentId);
+  const sent = await sendsToday(agentId, post.timezone);
   if (source === "auto") {
     const cap = Math.min(MAX_AUTO_CAP, Math.max(1, post.auto_publish_cap ?? 1));
     if (sent.auto >= cap) {

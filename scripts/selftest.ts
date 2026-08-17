@@ -8,7 +8,14 @@
  */
 import { toLittleText, MAX_COMMENTARY } from "../lib/linkedin";
 import { assemblePost, checkLength, hookOf } from "../lib/format";
-import { nextDailyRun, localClock, parseHhMm, normalizeHhMm } from "../lib/schedule";
+import {
+  nextDailyRun,
+  localClock,
+  parseHhMm,
+  normalizeHhMm,
+  isValidTimeZone,
+  safeTimeZone,
+} from "../lib/schedule";
 import { DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
 
 let failures = 0;
@@ -210,6 +217,23 @@ console.log("\ndaily scheduler");
   check("bad timezone falls back instead of throwing",
     typeof localClock("Not/AZone").hour === "number");
   check("bad time string falls back to a default", parseHhMm("nonsense").hour === 9);
+}
+
+console.log("\ntimezone guard (feeds Postgres AT TIME ZONE)");
+{
+  // Postgres THROWS on an unknown zone rather than falling back, so anything
+  // reaching SQL must be filtered here first. A bad value in agents.timezone
+  // would otherwise turn the daily cap check into a 500 and block publishing.
+  check("accepts a real zone", isValidTimeZone("Asia/Kolkata"));
+  check("accepts UTC", isValidTimeZone("UTC"));
+  check("rejects nonsense", !isValidTimeZone("Not/AZone"));
+  check("rejects empty", !isValidTimeZone(""));
+
+  check("safeTimeZone passes a real zone through", safeTimeZone("Europe/Berlin") === "Europe/Berlin");
+  check("safeTimeZone falls back to UTC on nonsense", safeTimeZone("Not/AZone") === "UTC");
+  check("safeTimeZone falls back to UTC on null", safeTimeZone(null) === "UTC");
+  check("safeTimeZone falls back to UTC on undefined", safeTimeZone(undefined) === "UTC");
+  check("safeTimeZone falls back to UTC on empty", safeTimeZone("") === "UTC");
 }
 
 console.log(failures === 0 ? "\nAll checks passed.\n" : `\n${failures} check(s) FAILED.\n`);

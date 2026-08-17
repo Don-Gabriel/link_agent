@@ -18,6 +18,30 @@ export interface LocalClock {
   date: string; // YYYY-MM-DD in the given zone
 }
 
+/**
+ * Whether Intl recognises this timezone name.
+ *
+ * Exists because Postgres is far less forgiving than the rest of this codebase:
+ * `now() AT TIME ZONE $1` THROWS on an unknown zone rather than falling back,
+ * so a nonsense value stored in agents.timezone would turn a cap check into a
+ * 500 and block publishing entirely. Everything that hands a zone to SQL runs
+ * it through safeTimeZone first.
+ */
+export function isValidTimeZone(timezone: string): boolean {
+  if (!timezone) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The zone if usable, otherwise UTC. Never throws, always safe for SQL. */
+export function safeTimeZone(timezone: string | null | undefined): string {
+  return timezone && isValidTimeZone(timezone) ? timezone : "UTC";
+}
+
 export function localClock(timezone: string, at: Date = new Date()): LocalClock {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {

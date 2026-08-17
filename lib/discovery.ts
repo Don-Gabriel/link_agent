@@ -13,6 +13,10 @@
  * environment (its network blocks several hosts) and are therefore unproven
  * rather than known-good. They cost one logged warning per cycle if dead.
  * Run `npm run check:feeds` from your own network to see the real picture.
+ *
+ * As of 17 Aug 2026 every feed here is verified: a full run reached 15/15,
+ * including bedroomproducers and gearnews, which were unreachable from the
+ * original build network and had carried a stale `verified: false` since.
  */
 import type { CategoryId } from "./categories";
 import { ALL_CATEGORY_IDS } from "./categories";
@@ -182,7 +186,7 @@ export const FEEDS: Feed[] = [
     category: "music-tech-software",
     limit: 4,
     wideLimit: 6,
-    verified: false,
+    verified: true,
   },
 
   // -------------------------------------------------- music tech — hardware
@@ -216,7 +220,7 @@ export const FEEDS: Feed[] = [
     category: "music-tech-hardware",
     limit: 4,
     wideLimit: 6,
-    verified: false,
+    verified: true,
   },
 
   // ------------------------------------------------------------ emerging tech

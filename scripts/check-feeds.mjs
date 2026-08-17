@@ -16,8 +16,16 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = await readFile(join(root, "lib", "discovery.ts"), "utf8");
 
-// Match the { name: "...", url: "..." } shape of each FEEDS entry.
-const entries = [...source.matchAll(/name:\s*"([^"]+)",\s*\n?\s*url:\s*([^,]+),/g)].map((m) => ({
+// Match the { name: "...", url: ... } shape of each FEEDS entry.
+//
+// The url value is EITHER a quoted literal OR a helper call like
+// arxivUrl("cs.SD", 5). It must be matched as one of those two alternatives
+// rather than as "everything up to the next comma" — the naive version stops
+// at the comma INSIDE the helper's argument list, so every arXiv feed came out
+// as an unparseable fragment and got reported as a dead source it never was.
+const entries = [
+  ...source.matchAll(/name:\s*"([^"]+)",\s*\n?\s*url:\s*("[^"]*"|[A-Za-z_$][\w$]*\([^)]*\)),/g),
+].map((m) => ({
   name: m[1],
   raw: m[2].trim(),
 }));

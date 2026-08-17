@@ -102,7 +102,7 @@ export async function GET() {
       ),
       getTodayCalls().catch(() => []),
       listAmbiguousSends(agent.agentId),
-      sendsToday(agent.agentId),
+      sendsToday(agent.agentId, agent.timezone),
     ]);
 
     const nextRunAt = schedule[0]?.next_run_at ?? null;
