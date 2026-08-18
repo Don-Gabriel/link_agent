@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
 import { getPrimaryAgent } from "../../../lib/agents";
+import { ALL_CATEGORY_IDS, CATEGORIES } from "../../../lib/categories";
 import { hasEncryptionKey } from "../../../lib/crypto";
 import { query } from "../../../lib/db";
 import {
@@ -161,6 +162,15 @@ export async function GET() {
           label: p.label,
           blurb: p.blurb,
           style: p.style,
+        })),
+        // Served rather than hardcoded per client. Both the Flutter app and the
+        // web dashboard used to carry their own id -> label maps, so adding a
+        // category meant editing three files and an unlisted id rendered as a
+        // raw slug like "compute-silicon" until someone noticed.
+        categories: ALL_CATEGORY_IDS.map((id) => ({
+          id,
+          label: CATEGORIES[id].label,
+          blurb: CATEGORIES[id].blurb,
         })),
       },
       // Two separate allowances, reported separately — conflating them is what

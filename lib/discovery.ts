@@ -37,6 +37,22 @@ const MAX_CANDIDATES = 26;
 const MAX_CANDIDATES_WIDE = 34;
 const FRESH_HOURS = 72;
 
+/**
+ * Slots guaranteed per active category, and the ceiling that stops the judge
+ * prompt growing without bound.
+ *
+ * The interleave shares the cap evenly, so a fixed 26 means three categories
+ * get eight or nine candidates each and seven get barely three — deep enough to
+ * choose from in the first case, a coin toss in the second. The cap therefore
+ * grows with how many categories are actually active, and only then.
+ *
+ * The ceiling matters because every candidate is scored in ONE batched call:
+ * past roughly forty the prompt starts crowding the model's output budget and
+ * the whole batch can come back truncated and unusable.
+ */
+const PER_CATEGORY_FLOOR = 5;
+const HARD_CANDIDATE_CAP = 40;
+
 export interface DiscoverOptions {
   /** Which categories the agent actually cares about. Empty = all of them. */
   categories?: CategoryId[];
@@ -275,6 +291,114 @@ export const FEEDS: Feed[] = [
     verified: true,
     wideOnly: true,
   },
+
+  // ------------------------------------------------------ AI & ML engineering
+  {
+    name: "arxiv-cs.LG",
+    url: arxivUrl("cs.LG", 5),
+    wideUrl: arxivUrl("cs.LG", 8),
+    category: "ai-ml",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+  {
+    name: "arxiv-cs.CL",
+    url: arxivUrl("cs.CL", 5),
+    wideUrl: arxivUrl("cs.CL", 8),
+    category: "ai-ml",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+  {
+    name: "huggingface",
+    url: "https://huggingface.co/blog/feed.xml",
+    category: "ai-ml",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+
+  // --------------------------------------------------------- developer tooling
+  {
+    name: "github-blog",
+    url: "https://github.blog/feed/",
+    category: "dev-tooling",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+  },
+  {
+    name: "lobsters",
+    url: "https://lobste.rs/rss",
+    category: "dev-tooling",
+    limit: 6,
+    wideLimit: 9,
+    verified: true,
+  },
+  {
+    name: "changelog",
+    url: "https://changelog.com/feed",
+    category: "dev-tooling",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+  },
+
+  // ------------------------------------------------------ hardware & embedded
+  {
+    name: "adafruit",
+    url: "https://blog.adafruit.com/feed/",
+    category: "hardware-embedded",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+  {
+    name: "eevblog",
+    url: "https://www.eevblog.com/feed/",
+    category: "hardware-embedded",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+  },
+
+  // --------------------------------------------------------- compute & silicon
+  {
+    name: "chipsandcheese",
+    url: "https://chipsandcheese.com/feed/",
+    category: "compute-silicon",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+  },
+  {
+    name: "semianalysis",
+    url: "https://semianalysis.com/feed/",
+    category: "compute-silicon",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+  },
+  {
+    name: "phoronix",
+    url: "https://www.phoronix.com/rss.php",
+    category: "compute-silicon",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+  {
+    name: "arxiv-cs.AR",
+    url: arxivUrl("cs.AR", 4),
+    wideUrl: arxivUrl("cs.AR", 6),
+    category: "compute-silicon",
+    limit: 4,
+    wideLimit: 6,
+    verified: true,
+    wideOnly: true,
+  },
 ];
 
 /**
@@ -359,9 +483,11 @@ export async function discover(options: DiscoverOptions = {}): Promise<Candidate
   const fresh = unique.filter(isFresh);
   fresh.sort((a, b) => (Date.parse(b.publishedAt ?? "") || 0) - (Date.parse(a.publishedAt ?? "") || 0));
 
-  const balanced = interleaveByCategory(fresh, wide ? MAX_CANDIDATES_WIDE : MAX_CANDIDATES);
+  const base = wide ? MAX_CANDIDATES_WIDE : MAX_CANDIDATES;
+  const cap = Math.min(HARD_CANDIDATE_CAP, Math.max(base, active.length * PER_CATEGORY_FLOOR));
+  const balanced = interleaveByCategory(fresh, cap);
   console.log(
-    `[discovery] ${balanced.length} selected of ${fresh.length} fresh / ${unique.length} unique, from ${new Set(balanced.map((c) => c.source)).size} sources${wide ? " (WIDE mode)" : ""}`,
+    `[discovery] ${balanced.length} selected (cap ${cap} for ${active.length} categories) of ${fresh.length} fresh / ${unique.length} unique, from ${new Set(balanced.map((c) => c.source)).size} sources${wide ? " (WIDE mode)" : ""}`,
   );
   return balanced;
 }

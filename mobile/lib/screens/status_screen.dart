@@ -16,7 +16,10 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/panel.dart';
 
-const _categoryLabels = {
+/// Fallback labels, used only when the server has not told us its categories
+/// yet — a cold start, or a backend too old to serve them. The live list comes
+/// from /api/status so adding a category needs no client release.
+const _fallbackCategoryLabels = {
   'music-tech-software': 'Music tech · software',
   'music-tech-hardware': 'Music tech · hardware',
   'emerging-tech': 'Emerging tech',
@@ -228,7 +231,7 @@ class _Topics extends StatelessWidget {
         spacing: S.x2,
         runSpacing: S.x2,
         children: [
-          for (final entry in _categoryLabels.entries)
+          for (final entry in _availableCategories(state).entries)
             _CategoryChip(
               label: entry.value,
               selected: agent.categories.contains(entry.key),
@@ -626,4 +629,26 @@ class _BudgetBar extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The categories to offer, preferring the server's list.
+///
+/// Falls back to the built-in map only when the server has sent none. Any
+/// category the agent already has selected but the server did not list is
+/// appended, so an id this build does not recognise stays visible and
+/// removable rather than silently vanishing from the picker.
+Map<String, String> _availableCategories(AppState state) {
+  final served = state.status?.categories ?? const <CategoryInfo>[];
+  final out = <String, String>{};
+  if (served.isEmpty) {
+    out.addAll(_fallbackCategoryLabels);
+  } else {
+    for (final c in served) {
+      out[c.id] = c.label;
+    }
+  }
+  for (final id in state.agent?.categories ?? const <String>[]) {
+    out.putIfAbsent(id, () => id);
+  }
+  return out;
 }

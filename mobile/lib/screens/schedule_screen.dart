@@ -21,12 +21,6 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/panel.dart';
 
-const _categoryLabels = {
-  'music-tech-software': 'Music tech · software',
-  'music-tech-hardware': 'Music tech · hardware',
-  'emerging-tech': 'Emerging tech',
-};
-
 /// Bit per weekday, 0 = Sunday — matching lib/schedule.ts, JS getDay() and
 /// Postgres DOW. Rendered Monday-first because that is how a working week reads.
 const _dayOrder = [1, 2, 3, 4, 5, 6, 0];
@@ -363,7 +357,7 @@ class _SlotTile extends StatelessWidget {
               runSpacing: S.x2,
               children: [
                 for (final c in slot.categories)
-                  Badge2(_categoryLabels[c] ?? c, tone: BadgeTone.neutral),
+                  Badge2(state.status?.categoryLabel(c) ?? c, tone: BadgeTone.neutral),
               ],
             ),
           ],

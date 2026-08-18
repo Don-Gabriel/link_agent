@@ -34,6 +34,15 @@ import { MAX_AUTO_CAP } from "../lib/distribute";
 import { BULLET_MARK, DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
 import { critique, firstSentence, repairInstruction, summarize } from "../lib/critique";
 import { parseCorpus, pickSamples, voiceBlock } from "../lib/voice";
+import {
+  ALL_CATEGORY_IDS,
+  CATEGORIES,
+  categoryBlock,
+  hashtagsFor,
+  isCategoryId,
+  parseCategories,
+} from "../lib/categories";
+import { FEEDS } from "../lib/discovery";
 
 let failures = 0;
 
@@ -234,6 +243,53 @@ console.log("\ndaily scheduler");
   check("bad timezone falls back instead of throwing",
     typeof localClock("Not/AZone").hour === "number");
   check("bad time string falls back to a default", parseHhMm("nonsense").hour === 9);
+}
+
+console.log("\ncategories");
+{
+  // Every category must be reachable by discovery. One with no feed can be
+  // assigned by the judge and then never receives a candidate — it looks
+  // enabled and does nothing, which is worse than not offering it.
+  const feedCategories = new Set(FEEDS.map((f) => f.category));
+  for (const id of ALL_CATEGORY_IDS) {
+    check(`${id} has at least one feed`, feedCategories.has(id));
+  }
+
+  // And no feed may point at a category that no longer exists, which would make
+  // it unreachable in the other direction.
+  check("every feed points at a real category",
+    FEEDS.every((f) => ALL_CATEGORY_IDS.includes(f.category)),
+    FEEDS.filter((f) => !ALL_CATEGORY_IDS.includes(f.category)).map((f) => f.name).join(", "));
+
+  for (const id of ALL_CATEGORY_IDS) {
+    const c = CATEGORIES[id];
+    check(`${id} has a usable blurb`, c.blurb.length > 80);
+    check(`${id} has hashtags`, c.hashtags.length >= 3);
+  }
+
+  // The three original ids must keep working: they are stored in every existing
+  // agent's categories_json, and dropping one would silently narrow what that
+  // agent watches with no error anywhere.
+  for (const legacy of ["music-tech-software", "music-tech-hardware", "emerging-tech"]) {
+    check(`legacy id ${legacy} still resolves`, isCategoryId(legacy));
+  }
+
+  check("unknown ids are dropped", parseCategories(["emerging-tech", "astrology"]).length === 1);
+  check("duplicates collapse", parseCategories(["ai-ml", "ai-ml"]).length === 1);
+  check("a non-array is no categories", parseCategories("emerging-tech").length === 0);
+
+  // Without the specificity instruction a broad catch-all absorbs everything,
+  // and the narrower category's hashtags never appear.
+  const block = categoryBlock(["emerging-tech", "ai-ml"]);
+  check("the prompt asks for the most specific category",
+    block.includes("MOST SPECIFIC"), block.slice(0, 120));
+  check("the prompt lists only the ACTIVE categories",
+    block.includes("ai-ml") && !block.includes("compute-silicon"));
+  check("no categories means all of them", categoryBlock([]).includes("compute-silicon"));
+
+  check("hashtagsFor resolves a known id", hashtagsFor("compute-silicon").length > 0);
+  check("hashtagsFor tolerates a bad id", hashtagsFor("nope" as never).length === 0);
+  check("hashtagsFor tolerates null", hashtagsFor(null).length === 0);
 }
 
 console.log("\nvoice samples (few-shot examples)");

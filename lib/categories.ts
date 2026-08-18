@@ -9,7 +9,26 @@
  * else in this pipeline.
  */
 
-export type CategoryId = "music-tech-software" | "music-tech-hardware" | "emerging-tech";
+/**
+ * Adding a category is deliberately ADDITIVE. Existing ids never change meaning
+ * enough to alter what an agent already watching them receives, and no feed is
+ * ever moved from an old category to a new one — moving `arxiv-cs.SD` out of
+ * music-tech-software to a new audio-dsp category would silently stop an agent
+ * that never touched its settings from seeing DSP papers at all.
+ *
+ * That rule is why there is no separate "audio DSP" category despite the
+ * overlap being real: it cannot be carved out of music-tech-software without
+ * either changing what an existing agent receives, or fetching the same arXiv
+ * feed twice per cycle.
+ */
+export type CategoryId =
+  | "music-tech-software"
+  | "music-tech-hardware"
+  | "emerging-tech"
+  | "ai-ml"
+  | "dev-tooling"
+  | "hardware-embedded"
+  | "compute-silicon";
 
 export interface Category {
   id: CategoryId;
@@ -39,8 +58,36 @@ export const CATEGORIES: Record<CategoryId, Category> = {
     id: "emerging-tech",
     label: "Emerging tech",
     blurb:
-      "New and genuinely interesting technology outside music: developer tooling, AI systems and their engineering, hardware and devices, protocols and infrastructure, and the occasional research result that changes what is buildable. Curiosity-driven — the test is whether a technical person would want to go read more, not whether it is trending.",
-    hashtags: ["EmergingTech", "AI", "Engineering", "BuildingInPublic"],
+      "New and genuinely interesting technology outside music: protocols and infrastructure, devices, platform shifts, and the occasional research result that changes what is buildable. The general-interest catch-all — when a more specific active category fits better, prefer it. Curiosity-driven: the test is whether a technical person would want to go read more, not whether it is trending.",
+    hashtags: ["EmergingTech", "Engineering", "BuildingInPublic"],
+  },
+  "ai-ml": {
+    id: "ai-ml",
+    label: "AI & ML engineering",
+    blurb:
+      "How AI systems are actually built and made to work: model architectures and training, inference and serving, evaluation and benchmarks, retrieval, agents and tool use, fine-tuning, quantisation, and the engineering tradeoffs behind all of it. Papers count when the result changes what a practitioner would do. Funding rounds, model-launch marketing and capability hype do not.",
+    hashtags: ["MachineLearning", "AI", "LLM", "MLOps"],
+  },
+  "dev-tooling": {
+    id: "dev-tooling",
+    label: "Developer tooling",
+    blurb:
+      "The craft and the tools of the job: languages and their releases, editors, build systems and compilers, testing, version control, debugging and profiling, package ecosystems, and developer experience. The test is whether it would change how someone works on Monday.",
+    hashtags: ["DevTools", "SoftwareEngineering", "OpenSource", "DeveloperExperience"],
+  },
+  "hardware-embedded": {
+    id: "hardware-embedded",
+    label: "Hardware & embedded",
+    blurb:
+      "Non-musical hardware: microcontrollers and single-board computers, sensors, PCB design, firmware, electronics test gear, robotics, and the repair and teardown culture around them. Distinct from music-tech-hardware, which covers instruments and studio equipment specifically.",
+    hashtags: ["Embedded", "Electronics", "Hardware", "IoT"],
+  },
+  "compute-silicon": {
+    id: "compute-silicon",
+    label: "Compute & silicon",
+    blurb:
+      "The physical substrate under everything else: CPU and GPU microarchitecture, accelerators and their memory systems, interconnects, fabrication and packaging, performance analysis at the hardware level, and the economics of building compute. Deeply underserved on LinkedIn, which is part of why it is worth writing about.",
+    hashtags: ["Semiconductors", "ComputerArchitecture", "GPU", "Performance"],
   },
 };
 
@@ -53,7 +100,17 @@ export function isCategoryId(v: unknown): v is CategoryId {
 export function parseCategories(v: unknown): CategoryId[] {
   if (!Array.isArray(v)) return [];
   const seen = new Set<CategoryId>();
-  for (const item of v) if (isCategoryId(item)) seen.add(item);
+  const dropped: unknown[] = [];
+  for (const item of v) {
+    if (isCategoryId(item)) seen.add(item);
+    else dropped.push(item);
+  }
+  // Say so rather than swallowing it. A category removed from this file
+  // disappears from every agent that had it selected, and silently narrowing
+  // what someone watches looks exactly like discovery quietly getting worse.
+  if (dropped.length > 0) {
+    console.warn(`[categories] ignoring ${dropped.length} unknown id(s): ${JSON.stringify(dropped)}`);
+  }
   return [...seen];
 }
 
@@ -63,6 +120,11 @@ export function categoryBlock(ids: CategoryId[]): string {
   return [
     "ACTIVE CATEGORIES (a post must belong to exactly one):",
     ...active.map((id) => `- ${id} — ${CATEGORIES[id].label}: ${CATEGORIES[id].blurb}`),
+    // Without this the broad catch-all absorbs everything: an LLM handed both
+    // "emerging-tech" and "ai-ml" will file a paper on inference batching under
+    // the general heading roughly half the time, which makes the specific
+    // category look broken and its hashtags never appear.
+    "Assign the MOST SPECIFIC active category that genuinely fits. Only fall back to a broad one when no narrower category applies.",
   ].join("\n");
 }
 

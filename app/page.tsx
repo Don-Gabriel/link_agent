@@ -80,11 +80,23 @@ interface Status {
   ambiguous?: { seq: number | null; createdAt: string; lastError: string | null }[];
 }
 
+// Kept in step with lib/categories.ts by hand. The phone reads this list from
+// /api/status instead; this page is the setup-and-OAuth surface, where the
+// categories have to render before any status payload has been fetched.
 const CATEGORY_LABELS: Record<string, string> = {
   "music-tech-software": "Music tech · software",
   "music-tech-hardware": "Music tech · hardware",
   "emerging-tech": "Emerging tech",
+  "ai-ml": "AI & ML engineering",
+  "dev-tooling": "Developer tooling",
+  "hardware-embedded": "Hardware & embedded",
+  "compute-silicon": "Compute & silicon",
 };
+
+// The subset pre-selected at init. Deliberately NOT every category: seven
+// active at once spreads the daily candidate pool thin across interests the
+// author may not actually have, and adding one later is a single tap.
+const DEFAULT_CATEGORIES = ["music-tech-software", "music-tech-hardware", "emerging-tech"];
 
 const SCORE_LABELS: Record<string, string> = {
   persona_fit: "persona fit",
@@ -226,7 +238,7 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
   const [domain, setDomain] = useState(
     "music technology, audio software and hardware, and emerging tech generally",
   );
-  const [categories, setCategories] = useState<string[]>(Object.keys(CATEGORY_LABELS));
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata",
   );

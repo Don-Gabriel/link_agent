@@ -159,6 +159,25 @@ class SignatureConfig {
       );
 }
 
+/// A category, as the server describes it.
+///
+/// Served rather than hardcoded so adding one on the backend does not require a
+/// client release. Both clients previously carried their own id -> label map,
+/// and an unlisted id rendered as a raw slug like "compute-silicon".
+class CategoryInfo {
+  const CategoryInfo({required this.id, required this.label, required this.blurb});
+
+  final String id;
+  final String label;
+  final String blurb;
+
+  factory CategoryInfo.fromJson(Map<String, dynamic> j) => CategoryInfo(
+        id: _str(j['id'], ''),
+        label: _str(j['label'], ''),
+        blurb: _str(j['blurb'], ''),
+      );
+}
+
 class StylePreset {
   const StylePreset({required this.id, required this.label, required this.blurb, required this.style});
 
@@ -567,6 +586,7 @@ class AppStatus {
     required this.slots,
     required this.timeline,
     required this.slotLimits,
+    required this.categories,
   });
 
   final bool initialized;
@@ -590,6 +610,18 @@ class AppStatus {
   /// What each slot did over the last week, newest first.
   final List<TimelineEntry> timeline;
   final SlotLimits slotLimits;
+
+  /// Every category the backend knows about, in its own order.
+  final List<CategoryInfo> categories;
+
+  /// Human label for a category id, falling back to the raw id so an unknown
+  /// value is still readable rather than blank.
+  String categoryLabel(String id) {
+    for (final c in categories) {
+      if (c.id == id) return c.label;
+    }
+    return id;
+  }
 
   List<PostSlot> get enabledSlots => slots.where((s) => s.enabled).toList();
 
@@ -631,6 +663,7 @@ class AppStatus {
       slots: _list(j['slots']).map(PostSlot.fromJson).toList(),
       timeline: _list(j['timeline']).map(TimelineEntry.fromJson).toList(),
       slotLimits: SlotLimits.fromJson(_map(j['slotLimits'])),
+      categories: _list(config['categories']).map(CategoryInfo.fromJson).toList(),
     );
   }
 }
