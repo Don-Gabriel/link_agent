@@ -19,6 +19,7 @@ import 'package:linkdin_mobile/screens/status_screen.dart';
 import 'package:linkdin_mobile/screens/voice_screen.dart';
 import 'package:linkdin_mobile/state/app_state.dart';
 import 'package:linkdin_mobile/theme.dart';
+import 'package:linkdin_mobile/widgets/day_rail.dart';
 import 'package:linkdin_mobile/widgets/panel.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -701,6 +702,57 @@ void main() {
   // never fires, and a schedule that silently never runs is the worst outcome
   // this screen can produce. A single-slot fixture keeps the day chips
   // unambiguous — with two slots there are fourteen of them.
+  // The rail is the signature element: time down the left, events hung off it.
+  // A silent slot must still read as a decision rather than a gap.
+  testWidgets('ScheduleScreen leads with the day rail', (tester) async {
+    final withNext = statusFixture();
+    (withNext['queue'] as List).insert(0, {
+      'id': 'p20',
+      'seq': 20,
+      'text': 'A scheduled draft that is waiting for a decision from a human being.',
+      'hook': 'A scheduled draft that is waiting for a decision.',
+      'status': 'draft',
+      'scheduledFor':
+          DateTime.now().toUtc().add(const Duration(minutes: 11)).toIso8601String(),
+    });
+
+    final state = await buildState(withNext);
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    // The one thing with a deadline, at full weight, with a live countdown.
+    expect(find.text('NEXT UP'), findsOneWidget);
+    expect(find.text('to review'), findsOneWidget);
+    expect(find.text('THE DAY SO FAR'), findsOneWidget);
+    expect(find.byType(DayRail), findsOneWidget);
+
+    // And the day still explains itself, rail or not.
+    expect(find.text('Stayed quiet'), findsOneWidget);
+    expect(find.text('Published'), findsOneWidget);
+  });
+
+  // Cleared means the card stops asking anything of you — it cools from the
+  // write clock to the send clock and the label changes with it.
+  testWidgets('NextUpCard cools once the draft is cleared', (tester) async {
+    final cleared = statusFixture();
+    (cleared['queue'] as List).insert(0, {
+      'id': 'p21',
+      'seq': 21,
+      'text': 'A draft that has already been cleared and is simply waiting for its time.',
+      'hook': 'A draft that has already been cleared.',
+      'status': 'approved',
+      'scheduledFor':
+          DateTime.now().toUtc().add(const Duration(minutes: 20)).toIso8601String(),
+      'clearedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    final state = await buildState(cleared);
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    expect(find.text('CLEARED'), findsOneWidget);
+    expect(find.text('to send'), findsOneWidget);
+    expect(find.text('NEXT UP'), findsNothing);
+  });
+
   testWidgets('ScheduleScreen refuses to clear the last enabled day', (tester) async {
     final oneDay = statusFixture();
     oneDay['slots'] = [

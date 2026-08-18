@@ -66,6 +66,29 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    - assets/fonts/OFL.txt
+
+  # IBM Plex, bundled rather than fetched. One superfamily so the mono and the
+  # sans share metrics: times and body text sit on the same rhythm.
+  #
+  # Plex Sans is the VARIABLE cut — google/fonts no longer publishes static
+  # instances of it. Flutter does not map TextStyle.fontWeight onto a variable
+  # axis, so weight comes from fontVariations in theme.dart rather than from
+  # extra `weight:` entries here, which would silently do nothing.
+  fonts:
+    - family: PlexSans
+      fonts:
+        - asset: assets/fonts/IBMPlexSans.ttf
+    - family: PlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/IBMPlexMono-Bold.ttf
+          weight: 700
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

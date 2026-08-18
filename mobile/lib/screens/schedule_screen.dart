@@ -6,11 +6,13 @@
 /// when drafts happened to be written.
 ///
 /// Two halves, in this order:
-///   TODAY  what is coming, what already went, and what stayed silent and why.
+///   TODAY  the next post and its deadline, then the day as a rail.
 ///   SLOTS  the recurring rules you can actually edit.
 ///
-/// Today leads because it is the thing with a deadline. The rules are what you
-/// set once and revisit; today is what you check.
+/// Today leads, and leads with ONE thing at full weight, because it is the half
+/// with a deadline. The rules are what you set once; today is what you check.
+/// The old version gave both halves an identical bordered panel and let the eye
+/// pick — which is the "seven identical boxes" problem in miniature.
 library;
 
 import 'package:flutter/material.dart';
@@ -19,6 +21,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/day_rail.dart';
 import '../widgets/panel.dart';
 
 /// Bit per weekday, 0 = Sunday — matching lib/schedule.ts, JS getDay() and
@@ -43,12 +46,12 @@ class ScheduleScreen extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: state.refresh,
       backgroundColor: C.surface2,
-      color: C.accent,
+      color: C.draft,
       child: ListView(
         padding: const EdgeInsets.all(S.x4),
         children: [
-          _TodayPanel(status: status),
-          const SizedBox(height: S.x4),
+          _Today(status: status),
+          const SizedBox(height: S.x5),
           _SlotsPanel(state: state, status: status),
           const SizedBox(height: S.x6),
         ],
@@ -59,43 +62,68 @@ class ScheduleScreen extends StatelessWidget {
 
 // ------------------------------------------------------------------- today
 
-class _TodayPanel extends StatelessWidget {
-  const _TodayPanel({required this.status});
+/// Deliberately NOT a Panel.
+///
+/// Everything else on this screen is a bordered card, so the day reads as the
+/// page rather than as one more box competing with the rest.
+class _Today extends StatelessWidget {
+  const _Today({required this.status});
 
   final AppStatus status;
 
   @override
   Widget build(BuildContext context) {
-    final today = status.timeline
-        .where((e) => e.runDate == _localToday())
-        .toList()
+    final today = status.timeline.where((e) => e.runDate == _localToday()).toList()
       ..sort((a, b) => a.localTime.compareTo(b.localTime));
-
     final next = status.nextDue;
 
-    return Panel(
-      title: 'Today',
-      subtitle: status.needingReview > 0
-          ? '${status.needingReview} draft${status.needingReview == 1 ? "" : "s"} waiting on you.'
-          : 'Nothing waiting on a decision.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (next != null) ...[
-            _NextUp(post: next),
-            const SizedBox(height: S.x4),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text('Today', style: T.xl),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Text(
+                status.needingReview > 0
+                    ? '${status.needingReview} waiting on you'
+                    : 'nothing waiting',
+                style: T.panelHead.copyWith(
+                  color: status.needingReview > 0 ? C.draft : C.textFaint,
+                ),
+              ),
+            ),
           ],
-          if (today.isEmpty)
-            Text(
+        ),
+        const SizedBox(height: S.x4),
+
+        if (next != null) ...[
+          NextUpCard(
+            post: next,
+            onTap: () => context.read<AppState>().startEditing(next),
+          ),
+          const SizedBox(height: S.x5),
+        ],
+
+        if (today.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x4),
+            child: Text(
               next == null
                   ? 'No slot has run yet today.'
                   : 'The first slot of the day has not reported in yet.',
               style: T.sm,
-            )
-          else
-            for (final entry in today) _TimelineRow(entry: entry),
+            ),
+          )
+        else ...[
+          Text('THE DAY SO FAR', style: T.panelHead),
+          const SizedBox(height: S.x3),
+          DayRail(entries: today),
         ],
-      ),
+      ],
     );
   }
 
@@ -104,107 +132,6 @@ class _TodayPanel extends StatelessWidget {
     return '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
         '${now.day.toString().padLeft(2, '0')}';
-  }
-}
-
-/// The single most useful thing on the screen: the draft with the nearest
-/// deadline, and whether it still needs you.
-class _NextUp extends StatelessWidget {
-  const _NextUp({required this.post});
-
-  final Post post;
-
-  @override
-  Widget build(BuildContext context) {
-    final at = post.scheduledFor;
-    final cleared = post.isCleared;
-
-    return Container(
-      padding: const EdgeInsets.all(S.x3),
-      decoration: BoxDecoration(
-        color: cleared ? C.good.withValues(alpha: 0.08) : C.accent.withValues(alpha: 0.08),
-        border: Border.all(
-          color: (cleared ? C.good : C.accent).withValues(alpha: 0.35),
-        ),
-        borderRadius: BorderRadius.circular(R.sm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                at == null ? 'NEXT UP' : 'NEXT UP · ${_hhmm(at)}',
-                style: T.panelHead.copyWith(color: cleared ? C.good : C.accent),
-              ),
-              const Spacer(),
-              Badge2(cleared ? 'cleared' : 'needs you',
-                  tone: cleared ? BadgeTone.good : BadgeTone.warn),
-            ],
-          ),
-          const SizedBox(height: S.x2),
-          Text(post.hook, style: T.body, maxLines: 3, overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
-  }
-}
-
-class _TimelineRow extends StatelessWidget {
-  const _TimelineRow({required this.entry});
-
-  final TimelineEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    // A silent slot is a JUDGMENT, not a failure, and it has to read that way.
-    // Rendered as a gap it would be indistinguishable from a broken cron, which
-    // is exactly the anxiety this row exists to remove.
-    final (Color tone, IconData icon, String label) = switch (entry.outcome) {
-      'published' => (C.live, Icons.check_circle, 'Published'),
-      'drafted' => (C.accent, Icons.edit_note, 'Drafted, waiting'),
-      'silent' => (C.textFaint, Icons.volume_off, 'Stayed quiet'),
-      'missed' => (C.bad, Icons.event_busy, 'Missed'),
-      'failed' => (C.bad, Icons.error_outline, 'Failed'),
-      _ => (C.textFaint, Icons.schedule, 'Pending'),
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: S.x3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 48,
-            child: Text(
-              entry.localTime,
-              style: const TextStyle(
-                fontSize: 14,
-                color: C.textDim,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-          const SizedBox(width: S.x2),
-          Icon(icon, size: 16, color: tone),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(fontSize: 14, color: tone, fontWeight: FontWeight.w500)),
-                if (entry.detail != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(entry.detail!, style: T.xs),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -625,6 +552,3 @@ class _MiniStep extends StatelessWidget {
         ),
       );
 }
-
-String _hhmm(DateTime t) =>
-    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';

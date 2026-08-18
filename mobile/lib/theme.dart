@@ -1,42 +1,74 @@
-/// Design tokens, ported verbatim from the web dashboard's globals.css.
+/// Design tokens.
 ///
-/// Same product, two clients — so the values live in one place per client and
-/// are never inlined at a call site. If the accent changes on the web, it
-/// changes here and nowhere else.
+/// THE TWO CLOCKS. Every object in this app has two moments — when it gets
+/// written, and when it gets sent — and since the scheduling rebuild that split
+/// is the product's whole architecture. So colour encodes exactly one thing:
+/// which clock you are looking at.
 ///
-/// The register is a control room: dark, dense, quiet, with colour reserved for
-/// state that matters. Nothing decorative competes with the post text, because
-/// reading the draft carefully IS the job this app exists to support.
+///   [C.draft]  warm. Still yours. Drafts, countdowns, the fold marker, the
+///              review window, anything you can still change your mind about.
+///   [C.live]   cold. On the record. Published, cleared, irreversible.
+///   [C.alarm]  the only other accent. Missed, failed, needs a human.
+///
+/// Two accents with ROLES rather than one brand colour — a judgment carried
+/// over from two previous projects where exactly that produced the good result.
+/// The blue and purple this file used to carry are gone: they were decoration,
+/// because they meant nothing in particular.
+///
+/// The surface ramp is unchanged. It was never the problem — the problem was
+/// that every screen spent it identically.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 abstract final class C {
-  // Surface ramp, coolest to warmest.
+  // Surface ramp, coolest to warmest. Unchanged.
   static const bg = Color(0xFF0B0D10);
   static const surface = Color(0xFF12151A);
   static const surface2 = Color(0xFF171B22);
   static const surface3 = Color(0xFF1E232C);
-  static const border = Color(0xFF262C37);
+  static const border = Color(0xFF242A34);
   static const borderStrong = Color(0xFF333B49);
 
   // Ink.
-  static const text = Color(0xFFE6E9EE);
-  static const textDim = Color(0xFF98A1B0);
-  static const textFaint = Color(0xFF6B7484);
+  static const text = Color(0xFFE7EAEF);
+  static const textDim = Color(0xFF9BA4B2);
+  static const textFaint = Color(0xFF6A7383);
 
-  // State. Used for meaning only, never decoration.
-  static const accent = Color(0xFF6EA8FE);
-  static const accentDim = Color(0xFF2A4A7F);
+  /// The WRITE clock. Warm, unresolved, still yours to change.
+  static const draft = Color(0xFFE0A552);
+  static const draftDim = Color(0xFF3A2C16);
+
+  /// The SEND clock. Cold, settled, on the record.
+  static const live = Color(0xFF4FC7C0);
+  static const liveDim = Color(0xFF12312F);
+
+  /// Missed, failed, expired. The only thing that is neither clock.
+  static const alarm = Color(0xFFE8695F);
+  static const alarmDim = Color(0xFF311A18);
+
+  /// Kept as a distinct positive for things that are neither a draft nor a
+  /// send — a healthy connection, a passing check.
   static const good = Color(0xFF4EC98D);
-  static const warn = Color(0xFFE0B341);
-  static const bad = Color(0xFFE8695F);
-  static const live = Color(0xFFB57BEE);
+
+  // ---- Legacy aliases.
+  //
+  // The old names are kept pointing at their nearest role so an un-migrated
+  // screen still renders in the new system rather than reaching for a colour
+  // that no longer exists. They are deprecated on purpose: a call site using
+  // `accent` has not been thought about yet.
+  @Deprecated('Use C.draft (still yours) or C.live (on the record) by meaning.')
+  static const accent = draft;
+  @Deprecated('Use C.draftDim or C.liveDim by meaning.')
+  static const accentDim = draftDim;
+  @Deprecated('Use C.draft — a warning is usually the write clock asking for you.')
+  static const warn = draft;
+  @Deprecated('Use C.alarm.')
+  static const bad = alarm;
 }
 
-/// Spacing rhythm. The web scale is in rem against a 16px root; these are the
-/// same steps in logical pixels.
+/// Spacing rhythm, on an 8-point scale with a 4 for tight pairs.
 abstract final class S {
   static const x1 = 4.0;
   static const x2 = 8.0;
@@ -53,40 +85,101 @@ abstract final class R {
   static const lg = 16.0;
 }
 
-/// Type scale.
-///
-/// Body text is 16 rather than the web's 15: the web value is read at arm's
-/// length on a desktop monitor, and 16 is the floor for comfortable reading on
-/// a phone. Everything else keeps its relative weight.
-abstract final class T {
-  static const xs = TextStyle(fontSize: 12, height: 1.45, color: C.textFaint);
-  static const sm = TextStyle(fontSize: 13, height: 1.5, color: C.textDim);
-  static const body = TextStyle(fontSize: 16, height: 1.62, color: C.text);
-  static const lg = TextStyle(fontSize: 18, height: 1.4, color: C.text, fontWeight: FontWeight.w500);
-  static const xl = TextStyle(fontSize: 24, height: 1.25, color: C.text, fontWeight: FontWeight.w600);
+/// The two families. One superfamily, so they share metrics and proportion.
+abstract final class F {
+  /// Times, counts, scores, labels, section heads. A timetable set like one.
+  static const mono = 'PlexMono';
 
-  /// Panel headings: small, uppercase, tracked out — the web's `.panel > h2`.
-  static const panelHead = TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.96, // 0.08em at 12px
-    color: C.textFaint,
-  );
-
-  /// Field labels above an input — the web's `label.field > span`.
-  static const fieldLabel = TextStyle(
-    fontSize: 12,
-    letterSpacing: 0.72, // 0.06em
-    color: C.textFaint,
-  );
-
-  static const mono = TextStyle(fontSize: 13, height: 1.5, fontFamily: 'monospace', color: C.textDim);
+  /// Everything read as prose — above all the post itself.
+  static const sans = 'PlexSans';
 }
 
-/// Minimum touch target. Below this a control is a coin toss on a phone, so
-/// every tappable thing in this app is sized against it rather than against
-/// how big its glyph happens to be.
+/// Weight on a VARIABLE font.
+///
+/// Flutter does not map [TextStyle.fontWeight] onto a variable font's `wght`
+/// axis: setting it on Plex Sans yields the default instance plus synthetic
+/// emboldening, which looks smeared. Weight therefore comes from an explicit
+/// axis value, written inline as a const list so every style below stays const
+/// — screens embed these in `const` widget trees and would stop compiling
+/// otherwise.
+
+/// Type scale.
+///
+/// Body is 16 rather than the web's 15: the web value is read at arm's length
+/// on a monitor, and 16 is the floor for comfortable reading on a phone.
+abstract final class T {
+  // ---- prose, in the sans
+  static const xs = TextStyle(
+    fontFamily: F.sans, fontSize: 12, height: 1.45, color: C.textFaint,
+    fontVariations: [FontVariation('wght', 400)],
+  );
+  static const sm = TextStyle(
+    fontFamily: F.sans, fontSize: 13, height: 1.5, color: C.textDim,
+    fontVariations: [FontVariation('wght', 400)],
+  );
+
+  /// Post text. The most readable thing on screen, because reading the draft
+  /// carefully IS the job this app exists to support.
+  static const body = TextStyle(
+    fontFamily: F.sans, fontSize: 16, height: 1.62, color: C.text,
+    fontVariations: [FontVariation('wght', 400)],
+  );
+  static const bodyStrong = TextStyle(
+    fontFamily: F.sans, fontSize: 15, height: 1.5, color: C.text,
+    fontVariations: [FontVariation('wght', 500)],
+  );
+
+  // ---- structure, in the mono
+  static const lg = TextStyle(
+    fontFamily: F.mono, fontSize: 18, height: 1.3, color: C.text,
+    fontWeight: FontWeight.w600, letterSpacing: -0.2,
+  );
+  static const xl = TextStyle(
+    fontFamily: F.mono, fontSize: 24, height: 1.15, color: C.text,
+    fontWeight: FontWeight.w700, letterSpacing: -0.5,
+  );
+
+  /// Panel headings: small, uppercase, tracked out.
+  static const panelHead = TextStyle(
+    fontFamily: F.mono, fontSize: 11, color: C.textFaint,
+    fontWeight: FontWeight.w600, letterSpacing: 1.3,
+  );
+
+  /// Field labels above an input.
+  static const fieldLabel = TextStyle(
+    fontFamily: F.mono, fontSize: 11, color: C.textFaint,
+    fontWeight: FontWeight.w400, letterSpacing: 0.9,
+  );
+
+  /// Any figure that sits in a column or changes in place.
+  ///
+  /// Tabular figures are load-bearing rather than decorative: without them a
+  /// per-second countdown reflows as digits change width, and a number that
+  /// jitters while you read it reads as broken.
+  static const data = TextStyle(
+    fontFamily: F.mono, fontSize: 14, color: C.textDim,
+    fontWeight: FontWeight.w600,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  /// The hero clock — the countdown on the next post.
+  static const clock = TextStyle(
+    fontFamily: F.mono, fontSize: 30, height: 1, color: C.draft,
+    fontWeight: FontWeight.w700, letterSpacing: -1,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  static const mono = TextStyle(
+    fontFamily: F.mono, fontSize: 13, height: 1.5, color: C.textDim,
+  );
+}
+
+/// Minimum touch target. Below this a control is a coin toss on a phone.
 const double kMinTouch = 48.0;
+
+/// One duration for every state change. Long enough to read as a transition,
+/// short enough never to be in the way.
+const Duration kStateChange = Duration(milliseconds: 220);
 
 ThemeData buildTheme() {
   final base = ThemeData.dark(useMaterial3: true);
@@ -95,18 +188,21 @@ ThemeData buildTheme() {
     scaffoldBackgroundColor: C.bg,
     colorScheme: const ColorScheme.dark(
       brightness: Brightness.dark,
-      primary: C.accent,
-      onPrimary: C.bg,
+      // Primary is the WRITE clock: almost every primary action in this app is
+      // something you do to a draft.
+      primary: C.draft,
+      onPrimary: Color(0xFF1A1206),
       secondary: C.live,
-      onSecondary: C.bg,
+      onSecondary: Color(0xFF04201F),
       surface: C.surface,
       onSurface: C.text,
-      error: C.bad,
+      error: C.alarm,
       onError: C.bg,
       outline: C.borderStrong,
       surfaceContainerHighest: C.surface3,
     ),
-    textTheme: base.textTheme.apply(bodyColor: C.text, displayColor: C.text),
+    textTheme: base.textTheme
+        .apply(fontFamily: F.sans, bodyColor: C.text, displayColor: C.text),
     dividerColor: C.border,
     appBarTheme: const AppBarTheme(
       backgroundColor: C.bg,
@@ -117,29 +213,29 @@ ThemeData buildTheme() {
     ),
     snackBarTheme: const SnackBarThemeData(
       backgroundColor: C.surface3,
-      contentTextStyle: TextStyle(color: C.text, fontSize: 14),
+      contentTextStyle: TextStyle(fontFamily: F.sans, color: C.text, fontSize: 14),
       behavior: SnackBarBehavior.floating,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: C.bg,
       contentPadding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x3),
-      hintStyle: const TextStyle(color: C.textFaint, fontSize: 15),
+      hintStyle: const TextStyle(fontFamily: F.sans, color: C.textFaint, fontSize: 15),
       border: _inputBorder(C.borderStrong),
       enabledBorder: _inputBorder(C.borderStrong),
-      focusedBorder: _inputBorder(C.accent, width: 2),
-      errorBorder: _inputBorder(C.bad),
-      focusedErrorBorder: _inputBorder(C.bad, width: 2),
+      focusedBorder: _inputBorder(C.draft, width: 2),
+      errorBorder: _inputBorder(C.alarm),
+      focusedErrorBorder: _inputBorder(C.alarm, width: 2),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: C.accent,
-        foregroundColor: C.bg,
+        backgroundColor: C.draft,
+        foregroundColor: const Color(0xFF1A1206),
         disabledBackgroundColor: C.surface3,
         disabledForegroundColor: C.textFaint,
         minimumSize: const Size(0, kMinTouch),
         padding: const EdgeInsets.symmetric(horizontal: S.x4),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: TextStyle(fontFamily: F.sans, fontSize: 15, fontVariations: const [FontVariation('wght', 600)]),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
       ),
     ),
@@ -150,39 +246,42 @@ ThemeData buildTheme() {
         minimumSize: const Size(0, kMinTouch),
         padding: const EdgeInsets.symmetric(horizontal: S.x4),
         side: const BorderSide(color: C.borderStrong),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+        textStyle: TextStyle(fontFamily: F.sans, fontSize: 15, fontVariations: const [FontVariation('wght', 500)]),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: C.accent,
+        foregroundColor: C.draft,
         minimumSize: const Size(0, kMinTouch),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+        textStyle: TextStyle(fontFamily: F.sans, fontSize: 15, fontVariations: const [FontVariation('wght', 500)]),
       ),
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? C.accent : C.textFaint,
+        (s) => s.contains(WidgetState.selected) ? C.draft : C.textFaint,
       ),
       trackColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? C.accentDim : C.surface3,
+        (s) => s.contains(WidgetState.selected) ? C.draftDim : C.surface3,
       ),
       trackOutlineColor: WidgetStateProperty.all(C.borderStrong),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: C.surface,
-      indicatorColor: C.accentDim,
+      indicatorColor: C.draftDim,
       surfaceTintColor: Colors.transparent,
       height: 64,
       labelTextStyle: WidgetStateProperty.all(
-        const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: C.textDim),
+        const TextStyle(
+          fontFamily: F.mono, fontSize: 10, color: C.textDim,
+          fontWeight: FontWeight.w600, letterSpacing: 0.6,
+        ),
       ),
       iconTheme: WidgetStateProperty.resolveWith(
-        (s) => IconThemeData(size: 22, color: s.contains(WidgetState.selected) ? C.text : C.textFaint),
+        (s) => IconThemeData(size: 22, color: s.contains(WidgetState.selected) ? C.draft : C.textFaint),
       ),
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(color: C.accent),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(color: C.draft),
   );
 }
 
