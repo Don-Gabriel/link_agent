@@ -29,6 +29,8 @@ export async function PATCH(request: Request) {
     autoPublishCap?: number;
     style?: unknown;
     preset?: string;
+    /** Writing samples, replaced wholesale. */
+    corpus?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -87,6 +89,7 @@ export async function PATCH(request: Request) {
     paused: body.paused,
     autoPublishCap: body.autoPublishCap,
     style: stylePatch,
+    corpus: Array.isArray(body.corpus) ? body.corpus.filter((c): c is string => typeof c === "string") : undefined,
   });
   if (!updated) return NextResponse.json({ error: "update_failed" }, { status: 500 });
 

@@ -19,6 +19,7 @@ import { MAX_AUTO_CAP } from "./distribute";
 import { expandPersona, type PersonaRecord } from "./persona";
 import { normalizeHhMm } from "./schedule";
 import { parseStyle, type StyleConfig } from "./style";
+import { parseCorpus } from "./voice";
 
 export function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -51,6 +52,10 @@ export interface AgentSettings {
   autoPublishCap: number;
   /** Always complete — parseStyle fills every field from the house style. */
   style: StyleConfig;
+  /** Writing samples the author supplied, as few-shot examples for the writer. */
+  corpus: string[];
+  /** Standing summary of how this author rewrites the agent. Null until earned. */
+  editNotes: string | null;
 }
 
 export async function ensureAgent(
@@ -137,6 +142,8 @@ interface SettingsRow {
   active: boolean;
   auto_publish_cap: number | null;
   style_json: unknown;
+  corpus_json: unknown;
+  edit_notes: string | null;
 }
 
 function toSettings(r: SettingsRow): AgentSettings {
@@ -153,12 +160,14 @@ function toSettings(r: SettingsRow): AgentSettings {
     active: r.active,
     autoPublishCap: Math.min(MAX_AUTO_CAP, Math.max(1, r.auto_publish_cap ?? 1)),
     style: parseStyle(r.style_json),
+    corpus: parseCorpus(r.corpus_json),
+    editNotes: r.edit_notes,
   };
 }
 
 const SETTINGS_COLUMNS =
   `id, name, domain, categories_json, timezone, post_time_local, auto_publish, paused, active,
-   auto_publish_cap, style_json`;
+   auto_publish_cap, style_json, corpus_json, edit_notes`;
 
 export async function getAgentSettings(agentId: string): Promise<AgentSettings | null> {
   const rows = await query<SettingsRow>(
@@ -185,6 +194,8 @@ export interface SettingsPatch {
   autoPublishCap?: number;
   /** Partial style patch, merged over the current config and re-validated. */
   style?: Partial<StyleConfig>;
+  /** Replaces the writing samples wholesale. An empty array clears them. */
+  corpus?: string[];
 }
 
 export async function updateAgentSettings(
@@ -220,6 +231,12 @@ export async function updateAgentSettings(
     // Clamped rather than rejected: the ceiling is a safety property of the
     // agent, not a preference, so an out-of-range request lands at the bound.
     push("auto_publish_cap", Math.min(MAX_AUTO_CAP, Math.max(1, Math.round(patch.autoPublishCap))));
+  }
+
+  if (patch.corpus !== undefined) {
+    // Replaced wholesale rather than merged: the corpus is an ordered list the
+    // author edits as a set, and a merge would make removing a sample impossible.
+    push("corpus_json", JSON.stringify(parseCorpus(patch.corpus)));
   }
 
   if (patch.style) {

@@ -98,18 +98,29 @@ export async function PATCH(
           { status: 400 },
         );
       }
+      // COALESCE, so original_text is written once and only once. Every edit
+      // after the first is a human revising their own revision; overwriting it
+      // each time would leave the column holding the previous human draft
+      // rather than the machine's, and the pair would stop being evidence of
+      // anything. This is the training signal the app used to delete daily.
+      //
       // mediaIds is optional: an editor that only changes text must not silently
       // detach the images already on the post, so absent means "leave alone".
       if (Array.isArray(body.mediaIds)) {
         const mediaIds = body.mediaIds.filter((id) => typeof id === "string").slice(0, 20);
         await query(
-          `UPDATE posts SET text = $3, hashtags_json = $4, media_json = $5, status = 'draft'
+          `UPDATE posts
+              SET original_text = COALESCE(original_text, text),
+                  text = $3, hashtags_json = $4, media_json = $5, status = 'draft'
             WHERE agent_id = $1 AND seq = $2`,
           [agent.agentId, seq, text, JSON.stringify(hashtags), JSON.stringify(mediaIds)],
         );
       } else {
         await query(
-          "UPDATE posts SET text = $3, hashtags_json = $4, status = 'draft' WHERE agent_id = $1 AND seq = $2",
+          `UPDATE posts
+              SET original_text = COALESCE(original_text, text),
+                  text = $3, hashtags_json = $4, status = 'draft'
+            WHERE agent_id = $1 AND seq = $2`,
           [agent.agentId, seq, text, JSON.stringify(hashtags)],
         );
       }

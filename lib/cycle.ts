@@ -35,6 +35,7 @@ import {
   withSlotLock,
   type DueSlot,
 } from "./slots";
+import { pickSamples, SAMPLES_IN_PROMPT } from "./voice";
 import { writePost, type PriorPost } from "./writer";
 
 /** Nothing published in this long widens discovery (more sources, higher caps). */
@@ -240,6 +241,34 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     usedQuote: p.used_quote,
   }));
 
+  // Few-shot voice references. Published posts only: a draft the author never
+  // approved is not evidence of how they want to sound, and feeding rejected
+  // text back in would let the agent's own worst habits reinforce themselves.
+  const publishedSamples = (
+    await query<{ text: string }>(
+      // posts.text, not original_text: the published version is the one the
+      // author was willing to sign, edits and all. That is the voice to imitate.
+      `SELECT text FROM posts
+        WHERE agent_id = $1 AND status = 'published' AND length(text) > 200
+        ORDER BY published_at DESC NULLS LAST, seq DESC
+        LIMIT $2`,
+      [agentId, SAMPLES_IN_PROMPT * 2],
+    )
+  ).map((r) => r.text);
+
+  // The signature ration counts PUBLISHED posts only. Counting drafts would let
+  // a quote in something the author discarded consume the budget, silently
+  // suppressing the signature for days afterwards.
+  const quotesInLastFivePublished = (
+    await query<{ used_quote: boolean }>(
+      `SELECT used_quote FROM posts
+        WHERE agent_id = $1 AND status = 'published'
+        ORDER BY published_at DESC NULLS LAST, seq DESC
+        LIMIT 5`,
+      [agentId],
+    )
+  ).filter((r) => r.used_quote).length;
+
   const runnersUp = scored.slice(1, 3);
   const draft = await writePost({
     persona,
@@ -248,6 +277,9 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     runnersUp,
     memory: writeMemory,
     priorPosts,
+    samples: pickSamples(settings.corpus, publishedSamples),
+    editNotes: settings.editNotes,
+    publishedQuotesInLastFive: quotesInLastFivePublished,
   });
 
   if (!draft.ok) {

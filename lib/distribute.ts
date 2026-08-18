@@ -32,6 +32,7 @@ import { createPost, postPermalink, type PostImage } from "./linkedin";
 import { safeTimeZone } from "./schedule";
 import { settleSlotRun } from "./slots";
 import { parseStyle } from "./style";
+import { refreshEditNotes } from "./voice";
 
 /**
  * Two budgets, because the two risks are completely different.
@@ -258,6 +259,12 @@ export async function publishPost(
       [agentId, seq, text],
     );
     await recordAccountOk(agentId);
+    // A published post the author edited is a new training pair. Refreshing
+    // here rather than on a timer means the notes update exactly when new
+    // evidence appears. Deliberately not awaited for its result and never
+    // allowed to throw: this is an improvement to future posts, and it must not
+    // be able to affect the outcome of a send that already succeeded.
+    void refreshEditNotes(agentId);
     console.log(`[distribute] agent=${agentId} p${seq} published ${created.data.postUrn}`);
     return {
       ok: true,

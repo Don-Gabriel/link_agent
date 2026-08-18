@@ -18,6 +18,8 @@
  * signature catchphrase from becoming a tic.
  */
 import type { CategoryId } from "./categories";
+import { critique, repairInstruction, summarize } from "./critique";
+import { voiceBlock, type VoiceSample } from "./voice";
 import { CATEGORIES } from "./categories";
 import type { ScoredCandidate } from "./judge";
 import { complete, parseJson } from "./llm";
@@ -90,6 +92,19 @@ export interface WriteArgs {
   runnersUp: ScoredCandidate[];
   memory: MemoryContext;
   priorPosts: PriorPost[];
+  /** Few-shot voice references — the author's corpus and published archive. */
+  samples?: VoiceSample[];
+  /** Standing summary of how this author rewrites the agent. */
+  editNotes?: string | null;
+  /**
+   * How many of the last five PUBLISHED posts carried a signature line.
+   *
+   * Passed in rather than counted from priorPosts, which includes drafts and
+   * rejections. A quote in a draft the author threw away was never seen by
+   * anyone, so letting it consume the ration means the signature quietly goes
+   * missing for days after a discarded draft happened to use one.
+   */
+  publishedQuotesInLastFive?: number;
 }
 
 export async function writePost(
@@ -110,7 +125,8 @@ export async function writePost(
   // Ration the signature: tell the model how heavily it has leaned on quotes
   // lately and let it back off, rather than firing a quote every single time.
   // Empty when the agent has no signature configured at all.
-  const quotesRecently = priorPosts.slice(0, 5).filter((p) => p.usedQuote).length;
+  const quotesRecently =
+    args.publishedQuotesInLastFive ?? priorPosts.slice(0, 5).filter((p) => p.usedQuote).length;
   const quoteGuidance = signatureBudget(style, quotesRecently);
 
   const archive = (cap: number) =>
@@ -124,9 +140,24 @@ export async function writePost(
           .join("\n")
       : "- none yet (this is your first post — continuity must be null)";
 
-  const build = (factCap: number, summaryLen: number, archiveCap: number) =>
+  // Samples go directly after the persona and BEFORE the assignment. Register is
+  // set by what the model has just read, so examples arriving after the story
+  // has been described influence the output far less.
+  //
+  // The compact variant carries FEWER samples rather than none: it exists for
+  // Gemma's 16K TPM ceiling, and three full posts would blow that budget on
+  // their own — but dropping the voice reference entirely would mean the
+  // fallback model writes in a noticeably different register from the primary.
+  const voiceFull = voiceBlock(args.samples ?? [], args.editNotes);
+  const voiceCompact = voiceBlock((args.samples ?? []).slice(0, 1), args.editNotes);
+
+  const build = (factCap: number, summaryLen: number, archiveCap: number, voice: string) =>
     [
       personaBlock(persona),
+      // Empty when there are no samples and no edit notes, and the .filter(Boolean)
+      // below drops it — so an install that never supplies either gets exactly
+      // the prompt it got before this existed.
+      voice,
       "",
       `TODAY'S CATEGORY: ${category?.label ?? winner.category}`,
       category ? `What belongs here: ${category.blurb}` : "",
@@ -143,7 +174,7 @@ export async function writePost(
       "RUNNERS-UP IT BEAT TODAY:",
       runnerLines,
       "",
-      "YOUR PUBLISHED ARCHIVE (newest first — for voice variance and continuity):",
+      "YOUR RECENT POSTS (newest first, drafts included — for voice variance and continuity):",
       archive(archiveCap),
       "",
       quoteGuidance ? `SIGNATURE LINE BUDGET: ${quoteGuidance}` : "",
@@ -166,15 +197,22 @@ export async function writePost(
           ? system
           : system +
             "\nYour previous reply was not valid JSON of the required shape. Output ONLY the JSON object.",
-      user: build(8, 400, 10),
-      compactUser: build(3, 150, 4),
+      user: build(8, 400, 10, voiceFull),
+      compactUser: build(3, 150, 4, voiceCompact),
       jsonMode: true,
       maxOutputTokens: 1536,
     });
     callsUsed++;
     if (!res.ok) return { ok: false, reason: res.reason };
-    const draft = parseJson(res.text, isDraft);
+    let draft = parseJson(res.text, isDraft);
     if (draft) {
+      // The draft is well-formed JSON. Whether it obeys the AUTHOR'S rules is a
+      // separate question the model is unreliable about, so check it in code
+      // and spend one call repairing what it actually got wrong.
+      const repaired = await repairIfNeeded(draft, style, persona);
+      callsUsed += repaired.callsUsed;
+      draft = repaired.draft;
+
       // Continuity must name a real archive post — anything else becomes null.
       const validIds = new Set(priorPosts.map((p) => p.id));
       const continuity = draft.continuity && validIds.has(draft.continuity) ? draft.continuity : null;
@@ -191,6 +229,70 @@ export async function writePost(
     }
   }
   return { ok: false, reason: "writer_json_invalid_after_retry" };
+}
+
+/**
+ * Check a draft against the author's settings and, if it broke them, spend one
+ * call fixing the specific failures.
+ *
+ * Bounded at a single repair attempt on purpose. If the second draft still
+ * breaks a rule we keep the BETTER of the two rather than looping: a post with
+ * one violation is still publishable and waits in the queue for a human, while
+ * an unbounded repair loop would burn quota and could still land nowhere. The
+ * remaining violations are logged so a rule the models keep breaking is visible
+ * rather than merely absorbed.
+ */
+async function repairIfNeeded(
+  draft: DraftPost,
+  style: StyleConfig,
+  persona: PersonaRecord,
+): Promise<{ draft: DraftPost; callsUsed: number }> {
+  const violations = critique(draft.text, style, { usedQuote: draft.used_quote });
+  if (violations.length === 0) return { draft, callsUsed: 0 };
+
+  console.warn(`[writer] draft broke ${violations.length} rule(s): ${summarize(violations)} — repairing`);
+
+  const res = await complete({
+    system: `${buildSystem(style)}\n\n${repairInstruction(violations)}`,
+    user: [personaBlock(persona), "", "YOUR DRAFT:", draft.text, "", "Return the corrected JSON."].join(
+      "\n",
+    ),
+    jsonMode: true,
+    maxOutputTokens: 1536,
+  });
+
+  if (!res.ok) {
+    console.warn(`[writer] repair call failed (${res.reason}) — keeping the original draft`);
+    return { draft, callsUsed: 1 };
+  }
+
+  const fixed = parseJson(res.text, isDraft);
+  if (!fixed) {
+    console.warn("[writer] repair returned unusable JSON — keeping the original draft");
+    return { draft, callsUsed: 1 };
+  }
+
+  const remaining = critique(fixed.text, style, { usedQuote: fixed.used_quote });
+  if (remaining.length >= violations.length) {
+    // The repair did not help. Keeping the original avoids trading a draft with
+    // two problems for a different draft with three.
+    console.warn(
+      `[writer] repair did not improve the draft (${summarize(remaining)}) — keeping the original`,
+    );
+    return { draft, callsUsed: 1 };
+  }
+
+  if (remaining.length > 0) {
+    console.warn(`[writer] ${remaining.length} rule(s) still broken after repair: ${summarize(remaining)}`);
+  } else {
+    console.log("[writer] repair cleared every violation");
+  }
+  // Carry the original's metadata: the repair is an edit of the TEXT, and its
+  // continuity claim has not been validated against the archive.
+  return {
+    draft: { ...draft, text: fixed.text, used_quote: fixed.used_quote },
+    callsUsed: 1,
+  };
 }
 
 /**

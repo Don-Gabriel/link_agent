@@ -42,6 +42,27 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS auto_publish_cap INT NOT NULL DEFAUL
 -- hashtag cap, signature line, custom rules. An empty object means "house
 -- style", so existing agents keep writing exactly what they wrote before.
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS style_json JSONB NOT NULL DEFAULT '{}';
+/*
+ * Writing samples the author supplied — posts of their own they are happy with,
+ * or ones whose voice they want to borrow. Used as few-shot examples in the
+ * writer prompt.
+ *
+ * This is the largest single lever on how the output sounds, and until it
+ * existed the writer had never read one thing the author actually wrote: the
+ * persona was invented by an LLM at init from a name and a one-line domain, and
+ * every post for months afterwards was written against that invention. Style
+ * RULES describe a voice from the outside; examples are the voice.
+ */
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS corpus_json JSONB NOT NULL DEFAULT '[]';
+/*
+ * A standing summary of how this author rewrites the agent, distilled from
+ * (original_text, text) pairs on posts they edited before publishing. Null
+ * until enough pairs exist to say anything honest.
+ */
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS edit_notes TEXT;
+/* How many edit pairs the current edit_notes was derived from, so the summary
+ * is only recomputed when genuinely new evidence has accumulated. */
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS edit_notes_from INT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS posts (
   agent_id      UUID NOT NULL REFERENCES agents(id),
@@ -90,6 +111,18 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS hashtags_json JSONB NOT NULL DEFAULT 
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS used_quote BOOLEAN NOT NULL DEFAULT FALSE;
 -- Text as actually sent to LinkedIn (after formatting), kept for the record.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS linkedin_text TEXT;
+/*
+ * What the agent wrote, before the author touched it. Captured on the FIRST
+ * edit only, so it always holds the machine's version rather than the previous
+ * human revision.
+ *
+ * Every time someone rewrites a draft before publishing they produce a labelled
+ * training pair — the AI version, and the version a human was willing to sign.
+ * That is the highest-quality signal this system will ever have about the
+ * author's voice, and until this column existed the edit overwrote posts.text
+ * in place and the original was gone forever.
+ */
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS original_text TEXT;
 
 CREATE INDEX IF NOT EXISTS posts_status_idx ON posts (agent_id, status, created_at DESC);
 

@@ -31,7 +31,9 @@ import {
   MISSED_AFTER_MINUTES,
 } from "../lib/slots";
 import { MAX_AUTO_CAP } from "../lib/distribute";
-import { DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
+import { BULLET_MARK, DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
+import { critique, firstSentence, repairInstruction, summarize } from "../lib/critique";
+import { parseCorpus, pickSamples, voiceBlock } from "../lib/voice";
 
 let failures = 0;
 
@@ -232,6 +234,157 @@ console.log("\ndaily scheduler");
   check("bad timezone falls back instead of throwing",
     typeof localClock("Not/AZone").hour === "number");
   check("bad time string falls back to a default", parseHhMm("nonsense").hour === 9);
+}
+
+console.log("\nvoice samples (few-shot examples)");
+{
+  const long = (tag: string) => `${tag} ` + "word ".repeat(40);
+
+  check("parses a list of samples", parseCorpus([long("a"), long("b")]).length === 2);
+  check("drops samples too short to carry a voice", parseCorpus(["hi", long("a")]).length === 1);
+  check("drops non-strings", parseCorpus([1, null, {}, long("a")]).length === 1);
+  check("a non-array is no corpus at all", parseCorpus("not an array").length === 0);
+  check("null is no corpus at all", parseCorpus(null).length === 0);
+  check("caps the stored corpus", parseCorpus(Array.from({ length: 40 }, (_, i) => long(`s${i}`))).length === 10);
+  check("truncates an over-long sample", parseCorpus(["x".repeat(9000)])[0].length === 2400);
+
+  // The author's own pasted corpus outranks the archive: pasting a sample is an
+  // explicit statement of intent, where a published post may just be one they
+  // let through rather than one they admired.
+  const picked = pickSamples([long("corpus1")], [long("pub1"), long("pub2")]);
+  check("corpus samples come first", picked[0].origin === "corpus");
+  check("published posts fill the remainder", picked.slice(1).every((s) => s.origin === "published"));
+  check("picks at most three", pickSamples(
+    [long("c1"), long("c2")], [long("p1"), long("p2"), long("p3")]).length === 3);
+  check("works with no corpus at all",
+    pickSamples([], [long("p1")]).every((s) => s.origin === "published"));
+  check("works with nothing at all", pickSamples([], []).length === 0);
+  check("never shows the same text twice",
+    pickSamples([long("same")], [long("same")]).length === 1);
+
+  // The block has to disappear entirely when there is nothing to say, or every
+  // install that supplies neither gets a different prompt than it did before.
+  check("no samples and no notes renders nothing", voiceBlock([], null) === "");
+  check("empty edit notes render nothing", voiceBlock([], "   ") === "");
+
+  const block = voiceBlock(pickSamples([long("mine")], []), "Cut the first sentence.");
+  check("renders the samples", block.includes("HOW THIS PERSON ACTUALLY WRITES"));
+  check("renders the edit notes", block.includes("Cut the first sentence."));
+  // Without this the model happily writes a fourth post about whatever the
+  // three samples happened to be about, instead of about today's story.
+  check("warns that samples are voice, not subject matter",
+    block.includes("NOT subject matter"));
+
+  const notesOnly = voiceBlock([], "Open on the number.");
+  check("edit notes alone still render", notesOnly.includes("Open on the number."));
+  check("and do not claim there are samples", !notesOnly.includes("SAMPLE 1"));
+}
+
+console.log("\ndraft critique (the rules nothing used to verify)");
+{
+  // A body of `n` words that breaks nothing: prose, no emoji, no markdown, no
+  // URL, no hashtag, and an opening sentence that lands before the fold.
+  const body = (n: number) =>
+    ["The measured overhead was four percent."]
+      .concat(Array.from({ length: Math.max(0, n - 6) }, (_, i) => `detail${i}`))
+      .join(" ");
+
+  const clean = body(150);
+  check("a compliant draft reports nothing", critique(clean, DEFAULT_STYLE).length === 0,
+    summarize(critique(clean, DEFAULT_STYLE)));
+
+  const short = critique(body(40), DEFAULT_STYLE);
+  check("catches a post under the word floor", short.some((v) => v.rule === "too_short"));
+  check("and says the actual count", short.some((v) => v.detail.includes("40 words")));
+
+  check("catches a post over the word ceiling",
+    critique(body(400), DEFAULT_STYLE).some((v) => v.rule === "too_long"));
+
+  // Banned phrases are stated in the prompt and were previously never checked,
+  // so a model that ignored the list produced a draft nobody flagged.
+  const banned = critique(`Here's the thing. ${body(150)}`, DEFAULT_STYLE);
+  check("catches a banned phrase", banned.some((v) => v.rule === "banned_phrase"));
+  check("matches banned phrases case-insensitively",
+    critique(`HERE'S THE THING. ${body(150)}`, DEFAULT_STYLE)
+      .some((v) => v.rule === "banned_phrase"));
+
+  // The house style is emoji: none.
+  check("catches an emoji when the policy is none",
+    critique(`${clean} 🎛️`, DEFAULT_STYLE).some((v) => v.rule === "emoji_forbidden"));
+  const sparing = { ...DEFAULT_STYLE, emoji: "sparing" as const };
+  check("allows two emoji when the policy is sparing",
+    !critique(`${clean} 🎛️ 🎚️`, sparing).some((v) => v.rule === "emoji_excess"));
+  check("catches a third emoji under sparing",
+    critique(`${clean} 🎛️ 🎚️ 🎹`, sparing).some((v) => v.rule === "emoji_excess"));
+
+  // LinkedIn renders no markdown; these characters publish literally on screen.
+  check("catches markdown bold",
+    critique(`**Bold** ${clean}`, DEFAULT_STYLE).some((v) => v.rule === "markdown_bold"));
+  check("catches backticks",
+    critique(`Use \`npm test\`. ${clean}`, DEFAULT_STYLE).some((v) => v.rule === "markdown_code"));
+  check("catches a markdown list",
+    critique(`${clean}\n- first point\n- second point`, DEFAULT_STYLE)
+      .some((v) => v.rule === "markdown_list"));
+  check("catches a numbered list",
+    critique(`${clean}\n1. first point`, DEFAULT_STYLE).some((v) => v.rule === "markdown_list"));
+  check("catches a markdown heading",
+    critique(`# Heading\n${clean}`, DEFAULT_STYLE).some((v) => v.rule === "markdown_heading"));
+
+  // A hyphen in ordinary prose is NOT a list and must not trip the check —
+  // a false positive here would fire a repair call on every well-formed post.
+  check("a mid-sentence hyphen is not a list",
+    !critique("The result — a four percent gain — held up. " + body(150), DEFAULT_STYLE)
+      .some((v) => v.rule === "markdown_list"));
+
+  // Structure has to match the setting in both directions.
+  const bulletStyle = { ...DEFAULT_STYLE, structure: "bullets" as const };
+  check("catches missing bullets when the structure needs them",
+    critique(clean, bulletStyle).some((v) => v.rule === "missing_bullets"));
+  check("accepts a proper bullet list",
+    !critique(`Lead line.\n${BULLET_MARK} one\n${BULLET_MARK} two\n${BULLET_MARK} three\n${body(140)}`,
+      bulletStyle).some((v) => v.rule === "missing_bullets"));
+  check("catches bullets in a prose post",
+    critique(`${clean}\n${BULLET_MARK} stray bullet`, DEFAULT_STYLE)
+      .some((v) => v.rule === "unexpected_bullets"));
+
+  // format.ts appends both of these, so carrying them in the body duplicates.
+  check("catches a URL in the body",
+    critique(`See https://cdm.link/x for more. ${body(150)}`, DEFAULT_STYLE)
+      .some((v) => v.rule === "url_in_body"));
+  check("catches a hashtag in the body",
+    critique(`${clean} #MusicTech`, DEFAULT_STYLE).some((v) => v.rule === "hashtag_in_body"));
+
+  // The fold check reads the first SENTENCE, not the first line: prose opens
+  // with a 2-4 sentence paragraph by design, and flagging every one of those
+  // would fire a repair call on every compliant post.
+  const longOpener = `${"word ".repeat(50)}lands here.`;
+  check("catches an opening sentence past the fold",
+    critique(`${longOpener} ${body(150)}`, DEFAULT_STYLE).some((v) => v.rule === "hook_past_fold"));
+  check("a long first PARAGRAPH of short sentences is fine",
+    !critique(`Short claim. ${"Another short sentence. ".repeat(12)}${body(140)}`, DEFAULT_STYLE)
+      .some((v) => v.rule === "hook_past_fold"));
+
+  check("firstSentence stops at the first terminator",
+    firstSentence("One claim. Then more.") === "One claim.",
+    firstSentence("One claim. Then more."));
+  check("firstSentence falls back to the whole line when unpunctuated",
+    firstSentence("No terminator here") === "No terminator here");
+
+  // A quote reported against a persona with no signature configured.
+  const noSig = { ...DEFAULT_STYLE, signature: null };
+  check("catches a signature the author does not have",
+    critique(clean, noSig, { usedQuote: true }).some((v) => v.rule === "unexpected_signature"));
+  check("and says nothing when no quote was used",
+    !critique(clean, noSig, { usedQuote: false }).some((v) => v.rule === "unexpected_signature"));
+
+  // The repair prompt has to name every failure — that specificity is the whole
+  // reason a repair call works better than restating the rules louder.
+  const many = critique(`**Bold** Here's the thing. ${body(400)} #Tag`, DEFAULT_STYLE);
+  const instruction = repairInstruction(many);
+  check("the repair instruction names every violation",
+    many.every((v) => instruction.includes(v.detail)), `${many.length} violations`);
+  check("the repair instruction forbids inventing new material",
+    instruction.includes("this is an edit, not a rewrite"));
 }
 
 console.log("\nweekday masks");
