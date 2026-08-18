@@ -465,6 +465,11 @@ void main() {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
 
+    // The writing-samples panel now sits above the knobs — deliberately, since
+    // showing the writer real prose moves the voice further than any of them —
+    // so the Shape controls start below the fold and have to be scrolled to.
+    await scrollTo(tester, find.text('Paragraphs'));
+
     // Every option is visible as a chip rather than hidden in a dropdown —
     // that is the point of the screen, so it is worth asserting.
     expect(find.text('Paragraphs'), findsOneWidget);
@@ -488,6 +493,7 @@ void main() {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
 
+    await scrollTo(tester, find.text('Bullets'));
     await tester.tap(find.text('Bullets'));
     await tester.pumpAndSettle();
 
@@ -505,7 +511,18 @@ void main() {
     expect(find.text('CURRENT VOICE'), findsOneWidget);
     expect(find.textContaining('Paragraphs'), findsWidgets);
 
+    await scrollTo(tester, find.text('Bullets'));
     await tester.tap(find.text('Bullets'));
+    await tester.pumpAndSettle();
+
+    // Back to the top: reaching the Shape chips scrolled the header out of the
+    // lazy ListView, so it no longer exists to assert on. A negative delta
+    // scrolls the other way.
+    await tester.scrollUntilVisible(
+      find.text('VOICE — UNSAVED'),
+      -120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
 
     // The header used to keep showing the SAVED summary while the controls
@@ -599,6 +616,49 @@ void main() {
     // control with no reason, or a reason with a control that still fires.
     expect(toggle.onChanged, isNull);
     expect(find.textContaining('Connect LinkedIn before enabling'), findsOneWidget);
+  });
+
+  // The writing samples are the largest single lever on how the output sounds,
+  // so the panel has to be reachable and has to explain itself when empty.
+  testWidgets('VoiceScreen invites writing samples when there are none', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const VoiceScreen(), state);
+
+    expect(find.text('HOW YOU WRITE'), findsOneWidget);
+    expect(find.textContaining('Paste a few posts you are happy with'), findsOneWidget);
+    expect(find.textContaining('At least 80 characters'), findsOneWidget);
+  });
+
+  // A short paste teaches a model nothing and the server drops it silently, so
+  // the button must stay inert rather than appearing to work.
+  testWidgets('VoiceScreen will not add a sample too short to carry a voice', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const VoiceScreen(), state);
+
+    await tester.enterText(find.byType(TextField).first, 'too short');
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<FilledButton>(
+      find.ancestor(of: find.text('Add sample'), matching: find.byType(FilledButton)),
+    );
+    expect(button.onPressed, isNull);
+    expect(find.textContaining('more characters needed'), findsOneWidget);
+  });
+
+  testWidgets('VoiceScreen lists stored samples and what it learned', (tester) async {
+    final withCorpus = statusFixture();
+    (withCorpus['agent'] as Map<String, dynamic>)['corpus'] = [
+      'A real post of mine that is comfortably long enough to count as a writing sample for the writer to study.',
+    ];
+    (withCorpus['agent'] as Map<String, dynamic>)['editNotes'] =
+        'Cut the scene-setting first sentence and open on the number.';
+
+    final state = await buildState(withCorpus);
+    await pumpScreen(tester, const VoiceScreen(), state);
+
+    expect(find.textContaining('1 sample.'), findsOneWidget);
+    expect(find.text('WHAT IT LEARNED FROM YOUR EDITS'), findsOneWidget);
+    expect(find.textContaining('open on the number'), findsOneWidget);
   });
 
   testWidgets('ScheduleScreen renders the timetable without overflow', (tester) async {

@@ -164,6 +164,26 @@ class AppState extends ChangeNotifier {
   Future<String?> setCategories(List<String> categories) =>
       mutate(() => _api.patch('/api/settings', {'categories': categories}));
 
+  /// Writing samples the writer studies before drafting.
+  ///
+  /// Replaced wholesale rather than appended: the corpus is a set the author
+  /// edits, and a merge would make removing a sample impossible. The server
+  /// drops anything under 80 characters, so a stray paste cannot become a
+  /// "sample" that teaches the model nothing.
+  List<String> get corpus => agent?.corpus ?? const [];
+
+  Future<String?> setCorpus(List<String> samples) =>
+      mutate(() => _api.patch('/api/settings', {'corpus': samples}));
+
+  Future<String?> addCorpusSample(String text) =>
+      setCorpus([...corpus, text.trim()]);
+
+  Future<String?> removeCorpusSample(int index) {
+    if (index < 0 || index >= corpus.length) return Future.value(null);
+    final next = [...corpus]..removeAt(index);
+    return setCorpus(next);
+  }
+
   /// Force a cycle now, ignoring the schedule.
   ///
   /// Session-authenticated, unlike /api/cron/tick which needs the cron secret

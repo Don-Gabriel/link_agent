@@ -187,6 +187,8 @@ class Agent {
     required this.paused,
     required this.autoPublishCap,
     required this.style,
+    required this.corpus,
+    required this.editNotes,
   });
 
   final String agentId;
@@ -203,6 +205,14 @@ class Agent {
   final int autoPublishCap;
   final StyleConfig style;
 
+  /// Writing samples the author supplied, used as few-shot examples for the
+  /// writer. The single largest lever on how the output sounds.
+  final List<String> corpus;
+
+  /// What the agent learned about how this author rewrites it. Null until
+  /// enough edited-then-published posts exist to say anything honest.
+  final String? editNotes;
+
   factory Agent.fromJson(Map<String, dynamic> j) => Agent(
         agentId: _str(j['agentId'], ''),
         name: _str(j['name'], 'Agent'),
@@ -214,6 +224,8 @@ class Agent {
         paused: _bool(j['paused']),
         autoPublishCap: _int(j['autoPublishCap'], 1),
         style: StyleConfig.fromJson(_map(j['style'])),
+        corpus: _strList(j['corpus']),
+        editNotes: j['editNotes'] as String?,
       );
 }
 

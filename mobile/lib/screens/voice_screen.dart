@@ -111,6 +111,12 @@ class _VoiceScreenState extends State<VoiceScreen> {
         ),
         const SizedBox(height: S.x4),
 
+        // Deliberately above the knobs. Everything below this describes the
+        // voice from the outside; this is the voice itself, and it moves the
+        // output further than any of the settings under it.
+        const _WritingSamplesPanel(),
+        const SizedBox(height: S.x4),
+
         Panel(
           title: 'Shape',
           child: Column(
@@ -335,6 +341,171 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
 /// Numeric control with big hit areas. A phone keyboard for a number between
 /// 0 and 5 is the wrong tool; two 48px buttons are the right one.
+/// Writing samples, and what the agent has learned from your edits.
+///
+/// This is the one control on this screen that shows the writer prose rather
+/// than describing it. Everything else here is a rule ABOUT the voice; a sample
+/// is the voice, and three real posts move a model's register further than any
+/// number of settings.
+class _WritingSamplesPanel extends StatefulWidget {
+  const _WritingSamplesPanel();
+
+  @override
+  State<_WritingSamplesPanel> createState() => _WritingSamplesPanelState();
+}
+
+class _WritingSamplesPanelState extends State<_WritingSamplesPanel> {
+  static const _minSampleChars = 80;
+
+  final _input = TextEditingController();
+  bool _adding = false;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final state = context.read<AppState>();
+    final text = _input.text.trim();
+    if (text.length < _minSampleChars) return;
+
+    setState(() => _adding = true);
+    final error = await state.addCorpusSample(text);
+    if (!mounted) return;
+    setState(() => _adding = false);
+    if (error == null) {
+      _input.clear();
+      FocusScope.of(context).unfocus();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final samples = state.corpus;
+    final notes = state.agent?.editNotes;
+    final typed = _input.text.trim().length;
+    final canAdd = typed >= _minSampleChars && !_adding && !state.loading;
+
+    return Panel(
+      title: 'How you write',
+      subtitle: samples.isEmpty
+          ? 'Paste a few posts you are happy with. The writer studies them before drafting — this changes the voice more than any setting below.'
+          : '${samples.length} sample${samples.length == 1 ? "" : "s"}. The writer studies up to three before drafting.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < samples.length; i++) ...[
+            _SampleTile(
+              text: samples[i],
+              onRemove: state.loading ? null : () => state.removeCorpusSample(i),
+            ),
+            const SizedBox(height: S.x2),
+          ],
+          if (samples.isNotEmpty) const SizedBox(height: S.x2),
+          TextField(
+            controller: _input,
+            maxLines: 5,
+            minLines: 3,
+            style: T.body,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Paste a post here — one you wrote, or one whose voice you want.',
+            ),
+          ),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  // A short paste teaches a model nothing, and the server drops
+                  // it silently — so say the threshold rather than letting the
+                  // button look broken.
+                  typed == 0
+                      ? 'At least $_minSampleChars characters.'
+                      : typed < _minSampleChars
+                          ? '${_minSampleChars - typed} more characters needed.'
+                          : '$typed characters.',
+                  style: T.xs,
+                ),
+              ),
+              const SizedBox(width: S.x2),
+              FilledButton(
+                onPressed: canAdd ? _add : null,
+                child: Text(_adding ? 'Adding…' : 'Add sample'),
+              ),
+            ],
+          ),
+          if (notes != null && notes.trim().isNotEmpty) ...[
+            const SizedBox(height: S.x4),
+            Container(
+              padding: const EdgeInsets.all(S.x3),
+              decoration: BoxDecoration(
+                color: C.surface2,
+                border: Border.all(color: C.border),
+                borderRadius: BorderRadius.circular(R.sm),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('WHAT IT LEARNED FROM YOUR EDITS', style: T.panelHead),
+                  const SizedBox(height: S.x2),
+                  Text(notes.trim(), style: T.sm),
+                  const SizedBox(height: S.x2),
+                  Text(
+                    'Written from drafts you rewrote before publishing. It updates itself as you edit more.',
+                    style: T.xs,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SampleTile extends StatelessWidget {
+  const _SampleTile({required this.text, required this.onRemove});
+
+  final String text;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(S.x3, S.x3, S.x2, S.x3),
+      decoration: BoxDecoration(
+        color: C.surface2,
+        border: Border.all(color: C.border),
+        borderRadius: BorderRadius.circular(R.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(text, style: T.sm, maxLines: 3, overflow: TextOverflow.ellipsis),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: 'Remove this sample',
+            style: IconButton.styleFrom(
+              minimumSize: const Size(kMinTouch, kMinTouch),
+              foregroundColor: C.textFaint,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Stepper extends StatelessWidget {
   const _Stepper({
     required this.label,
