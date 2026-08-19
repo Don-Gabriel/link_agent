@@ -45,6 +45,7 @@ import {
   parseCategories,
 } from "../lib/categories";
 import { FEEDS } from "../lib/discovery";
+import { isRawScore, outputBudgetFor } from "../lib/judge";
 
 let failures = 0;
 
@@ -527,6 +528,31 @@ console.log("\nlead time (the review window)");
   // And a missed slot must be declared late enough that a couple of ticks can
   // retry a definite publish failure before it expires.
   check("missed window leaves room to retry", MISSED_AFTER_MINUTES >= 3 * 5);
+}
+
+console.log("\njudge batch handling");
+{
+  // The output budget has to track the batch. A fixed 3072 was fine for the
+  // 12-15 candidates a normal cycle yields and far too tight for the 34 that
+  // WIDE mode produces, so the array came back cut off mid-object — and the
+  // whole day's discovery was discarded as "invalid JSON".
+  check("a small batch still gets a floor", outputBudgetFor(5) >= 2048);
+  check("a wide batch gets far more than 3072", outputBudgetFor(34) > 3072,
+    `${outputBudgetFor(34)}`);
+  check("the largest batch is comfortably covered", outputBudgetFor(40) >= 4400,
+    `${outputBudgetFor(40)}`);
+  check("the budget is ceilinged", outputBudgetFor(10_000) === 8192);
+  check("the budget rises with the batch", outputBudgetFor(34) > outputBudgetFor(12));
+
+  const good = {
+    index: 0, persona_fit: 8, category_fit: 7, novelty: 6, timeliness: 9,
+    non_duplication: 10, category: "emerging-tech", reason: "worth it",
+  };
+  check("a well-formed entry validates", isRawScore(good));
+  check("an out-of-range score is rejected", !isRawScore({ ...good, novelty: 11 }));
+  check("a missing reason is rejected", !isRawScore({ ...good, reason: undefined }));
+  check("a truncated tail object is rejected", !isRawScore({ index: 3, persona_fit: 7 }));
+  check("null is rejected", !isRawScore(null));
 }
 
 console.log("\nslot column lists (the JOIN in listDueSlots)");

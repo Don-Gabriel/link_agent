@@ -18,6 +18,18 @@ import { personaBlock } from "./persona";
 
 export const PUBLISH_THRESHOLD = 6.5;
 
+/**
+ * Output tokens to allow for a batch of `n` candidates.
+ *
+ * One scored object runs about 70-90 tokens once the one-line reason is
+ * included, so the budget has to track the batch or the array is cut off
+ * mid-object. Ceilinged at 8192 because past that the model is being asked for
+ * more than any single response should carry.
+ */
+export function outputBudgetFor(n: number): number {
+  return Math.min(8192, Math.max(2048, 400 + n * 110));
+}
+
 export interface Scores {
   persona_fit: number;
   category_fit: number;
@@ -43,22 +55,39 @@ function inRange(n: unknown): n is number {
   return typeof n === "number" && n >= 0 && n <= 10;
 }
 
-function isRawScores(v: unknown): v is RawScore[] {
+/** One entry, judged on its own merits. */
+export function isRawScore(s: unknown): s is RawScore {
+  const o = s as RawScore;
   return (
-    Array.isArray(v) &&
-    v.length > 0 &&
-    v.every(
-      (s: RawScore) =>
-        typeof s?.index === "number" &&
-        inRange(s.persona_fit) &&
-        inRange(s.category_fit) &&
-        inRange(s.novelty) &&
-        inRange(s.timeliness) &&
-        inRange(s.non_duplication) &&
-        typeof s.category === "string" &&
-        typeof s.reason === "string",
-    )
+    !!o &&
+    typeof o.index === "number" &&
+    inRange(o.persona_fit) &&
+    inRange(o.category_fit) &&
+    inRange(o.novelty) &&
+    inRange(o.timeliness) &&
+    inRange(o.non_duplication) &&
+    typeof o.category === "string" &&
+    typeof o.reason === "string"
   );
+}
+
+/**
+ * Accept the array, then keep the entries that are actually usable.
+ *
+ * This used to require `v.every(...)` — every single entry valid or the whole
+ * batch discarded. With 34 candidates in one response that is a bad bet: one
+ * truncated tail object, one score of 11, one missing `reason`, and a day's
+ * discovery is thrown away with `judge_json_invalid_after_retry` and no clue
+ * which entry was at fault.
+ *
+ * Dropping bad entries is safe rather than lax. Nothing is published unscored:
+ * a candidate that does not survive validation simply is not considered, the
+ * caller still sorts by total and still refuses to publish anything below
+ * PUBLISH_THRESHOLD. The failure mode this replaces was strictly worse — it
+ * discarded the GOOD entries too.
+ */
+function isRawScores(v: unknown): v is RawScore[] {
+  return Array.isArray(v) && v.some(isRawScore);
 }
 
 const SYSTEM = `You are the editorial judgment of a working engineer who posts on LinkedIn about their genuine interests. Score EVERY numbered candidate 0-10 on:
@@ -134,13 +163,27 @@ export async function judgeCandidates(
       user,
       compactUser,
       jsonMode: true,
-      maxOutputTokens: 3072,
+      // Scaled to the batch. A fixed 3072 was comfortable for the 12-15
+      // candidates a normal cycle produces and far too tight for the 34 that
+      // WIDE mode yields, so the array came back truncated mid-object — valid
+      // JSON nowhere, and the whole day's discovery discarded.
+      maxOutputTokens: outputBudgetFor(candidates.length),
     });
     callsUsed++;
     if (!res.ok) return { ok: false, reason: res.reason };
 
     const raw = parseJson(res.text, isRawScores);
-    if (!raw) continue; // one stricter retry, then give up — never publish unscored
+    if (!raw) {
+      // Say what actually came back. "invalid JSON" with no sample is the least
+      // actionable log line in the system — it cannot distinguish a truncated
+      // response from a refusal from a model wrapping the array in prose.
+      const text = res.text.trim();
+      console.warn(
+        `[judge] unusable response from ${res.model} (attempt ${attempt + 1}): ` +
+          `${text.length} chars, ends ${JSON.stringify(text.slice(-120))}`,
+      );
+      continue; // one stricter retry, then give up — never publish unscored
+    }
 
     const scored: ScoredCandidate[] = [];
     for (const s of raw) {
@@ -173,6 +216,13 @@ export async function judgeCandidates(
       });
     }
     if (scored.length === 0) continue;
+    if (scored.length < candidates.length) {
+      // Not fatal, but worth seeing: a model that drops candidates every cycle
+      // is quietly shrinking the pool the winner is chosen from.
+      console.warn(
+        `[judge] scored ${scored.length} of ${candidates.length} candidates — ${candidates.length - scored.length} entries were unusable`,
+      );
+    }
 
     scored.sort((a, b) => b.total - a.total);
     return { ok: true, data: { scored, callsUsed, servedBy: res.model } };

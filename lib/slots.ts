@@ -380,9 +380,24 @@ export async function listDueSlots(): Promise<DueSlot[]> {
  */
 export async function claimSlotRun(due: DueSlot): Promise<boolean> {
   const rows = await query<{ slot_id: string }>(
+    // DO UPDATE rather than DO NOTHING, but only for a run that FAILED and
+    // whose send time has not yet passed.
+    //
+    // A plain DO NOTHING made any transient failure fatal for the day: one bad
+    // judge response, one 429, one feed timeout, and the row sat at 'failed'
+    // while every later tick reported `already_ran_today` and refused to try
+    // again. That is not what a review window is for — there is nothing to
+    // review, and hours of remaining time were being thrown away.
+    //
+    // Still exactly-once for the outcomes that matter. A run that DRAFTED,
+    // PUBLISHED, went SILENT or was MISSED is never re-claimed, so a slot
+    // cannot produce two posts in a day however often the cron fires.
     `INSERT INTO slot_runs (slot_id, run_date, scheduled_for, outcome)
      VALUES ($1, $2, $3, 'pending')
-     ON CONFLICT (slot_id, run_date) DO NOTHING
+     ON CONFLICT (slot_id, run_date) DO UPDATE
+        SET outcome = 'pending', detail = NULL
+      WHERE slot_runs.outcome = 'failed'
+        AND slot_runs.scheduled_for > now()
      RETURNING slot_id`,
     [due.slot.id, due.runDate, due.scheduledFor.toISOString()],
   );
