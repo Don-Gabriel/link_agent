@@ -30,9 +30,9 @@
  * through its own idempotency key.
  */
 import { after, NextResponse } from "next/server";
-import { listDueAgents, runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
+import { runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
 import { publishDuePosts } from "../../../../lib/distribute";
-import { MISSED_AFTER_MINUTES } from "../../../../lib/slots";
+import { listDueSlots, MISSED_AFTER_MINUTES } from "../../../../lib/slots";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -89,9 +89,23 @@ export async function GET(request: Request) {
     });
 
     // Reported before the work runs, so this is what is DUE rather than what
-    // happened. The logs above carry the outcomes.
-    const dueAgents = await listDueAgents();
-    return NextResponse.json({ ok: true, agentsDue: dueAgents.length });
+    // happened — the logs above carry the outcomes.
+    //
+    // This used to report listDueAgents(), which counts the LEGACY per-agent
+    // scheduler_state and has had nothing to do with slots since generation
+    // moved to them. It sat at 0 forever while the scheduler worked perfectly,
+    // which is worse than reporting nothing: it invites you to watch a number
+    // that cannot move.
+    const due = await listDueSlots();
+    return NextResponse.json({
+      ok: true,
+      slotsDue: due.length,
+      slots: due.map((d) => ({
+        at: d.slot.localTime,
+        for: d.runDate,
+        missed: d.missed,
+      })),
+    });
   } catch (err) {
     console.error("[tick] failed:", err);
     return NextResponse.json({ ok: false, error: String((err as Error)?.message ?? err) });

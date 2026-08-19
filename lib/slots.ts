@@ -77,8 +77,38 @@ interface SlotRow {
   next_run_at: Date | null;
 }
 
-const SLOT_COLUMNS = `id, agent_id, local_time, days_mask, lead_minutes, auto_publish,
-                      categories_json, enabled, position, next_run_at`;
+/** Every column [toSlot] needs, in one place. */
+export const SLOT_COLUMN_NAMES = [
+  "id",
+  "agent_id",
+  "local_time",
+  "days_mask",
+  "lead_minutes",
+  "auto_publish",
+  "categories_json",
+  "enabled",
+  "position",
+  "next_run_at",
+] as const;
+
+/** Unqualified — for the single-table queries, where there is nothing to clash with. */
+const SLOT_COLUMNS = SLOT_COLUMN_NAMES.join(", ");
+
+/**
+ * Qualified with the `s` alias, for the JOIN against agents.
+ *
+ * Written out from the same array rather than derived by string surgery on the
+ * unqualified list. The previous version did `SLOT_COLUMNS.split(", ")`, which
+ * silently failed to split where the constant wrapped across a line — so
+ * `categories_json` came through with no alias, and since BOTH post_slots and
+ * agents have a column of that name, every tick died with
+ * `column reference "categories_json" is ambiguous`. The scheduler never ran.
+ *
+ * The selftests could not catch it: they exercise pure logic and never open a
+ * connection, so a query that is valid TypeScript and invalid SQL runs clean
+ * through the whole suite.
+ */
+export const SLOT_COLUMNS_QUALIFIED = SLOT_COLUMN_NAMES.map((c) => `s.${c}`).join(", ");
 
 function toSlot(r: SlotRow): PostSlot {
   return {
@@ -317,7 +347,7 @@ interface DueRow extends SlotRow {
  */
 export async function listDueSlots(): Promise<DueSlot[]> {
   const rows = await query<DueRow>(
-    `SELECT ${SLOT_COLUMNS.split(", ").map((c) => `s.${c.trim()}`).join(", ")}, a.timezone
+    `SELECT ${SLOT_COLUMNS_QUALIFIED}, a.timezone
        FROM post_slots s
        JOIN agents a ON a.id = s.agent_id
       WHERE s.enabled AND a.active AND NOT a.paused

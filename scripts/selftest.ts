@@ -29,6 +29,8 @@ import {
   MAX_SLOTS,
   MIN_LEAD_MINUTES,
   MISSED_AFTER_MINUTES,
+  SLOT_COLUMN_NAMES,
+  SLOT_COLUMNS_QUALIFIED,
 } from "../lib/slots";
 import { MAX_AUTO_CAP } from "../lib/distribute";
 import { BULLET_MARK, DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
@@ -525,6 +527,35 @@ console.log("\nlead time (the review window)");
   // And a missed slot must be declared late enough that a couple of ticks can
   // retry a definite publish failure before it expires.
   check("missed window leaves room to retry", MISSED_AFTER_MINUTES >= 3 * 5);
+}
+
+console.log("\nslot column lists (the JOIN in listDueSlots)");
+{
+  // listDueSlots JOINs post_slots against agents, and BOTH tables have a
+  // categories_json column. Any column that reaches that query without an alias
+  // is ambiguous, and Postgres rejects the whole statement — which killed every
+  // tick while looking, from the outside, like a scheduler with nothing to do.
+  //
+  // Nothing else in this suite can catch that: these tests exercise pure logic
+  // and never open a connection, so SQL that is valid TypeScript and invalid
+  // Postgres runs clean through all of them. This asserts the SHAPE instead.
+  const qualified = SLOT_COLUMNS_QUALIFIED.split(",").map((c) => c.trim());
+
+  check("every qualified column carries the s. alias",
+    qualified.every((c) => /^s\.[a-z_]+$/.test(c)),
+    qualified.filter((c) => !/^s\.[a-z_]+$/.test(c)).join(" | ") || "none");
+
+  check("no column smuggles a newline through",
+    !SLOT_COLUMNS_QUALIFIED.includes("\n"),
+    JSON.stringify(SLOT_COLUMNS_QUALIFIED));
+
+  check("the qualified list covers every column",
+    qualified.length === SLOT_COLUMN_NAMES.length,
+    `${qualified.length} vs ${SLOT_COLUMN_NAMES.length}`);
+
+  // The specific column that broke it, named so a future edit that drops the
+  // alias fails here rather than at 3am on a live scheduler.
+  check("categories_json is qualified", qualified.includes("s.categories_json"));
 }
 
 console.log("\nslot and cap ceilings agree");
