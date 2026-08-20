@@ -43,7 +43,7 @@ class _QueueScreenState extends State<QueueScreen> {
     return RefreshIndicator(
       onRefresh: state.refresh,
       backgroundColor: C.surface2,
-      color: C.accent,
+      color: C.draft,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
         children: [
@@ -82,7 +82,7 @@ class _QueueScreenState extends State<QueueScreen> {
       ],
       if (status != null && status.account.needsReauth) ...[
         const _Notice(
-          tone: BadgeTone.bad,
+          tone: BadgeTone.alarm,
           icon: Icons.link_off,
           title: 'LinkedIn needs reconnecting',
           body: 'The access token expired. Reconnect from the web dashboard to resume posting.',
@@ -279,7 +279,7 @@ class _RejectionCard extends StatelessWidget {
           ),
           if (item.url.isNotEmpty) ...[
             const SizedBox(height: S.x3),
-            Text(_host(item.url), style: T.xs.copyWith(color: C.accent)),
+            Text(_host(item.url), style: T.xs.copyWith(color: C.live)),
           ],
         ],
       ),
@@ -412,7 +412,7 @@ class _DraftCard extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: C.bad),
+            style: FilledButton.styleFrom(backgroundColor: C.alarm),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Discard'),
           ),
@@ -468,8 +468,8 @@ class _Notice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (tone) {
-      BadgeTone.bad => C.bad,
-      BadgeTone.warn => C.warn,
+      BadgeTone.alarm => C.alarm,
+      BadgeTone.warn => C.attention,
       BadgeTone.good => C.good,
       BadgeTone.live => C.live,
       BadgeTone.neutral => C.textFaint,

@@ -93,12 +93,12 @@ class _ScheduleStripState extends State<_ScheduleStrip> {
     // Three states worth distinguishing, because each needs a different action.
     final (Color tone, IconData icon, String message) = switch (post) {
       _ when post.isMissed => (
-          C.bad,
+          C.alarm,
           Icons.event_busy,
           'Missed its ${_hhmm(at)} slot — not sent late.',
         ),
       _ when post.isHeld => (
-          C.warn,
+          C.attention,
           Icons.lock_clock,
           'Held while you edit. It will not send until you save.',
         ),
@@ -108,12 +108,12 @@ class _ScheduleStripState extends State<_ScheduleStrip> {
           'Cleared — sends at ${_hhmm(at)}, ${_countdown(remaining)}.',
         ),
       _ when remaining.isNegative => (
-          C.warn,
+          C.attention,
           Icons.error_outline,
           'Due at ${_hhmm(at)} and not cleared. It will not send until you clear it.',
         ),
       _ => (
-          C.accent,
+          C.draft,
           Icons.schedule,
           'Sends at ${_hhmm(at)}, ${_countdown(remaining)}. Clear it before then.',
         ),
@@ -263,7 +263,7 @@ class PostCard extends StatelessWidget {
             const SizedBox(height: S.x3),
             Text(
               post.hashtags.map((h) => '#$h').join(' '),
-              style: const TextStyle(fontSize: 15, color: C.accent),
+              style: const TextStyle(fontSize: 15, color: C.live),
             ),
           ],
           if (post.rationale.isNotEmpty) ...[
@@ -309,8 +309,8 @@ class PostCard extends StatelessWidget {
                   'published' => BadgeTone.live,
                   'draft' => BadgeTone.neutral,
                   'approved' => BadgeTone.good,
-                  'failed' => BadgeTone.bad,
-                  'missed' => BadgeTone.bad,
+                  'failed' => BadgeTone.alarm,
+                  'missed' => BadgeTone.alarm,
                   'unknown' => BadgeTone.warn,
                   _ => BadgeTone.neutral,
                 },
@@ -392,7 +392,7 @@ class PostCard extends StatelessWidget {
             style: IconButton.styleFrom(
               minimumSize: const Size(kMinTouch, kMinTouch),
               side: const BorderSide(color: C.borderStrong),
-              foregroundColor: C.bad,
+              foregroundColor: C.alarm,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
             ),
           ),
@@ -473,7 +473,7 @@ class _Scores extends StatelessWidget {
                     value: value.toDouble(),
                     minHeight: 4,
                     backgroundColor: C.surface3,
-                    valueColor: const AlwaysStoppedAnimation(C.accent),
+                    valueColor: const AlwaysStoppedAnimation(C.live),
                   ),
                 ),
               ),

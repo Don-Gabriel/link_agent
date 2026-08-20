@@ -381,7 +381,7 @@ class _SlotTile extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: C.bad),
+            style: FilledButton.styleFrom(backgroundColor: C.alarm),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove'),
           ),
@@ -460,8 +460,8 @@ class _DayChip extends StatelessWidget {
           height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: selected ? C.accentDim : C.surface,
-            border: Border.all(color: selected ? C.accent : C.border),
+            color: selected ? C.draftDim : C.surface,
+            border: Border.all(color: selected ? C.draft : C.border),
             borderRadius: BorderRadius.circular(R.sm),
           ),
           child: Text(
@@ -766,8 +766,8 @@ class _CapStepper extends StatelessWidget {
               height: kMinTouch,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: n == value ? C.accentDim : C.surface2,
-                border: Border.all(color: n == value ? C.accent : C.borderStrong),
+                color: n == value ? C.draftDim : C.surface2,
+                border: Border.all(color: n == value ? C.draft : C.borderStrong),
                 borderRadius: BorderRadius.circular(R.sm),
               ),
               child: Text(
@@ -811,8 +811,8 @@ class _BudgetBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colour = switch (tone) {
       BadgeTone.good => C.good,
-      BadgeTone.warn => C.warn,
-      BadgeTone.bad => C.bad,
+      BadgeTone.warn => C.attention,
+      BadgeTone.alarm => C.alarm,
       BadgeTone.live => C.live,
       BadgeTone.neutral => C.textFaint,
     };

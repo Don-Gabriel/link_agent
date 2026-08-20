@@ -614,7 +614,7 @@ class _PreviewPanel extends StatelessWidget {
               const Badge2('PREVIEW', tone: BadgeTone.live),
               const SizedBox(width: S.x2),
               if (chars != null)
-                Badge2('$chars chars', tone: within ? BadgeTone.neutral : BadgeTone.bad),
+                Badge2('$chars chars', tone: within ? BadgeTone.neutral : BadgeTone.alarm),
             ],
           ),
           const SizedBox(height: S.x2),

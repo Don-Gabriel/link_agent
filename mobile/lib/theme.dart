@@ -52,20 +52,18 @@ abstract final class C {
   /// send — a healthy connection, a passing check.
   static const good = Color(0xFF4EC98D);
 
-  // ---- Legacy aliases.
-  //
-  // The old names are kept pointing at their nearest role so an un-migrated
-  // screen still renders in the new system rather than reaching for a colour
-  // that no longer exists. They are deprecated on purpose: a call site using
-  // `accent` has not been thought about yet.
-  @Deprecated('Use C.draft (still yours) or C.live (on the record) by meaning.')
-  static const accent = draft;
-  @Deprecated('Use C.draftDim or C.liveDim by meaning.')
-  static const accentDim = draftDim;
-  @Deprecated('Use C.draft — a warning is usually the write clock asking for you.')
-  static const warn = draft;
-  @Deprecated('Use C.alarm.')
-  static const bad = alarm;
+  /// Something needs you, but nothing is broken: an expiring token, a dry run,
+  /// a draft written under settings you have since changed.
+  ///
+  /// Deliberately the SAME amber as [draft], and not a fourth colour. A draft
+  /// awaiting review and a token about to expire are asking for exactly the
+  /// same thing — your attention — so they should look the same. The separate
+  /// name exists because "draft" would read as a lie on a connection warning.
+  static const attention = draft;
+
+  // The legacy `accent`, `accentDim`, `warn` and `bad` aliases are gone. Every
+  // call site has been read and given a role; keeping them would have let the
+  // next one skip that step.
 }
 
 /// Spacing rhythm, on an 8-point scale with a 4 for tight pairs.

@@ -41,7 +41,7 @@ class StatusScreen extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: state.refresh,
       backgroundColor: C.surface2,
-      color: C.accent,
+      color: C.draft,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
         children: [
@@ -153,7 +153,7 @@ class _Connection extends StatelessWidget {
           Row(
             children: [
               Icon(account.usable ? Icons.check_circle_outline : Icons.error_outline,
-                  size: 18, color: account.usable ? C.good : C.bad),
+                  size: 18, color: account.usable ? C.good : C.alarm),
               const SizedBox(width: S.x2),
               Expanded(
                 child: Text(
@@ -266,8 +266,8 @@ class _CategoryChip extends StatelessWidget {
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: S.x4),
         decoration: BoxDecoration(
-          color: selected ? C.accentDim : C.surface2,
-          border: Border.all(color: selected ? C.accent : C.borderStrong),
+          color: selected ? C.draftDim : C.surface2,
+          border: Border.all(color: selected ? C.draft : C.borderStrong),
           borderRadius: BorderRadius.circular(999),
         ),
         child: Text(

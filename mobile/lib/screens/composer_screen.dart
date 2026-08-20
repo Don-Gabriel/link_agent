@@ -377,7 +377,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
                 spacing: S.x2,
                 runSpacing: S.x2,
                 children: [
-                  Badge2('$length / $kMaxBodyChars', tone: tooLong ? BadgeTone.bad : BadgeTone.neutral),
+                  Badge2('$length / $kMaxBodyChars', tone: tooLong ? BadgeTone.alarm : BadgeTone.neutral),
                   if (length > 0)
                     Badge2(
                       'hook $hookLength / $kFoldChars',
@@ -563,7 +563,7 @@ class _PreviewSheet extends StatelessWidget {
                   runSpacing: S.x2,
                   children: [
                     Badge2('${text.length} chars',
-                        tone: text.length > 2400 ? BadgeTone.bad : BadgeTone.neutral),
+                        tone: text.length > 2400 ? BadgeTone.alarm : BadgeTone.neutral),
                     Badge2(hashtags.isEmpty ? 'no tags' : '${hashtags.length} tags'),
                     if (imageCount > 0) Badge2('$imageCount image${imageCount == 1 ? '' : 's'}'),
                     if (publishNow)
@@ -673,7 +673,7 @@ class _Hashtags extends StatelessWidget {
                   onDeleted: busy ? null : () => onRemove(tag),
                   backgroundColor: C.surface2,
                   side: const BorderSide(color: C.borderStrong),
-                  labelStyle: const TextStyle(color: C.accent, fontSize: 14),
+                  labelStyle: const TextStyle(color: C.draft, fontSize: 14),
                   deleteIconColor: C.textFaint,
                 ),
             ],
@@ -723,7 +723,7 @@ class _VariantPanel extends StatelessWidget {
       padding: const EdgeInsets.all(S.x3),
       decoration: BoxDecoration(
         color: C.surface2,
-        border: Border.all(color: C.accent.withValues(alpha: 0.5)),
+        border: Border.all(color: C.draft.withValues(alpha: 0.5)),
         borderRadius: BorderRadius.circular(R.sm),
       ),
       child: Column(
@@ -838,7 +838,7 @@ class _Attachments extends StatelessWidget {
                               color: C.bg,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.close, size: 16, color: C.bad),
+                            child: const Icon(Icons.close, size: 16, color: C.alarm),
                           ),
                         ),
                       ),
@@ -894,8 +894,8 @@ class _Banner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (tone) {
-      BadgeTone.bad => C.bad,
-      BadgeTone.warn => C.warn,
+      BadgeTone.alarm => C.alarm,
+      BadgeTone.warn => C.attention,
       BadgeTone.good => C.good,
       BadgeTone.live => C.live,
       BadgeTone.neutral => C.textFaint,

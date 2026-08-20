@@ -125,8 +125,8 @@ class _Chip extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: S.x4),
           decoration: BoxDecoration(
-            color: selected ? C.accentDim : C.surface2,
-            border: Border.all(color: selected ? C.accent : C.borderStrong),
+            color: selected ? C.draftDim : C.surface2,
+            border: Border.all(color: selected ? C.draft : C.borderStrong),
             borderRadius: BorderRadius.circular(999),
           ),
           // Center with both factors set to 1, NOT Container(alignment:) — a
@@ -166,7 +166,11 @@ class ActionChip2 extends StatelessWidget {
   }
 }
 
-enum BadgeTone { neutral, good, warn, bad, live }
+/// What a badge MEANS, not what colour it is.
+///
+/// `warn` is the amber "needs you"; `alarm` is the red "broken". They were
+/// `warn` and `bad`, and `bad` said nothing about why.
+enum BadgeTone { neutral, good, warn, alarm, live }
 
 class Badge2 extends StatelessWidget {
   const Badge2(this.label, {super.key, this.tone = BadgeTone.neutral});
@@ -178,8 +182,8 @@ class Badge2 extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (tone) {
       BadgeTone.good => C.good,
-      BadgeTone.warn => C.warn,
-      BadgeTone.bad => C.bad,
+      BadgeTone.warn => C.attention,
+      BadgeTone.alarm => C.alarm,
       BadgeTone.live => C.live,
       BadgeTone.neutral => C.textFaint,
     };
@@ -310,9 +314,9 @@ class ErrorText extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.error_outline, size: 16, color: C.bad),
+            const Icon(Icons.error_outline, size: 16, color: C.alarm),
             const SizedBox(width: S.x2),
-            Expanded(child: Text(message, style: const TextStyle(fontSize: 13, color: C.bad, height: 1.4))),
+            Expanded(child: Text(message, style: const TextStyle(fontSize: 13, color: C.alarm, height: 1.4))),
           ],
         ),
       );

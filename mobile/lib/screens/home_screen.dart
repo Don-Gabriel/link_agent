@@ -101,14 +101,14 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Badge(
               isLabelVisible: pending > 0,
               label: Text('$pending'),
-              backgroundColor: C.accent,
+              backgroundColor: C.draft,
               textColor: C.bg,
               child: const Icon(Icons.inbox_outlined),
             ),
             selectedIcon: Badge(
               isLabelVisible: pending > 0,
               label: Text('$pending'),
-              backgroundColor: C.accent,
+              backgroundColor: C.draft,
               textColor: C.bg,
               child: const Icon(Icons.inbox),
             ),
