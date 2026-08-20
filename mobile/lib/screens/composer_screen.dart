@@ -211,11 +211,19 @@ class _ComposerScreenState extends State<ComposerScreen> {
   void _acceptVariant() {
     final variant = _variant;
     if (variant == null) return;
+    final state = context.read<AppState>();
+    // The tags come with the text. A rewrite that changes the angle should be
+    // free to change the tags with it — keeping the old ones would leave a post
+    // about one thing carrying the hashtags of another.
+    final suggested = state.lastVariantHashtags;
     setState(() {
       _text.text = variant;
+      if (suggested.isNotEmpty) _hashtags = List.of(suggested);
       _variant = null;
-      _voiceAtLoad = context.read<AppState>().style.summary;
-      _status = 'Applied. Not saved yet.';
+      _voiceAtLoad = state.style.summary;
+      _status = suggested.isEmpty
+          ? 'Applied. Not saved yet.'
+          : 'Applied, with its own hashtags. Not saved yet.';
     });
   }
 

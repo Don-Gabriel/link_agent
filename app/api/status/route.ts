@@ -31,7 +31,7 @@ import {
   schedulerHealth,
   slotTimeline,
 } from "../../../lib/slots";
-import { PRESETS } from "../../../lib/style";
+import { MAX_HASHTAGS, PRESETS } from "../../../lib/style";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +103,7 @@ export async function GET() {
 
     // Migrate before reading, so an agent that predates slots never renders an
     // empty timetable. Idempotent and a single cheap SELECT after the first run.
-    await ensureSlotsMigrated(
+    const slots = await ensureSlotsMigrated(
       agent.agentId,
       agent.postTimeLocal,
       agent.timezone,
@@ -113,22 +113,24 @@ export async function GET() {
       return [];
     });
 
-    const [account, queue, history, rejections, schedule, llm, ambiguous, sent, slots, timeline, scheduler] =
+    const [account, posts, rejections, schedule, llm, ambiguous, sent, timeline, scheduler] =
       await Promise.all([
       getAccountStatus(agent.agentId),
       // Ordered by when it GOES OUT rather than when it was written: with
       // several drafts waiting at once, the one with the nearest deadline is
       // the one that needs reading. Unscheduled drafts sort last.
+      // Queue and history in ONE round trip. Two queries over the same table,
+      // differing only in which statuses they want, cost two trips to a
+      // database that is not in the same country; this fetches both windows at
+      // once and splits them below.
       query<PostRow>(
-        `SELECT ${POST_COLUMNS} FROM posts
-          WHERE agent_id = $1 AND status IN ('draft', 'approved', 'failed', 'unknown', 'missed')
-          ORDER BY scheduled_for ASC NULLS LAST, created_at DESC LIMIT 20`,
-        [agent.agentId],
-      ),
-      query<PostRow>(
-        `SELECT ${POST_COLUMNS} FROM posts
-          WHERE agent_id = $1 AND status = 'published'
-          ORDER BY published_at DESC NULLS LAST, seq DESC LIMIT 20`,
+        `(SELECT ${POST_COLUMNS} FROM posts
+           WHERE agent_id = $1 AND status IN ('draft', 'approved', 'failed', 'unknown', 'missed')
+           ORDER BY scheduled_for ASC NULLS LAST, created_at DESC LIMIT 20)
+         UNION ALL
+         (SELECT ${POST_COLUMNS} FROM posts
+           WHERE agent_id = $1 AND status = 'published'
+           ORDER BY published_at DESC NULLS LAST, seq DESC LIMIT 20)`,
         [agent.agentId],
       ),
       query<{ title: string; url: string; reason: string; scores_json: Record<string, number>; created_at: Date }>(
@@ -143,10 +145,13 @@ export async function GET() {
       getTodayCalls().catch(() => []),
       listAmbiguousSends(agent.agentId),
       sendsToday(agent.agentId, agent.timezone),
-      listSlots(agent.agentId),
       slotTimeline(agent.agentId, 7),
       schedulerHealth(),
     ]);
+
+    // Split the single posts fetch back into its two windows.
+    const queue = posts.filter((p) => p.status !== "published");
+    const history = posts.filter((p) => p.status === "published");
 
     // The next run comes from the SLOTS, not from scheduler_state. That row's
     // next_run_at was derived from the legacy agents.post_time_local, which
@@ -168,6 +173,7 @@ export async function GET() {
         encryptionKey: hasEncryptionKey(),
         memoryDegraded: memoryDegraded(),
         maxAutoCap: MAX_AUTO_CAP,
+        maxHashtags: MAX_HASHTAGS,
         presets: Object.entries(PRESETS).map(([id, p]) => ({
           id,
           label: p.label,

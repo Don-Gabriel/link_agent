@@ -290,12 +290,23 @@ class AppState extends ChangeNotifier {
   Future<String> rewriteText(String text, {int variant = 0}) =>
       _readVariant(_api.post('/api/compose/rewrite', {'text': text, 'variant': variant}));
 
+  /// Hashtags the last rewrite suggested, if any.
+  ///
+  /// A rewrite that changes the angle should be free to change the tags with
+  /// it. The prompt used to demand an empty array, so every alternative
+  /// silently inherited the original's tags even when it was now about
+  /// something else.
+  List<String> lastVariantHashtags = const [];
+
   Future<String> _readVariant(Future<dynamic> call) async {
     final json = await call;
-    final text = (json as Map<String, dynamic>?)?['text'];
+    final map = json as Map<String, dynamic>?;
+    final text = map?['text'];
     if (text is! String || text.trim().isEmpty) {
       throw ApiException(0, 'rewrite_failed', detail: 'The writer returned nothing usable.');
     }
+    final tags = map?['hashtags'];
+    lastVariantHashtags = tags is List ? tags.whereType<String>().toList() : const [];
     return text;
   }
 

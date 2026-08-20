@@ -12,15 +12,40 @@
 import { Pool } from "pg";
 import { SCHEMA_SQL } from "./schema";
 
-let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
+/**
+ * Pool and schema state live on globalThis, NOT in module scope.
+ *
+ * `next dev` re-evaluates a module every time a route that imports it is
+ * recompiled — which happens constantly while editing. With these as plain
+ * module variables, every recompile built a BRAND NEW pool (fresh TLS
+ * handshakes to Neon) and re-ran the entire 14KB, 45-statement schema script
+ * over the network before the first query could proceed. That is most of why
+ * a simple PATCH took six seconds locally: almost none of it was the work.
+ *
+ * globalThis survives module re-evaluation, so the pool and the schema promise
+ * are created once per PROCESS. Production is unaffected either way — a lambda
+ * evaluates the module once — so this costs nothing there and transforms
+ * local development.
+ */
+interface DbGlobals {
+  pool: Pool | null;
+  schemaReady: Promise<void> | null;
+}
+const g = globalThis as unknown as { __linkdinDb?: DbGlobals };
+g.__linkdinDb ??= { pool: null, schemaReady: null };
+const state = g.__linkdinDb;
 
 export function getPool(): Pool | null {
   if (!process.env.DATABASE_URL) return null;
-  if (!pool) {
-    pool = new Pool({
+  if (!state.pool) {
+    state.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 3,
+      // Raised from 3. Every read endpoint fans out a dozen independent
+      // queries through Promise.all, and with three connections those ran four
+      // rounds deep — turning one network round trip of latency into four
+      // against a database that is not in the same country. Neon's pooled
+      // endpoint is built for far more than this.
+      max: 10,
       idleTimeoutMillis: 30_000,
       // Neon's free tier autosuspends after ~5 idle minutes and a cold start
       // regularly takes 5-10 seconds. A 5s ceiling meant the FIRST request
@@ -33,29 +58,30 @@ export function getPool(): Pool | null {
       // terminated unexpectedly".
       keepAlive: true,
     });
-    pool.on("error", (err) => {
+    state.pool.on("error", (err) => {
       console.error("[db] idle client error:", err.message);
     });
   }
-  return pool;
+  return state.pool;
 }
 
 /** Applies the schema once per instance; safe to call on every access. */
 export async function ensureSchema(): Promise<boolean> {
   const p = getPool();
   if (!p) return false;
-  if (!schemaReady) {
-    schemaReady = p
+  if (!state.schemaReady) {
+    const started = Date.now();
+    state.schemaReady = p
       .query(SCHEMA_SQL)
       .then(() => {
-        console.log("[db] schema ensured");
+        console.log(`[db] schema ensured in ${Date.now() - started}ms`);
       })
       .catch((err) => {
-        schemaReady = null; // allow retry on the next access
+        state.schemaReady = null; // allow retry on the next access
         throw err;
       });
   }
-  await schemaReady;
+  await state.schemaReady;
   return true;
 }
 

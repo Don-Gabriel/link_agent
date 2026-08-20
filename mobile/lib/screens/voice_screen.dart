@@ -201,7 +201,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 label: 'Hashtags',
                 value: style.hashtagCount,
                 min: 0,
-                max: 5,
+                // From the server, not hardcoded — a stepper that offers more
+                // than the API accepts silently clamps and looks broken.
+                max: state.status?.maxHashtags ?? 15,
                 step: 1,
                 onChanged: (v) => _set(style.copyWith(hashtagCount: v)),
               ),

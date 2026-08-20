@@ -8,6 +8,7 @@
  * away. Structure that must be exact does not belong in a prompt.
  */
 import { MAX_COMMENTARY, toLittleText } from "./linkedin";
+import { MAX_HASHTAGS } from "./style";
 
 /** Body budget. Escaping expands the text, so this leaves room under the 3000 cap. */
 export const MAX_BODY_CHARS = 2400;
@@ -44,9 +45,12 @@ export function assemblePost(args: AssembleArgs): string {
 
   if (args.sourceUrl) parts.push(`Source: ${args.sourceUrl}`);
 
-  // Two is a topic marker and five is reach-farming, but which of those the
-  // author wants is their call — the cap comes from their style config.
-  const cap = Math.min(5, Math.max(0, args.maxHashtags ?? 2));
+  // Two is a topic marker and fifteen is reach-farming, but which of those the
+  // author wants is their call — the cap comes from their style config. This
+  // second ceiling exists only so a corrupted config cannot produce a wall of
+  // tags; it must never be LOWER than the one parseStyle allows, or a setting
+  // the UI accepts would be silently truncated here.
+  const cap = Math.min(MAX_HASHTAGS, Math.max(0, args.maxHashtags ?? 2));
   const tags = (args.hashtags ?? [])
     .map(normalizeHashtag)
     .filter((t): t is string => t !== null)

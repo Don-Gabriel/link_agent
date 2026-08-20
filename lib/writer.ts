@@ -313,7 +313,7 @@ export async function rewriteDraft(
   draft: string,
   style: StyleConfig = DEFAULT_STYLE,
   attempt = 0,
-): Promise<{ ok: true; data: { text: string; servedBy?: string } } | { ok: false; reason: string }> {
+): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const angles = [
     "Open from a different entry point than the current draft — if it opens with the result, open with the problem, and vice versa.",
     "Restructure the argument: lead with the consequence and work backwards to the mechanism.",
@@ -328,7 +328,10 @@ OVERRIDE FOR THIS TASK: you are producing an ALTERNATIVE version of an existing 
 - The TREATMENT must genuinely differ. ${angles[attempt % angles.length]}
 - Returning something close to the original is a failure — the whole point is to give a real choice.
 - Obey every voice constraint above; those are the author's settings, not the original draft's habits.
-Respond with JSON exactly: {"text": "...", "rationale": "one line on how this version differs", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": [], "used_quote": true or false}`;
+Respond with JSON exactly: {"text": "...", "rationale": "one line on how this version differs", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": ["Tag"], "used_quote": true or false}
+${style.hashtagCount === 0
+  ? "- hashtags: return an empty array. This author does not use them."
+  : `- hashtags: choose 0-${style.hashtagCount} single-word alphanumeric tags that fit THIS version. They are appended automatically, so do not put them in the text.`}`;
 
   const res = await complete({
     system,
@@ -339,7 +342,14 @@ Respond with JSON exactly: {"text": "...", "rationale": "one line on how this ve
   if (!res.ok) return { ok: false, reason: res.reason };
   const parsed = parseJson(res.text, isDraft);
   if (!parsed) return { ok: false, reason: "rewrite_json_invalid" };
-  return { ok: true, data: { text: parsed.text.trim(), servedBy: res.model } };
+  return {
+    ok: true,
+    data: {
+      text: parsed.text.trim(),
+      hashtags: parsed.hashtags ?? [],
+      servedBy: res.model,
+    },
+  };
 }
 
 /**
@@ -352,7 +362,7 @@ export async function polishCustomPost(
   persona: PersonaRecord,
   draft: string,
   style: StyleConfig = DEFAULT_STYLE,
-): Promise<{ ok: true; data: { text: string; servedBy?: string } } | { ok: false; reason: string }> {
+): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const system = `${buildSystem(style)}
 
 OVERRIDE FOR THIS TASK: you are editing the author's OWN draft, not choosing a story.
@@ -361,7 +371,10 @@ OVERRIDE FOR THIS TASK: you are editing the author's OWN draft, not choosing a s
 - Reshape the draft to the structure rules above — if they call for bullets and the author wrote prose, convert it. Their words, your layout.
 - If the draft is already good, return it nearly unchanged. Do not pad it to look like work.
 - Do NOT add a signature line that was not there unless the draft is obviously reaching for one.
-Respond with JSON exactly: {"text": "...", "rationale": "one line on what you changed", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": [], "used_quote": true or false}`;
+Respond with JSON exactly: {"text": "...", "rationale": "one line on what you changed", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": ["Tag"], "used_quote": true or false}
+${style.hashtagCount === 0
+  ? "- hashtags: return an empty array. This author does not use them."
+  : `- hashtags: choose 0-${style.hashtagCount} single-word alphanumeric tags that fit THIS version. They are appended automatically, so do not put them in the text.`}`;
 
   const res = await complete({
     system,
@@ -372,5 +385,8 @@ Respond with JSON exactly: {"text": "...", "rationale": "one line on what you ch
   if (!res.ok) return { ok: false, reason: res.reason };
   const parsed = parseJson(res.text, isDraft);
   if (!parsed) return { ok: false, reason: "polish_json_invalid" };
-  return { ok: true, data: { text: parsed.text, servedBy: res.model } };
+  return {
+    ok: true,
+    data: { text: parsed.text, hashtags: parsed.hashtags ?? [], servedBy: res.model },
+  };
 }

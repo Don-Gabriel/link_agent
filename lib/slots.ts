@@ -328,6 +328,9 @@ export async function ensureSlotsMigrated(
   autoPublish: boolean,
 ): Promise<PostSlot[]> {
   const existing = await listSlots(agentId);
+  // Returned, not discarded: /api/status used to call this and then call
+  // listSlots again for the same rows — a second network round trip for data
+  // it already had in hand.
   if (existing.length > 0) return existing;
 
   const created = await createSlot(agentId, timezone, {

@@ -34,7 +34,15 @@ import {
   SLOT_COLUMNS_QUALIFIED,
 } from "../lib/slots";
 import { MAX_AUTO_CAP } from "../lib/distribute";
-import { BULLET_MARK, DEFAULT_STYLE, parseStyle, PRESETS, signatureBudget, styleBlock } from "../lib/style";
+import {
+  BULLET_MARK,
+  DEFAULT_STYLE,
+  MAX_HASHTAGS,
+  parseStyle,
+  PRESETS,
+  signatureBudget,
+  styleBlock,
+} from "../lib/style";
 import { critique, firstSentence, repairInstruction, summarize } from "../lib/critique";
 import { parseCorpus, pickSamples, voiceBlock } from "../lib/voice";
 import {
@@ -153,7 +161,25 @@ console.log("\nstyle config");
 
   // Out-of-range values must clamp rather than reach the prompt verbatim.
   check("unknown enum falls back", parseStyle({ structure: "haiku" }).structure === "prose");
-  check("hashtag count clamps to 5", parseStyle({ hashtagCount: 99 }).hashtagCount === 5);
+  check(`hashtag count clamps to ${MAX_HASHTAGS}`,
+    parseStyle({ hashtagCount: 99 }).hashtagCount === MAX_HASHTAGS,
+    `${parseStyle({ hashtagCount: 99 }).hashtagCount}`);
+  check("a raised cap is honoured, not silently trimmed",
+    parseStyle({ hashtagCount: 12 }).hashtagCount === 12);
+
+  // assemblePost applies its OWN ceiling as a backstop against a corrupted
+  // config. If that ceiling is ever lower than the one parseStyle allows, a
+  // value the UI happily accepts gets silently truncated at assembly time and
+  // the setting appears to do nothing past a number nobody documented.
+  const many = Array.from({ length: MAX_HASHTAGS }, (_, i) => `Tag${i}`);
+  const assembledTags = assemblePost({
+    body: "Body text here.",
+    hashtags: many,
+    maxHashtags: MAX_HASHTAGS,
+  });
+  check("assembly honours the full configured cap",
+    many.every((t) => assembledTags.includes(`#${t}`)),
+    assembledTags.slice(-120));
   check("negative hashtag count clamps to 0", parseStyle({ hashtagCount: -3 }).hashtagCount === 0);
 
   // An inverted word window would produce "write 200-80 words", which the model

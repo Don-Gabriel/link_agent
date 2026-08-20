@@ -52,6 +52,8 @@ export async function POST(request: Request) {
   // perfectly publishable, and losing their draft to a quota error would be
   // the worst possible outcome.
   let polishedBy: string | undefined;
+  // Tags the polish step suggested, used only if the author gave none.
+  let polishedTags: string[] = [];
   if (body.polish) {
     const persona = await getPersona(agent.agentId);
     if (persona) {
@@ -59,6 +61,9 @@ export async function POST(request: Request) {
       if (polished.ok) {
         text = polished.data.text.trim();
         polishedBy = polished.data.servedBy;
+        // Only when the author supplied none of their own. Polishing should
+        // never overwrite tags someone deliberately chose.
+        if (polishedTags.length === 0) polishedTags = polished.data.hashtags ?? [];
       } else {
         console.warn(`[compose] polish failed (${polished.reason}) — keeping the author's text`);
       }
@@ -66,9 +71,10 @@ export async function POST(request: Request) {
   }
 
   const mediaIds = (body.mediaIds ?? []).filter((id) => typeof id === "string").slice(0, 20);
-  const hashtags = (body.hashtags ?? [])
-    .filter((h) => typeof h === "string")
-    .slice(0, agent.style.hashtagCount);
+  const hashtags = [
+    ...(body.hashtags ?? []).filter((h) => typeof h === "string"),
+    ...polishedTags,
+  ].slice(0, agent.style.hashtagCount);
   const category = isCategoryId(body.category) ? body.category : null;
 
   // Validate the assembled length now rather than at publish time, so the

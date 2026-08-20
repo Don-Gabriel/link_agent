@@ -615,6 +615,7 @@ class AppStatus {
     required this.account,
     required this.liveMode,
     required this.maxAutoCap,
+    required this.maxHashtags,
     required this.presets,
     required this.queue,
     required this.history,
@@ -636,6 +637,10 @@ class AppStatus {
   final Account account;
   final bool liveMode;
   final int maxAutoCap;
+
+  /// Server-side ceiling on hashtags per post, so the stepper cannot offer a
+  /// value the API would clamp.
+  final int maxHashtags;
   final List<StylePreset> presets;
   final List<Post> queue;
   final List<Post> history;
@@ -696,6 +701,7 @@ class AppStatus {
       account: Account.fromJson(_map(j['account'])),
       liveMode: _bool(config['liveMode']),
       maxAutoCap: _int(config['maxAutoCap'], 3),
+      maxHashtags: _int(config['maxHashtags'], 15),
       presets: _list(config['presets']).map(StylePreset.fromJson).toList(),
       queue: _list(j['queue']).map(Post.fromJson).toList(),
       history: _list(j['history']).map(Post.fromJson).toList(),

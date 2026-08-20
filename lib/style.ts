@@ -21,6 +21,16 @@
  */
 
 /** The bullet character used when structure is "bullets". Renders everywhere LinkedIn does. */
+/**
+ * Ceiling on hashtags per post.
+ *
+ * Raised from 5 at the author's request. The house style still defaults to two
+ * — beyond a handful they stop marking a topic and start looking like reach
+ * farming — but that is a matter of taste and belongs to whoever is posting,
+ * not to this file.
+ */
+export const MAX_HASHTAGS = 15;
+
 export const BULLET_MARK = "→";
 
 export type Structure = "prose" | "bullets" | "short-lines" | "mixed";
@@ -224,7 +234,7 @@ export function parseStyle(v: unknown): StyleConfig {
     cta: oneOf(o.cta, ["none", "soft", "direct"], DEFAULT_STYLE.cta),
     minWords,
     maxWords,
-    hashtagCount: clamp(o.hashtagCount, 0, 5, DEFAULT_STYLE.hashtagCount),
+    hashtagCount: clamp(o.hashtagCount, 0, MAX_HASHTAGS, DEFAULT_STYLE.hashtagCount),
     register: oneOf(o.register, ["practitioner", "peer", "accessible"], DEFAULT_STYLE.register),
     // These three use presence rather than truthiness: an ABSENT key means
     // "unset, use the house default", while an explicitly supplied empty array

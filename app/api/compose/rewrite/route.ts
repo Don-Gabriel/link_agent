@@ -49,5 +49,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "rewrite_failed", detail: variant.reason }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, text: variant.data.text, servedBy: variant.data.servedBy });
+  // Hashtags travel with the variant. A rewrite that changes the angle
+  // should be free to change the tags with it — the old prompt demanded an
+  // empty array, so every alternative silently inherited whatever tags the
+  // original happened to carry, even when it was now about something else.
+  return NextResponse.json({
+    ok: true,
+    text: variant.data.text,
+    hashtags: (variant.data.hashtags ?? []).slice(0, agent.style.hashtagCount),
+    servedBy: variant.data.servedBy,
+  });
 }
