@@ -56,6 +56,12 @@ class ScheduleScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(S.x4),
         children: [
+          // Above everything, because when this is wrong nothing else on the
+          // screen means what it appears to mean.
+          if (!status.scheduler.healthy) ...[
+            _SchedulerDown(health: status.scheduler),
+            const SizedBox(height: S.x4),
+          ],
           _Today(status: status),
           const SizedBox(height: S.x5),
           _RunNow(agent: agent),
@@ -64,6 +70,77 @@ class ScheduleScreen extends StatelessWidget {
           const SizedBox(height: S.x4),
           _Publishing(status: status, agent: agent),
           const SizedBox(height: S.x6),
+        ],
+      ),
+    );
+  }
+}
+
+/// The cron has stopped, or was never started.
+///
+/// This is the failure the whole screen was previously blind to. Every other
+/// state here — a quiet slot, an empty day — is the agent making a decision.
+/// This one is the agent not running at all, and the two looked identical:
+/// "No slot has run yet today" is what you saw either way.
+///
+/// It says what to check rather than only that something is wrong, because
+/// the answer is almost always "the thing that calls the endpoint stopped",
+/// not anything inside the app.
+class _SchedulerDown extends StatelessWidget {
+  const _SchedulerDown({required this.health});
+
+  final SchedulerHealth health;
+
+  @override
+  Widget build(BuildContext context) {
+    final since = health.minutesSince;
+    final howLong = since == null
+        ? null
+        : since < 90
+            ? '$since minutes'
+            : since < 60 * 48
+                ? '${(since / 60).round()} hours'
+                : '${(since / 1440).round()} days';
+
+    return Container(
+      padding: const EdgeInsets.all(S.x4),
+      decoration: BoxDecoration(
+        color: C.alarmDim,
+        border: Border.all(color: C.alarm.withValues(alpha: 0.6)),
+        borderRadius: BorderRadius.circular(R.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cloud_off, size: 18, color: C.alarm),
+              const SizedBox(width: S.x2),
+              // Expanded, because "SCHEDULER NEVER STARTED" is 15px too wide
+              // for a 360px phone once the icon and padding are accounted for.
+              Expanded(
+                child: Text(
+                  health.neverRan ? 'SCHEDULER NEVER STARTED' : 'SCHEDULER STOPPED',
+                  style: T.panelHead.copyWith(color: C.alarm),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            health.neverRan
+                ? 'Nothing has ever called the scheduler on this server, so no posting '
+                    'time will ever fire. Point your cron at /api/cron/tick.'
+                : 'Nothing has checked in for $howLong. Posting times will not fire '
+                    'until it is running again — check that your cron job is still going.',
+            style: T.body.copyWith(fontSize: 14),
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            'Run a cycle now still works — it calls the server directly rather '
+            'than waiting for the schedule.',
+            style: T.xs,
+          ),
         ],
       ),
     );

@@ -478,6 +478,47 @@ class TimelineEntry {
 
 /// Server-authoritative bounds for the schedule editor, so the app never offers
 /// a value the API would clamp or refuse.
+/// Whether the cron driving everything is actually alive.
+///
+/// Without this the app cannot tell "the agent judged everything below the bar
+/// and stayed quiet" from "nothing has been running since Tuesday" — both look
+/// like an empty timeline.
+class SchedulerHealth {
+  const SchedulerHealth({
+    required this.lastTickAt,
+    required this.minutesSince,
+    required this.healthy,
+    required this.staleAfterMinutes,
+  });
+
+  final DateTime? lastTickAt;
+  final int? minutesSince;
+  final bool healthy;
+  final int staleAfterMinutes;
+
+  /// True when it has never checked in at all — usually a cron that was never
+  /// pointed at this deployment, which reads differently from one that stopped.
+  bool get neverRan => lastTickAt == null;
+
+  /// Optimistic default: an older backend that does not report this must not
+  /// make the app shout that the scheduler is down.
+  static const unknown = SchedulerHealth(
+    lastTickAt: null,
+    minutesSince: null,
+    healthy: true,
+    staleAfterMinutes: 16,
+  );
+
+  factory SchedulerHealth.fromJson(Map<String, dynamic>? j) => j == null
+      ? unknown
+      : SchedulerHealth(
+          lastTickAt: DateTime.tryParse(_str(j['lastTickAt'], ''))?.toLocal(),
+          minutesSince: j['minutesSince'] is num ? (j['minutesSince'] as num).toInt() : null,
+          healthy: j['healthy'] == null ? true : _bool(j['healthy']),
+          staleAfterMinutes: _int(j['staleAfterMinutes'], 16),
+        );
+}
+
 class SlotLimits {
   const SlotLimits({
     required this.maxSlots,
@@ -587,6 +628,7 @@ class AppStatus {
     required this.timeline,
     required this.slotLimits,
     required this.categories,
+    required this.scheduler,
   });
 
   final bool initialized;
@@ -610,6 +652,9 @@ class AppStatus {
   /// What each slot did over the last week, newest first.
   final List<TimelineEntry> timeline;
   final SlotLimits slotLimits;
+
+  /// Whether the cron is alive.
+  final SchedulerHealth scheduler;
 
   /// Every category the backend knows about, in its own order.
   final List<CategoryInfo> categories;
@@ -664,6 +709,7 @@ class AppStatus {
       timeline: _list(j['timeline']).map(TimelineEntry.fromJson).toList(),
       slotLimits: SlotLimits.fromJson(_map(j['slotLimits'])),
       categories: _list(config['categories']).map(CategoryInfo.fromJson).toList(),
+      scheduler: SchedulerHealth.fromJson(_map(j['scheduler'])),
     );
   }
 }

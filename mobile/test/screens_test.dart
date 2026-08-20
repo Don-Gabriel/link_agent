@@ -142,6 +142,12 @@ Map<String, dynamic> statusFixture({
           'detail': 'Nothing cleared 6.5 — best was 5.8 across 24 candidates.',
         },
       ],
+      'scheduler': {
+        'lastTickAt': '2026-08-20T13:00:00.000Z',
+        'minutesSince': 2,
+        'healthy': true,
+        'staleAfterMinutes': 16,
+      },
       'slotLimits': {
         'maxSlots': 5,
         'minLeadMinutes': 10,
@@ -707,6 +713,53 @@ void main() {
   // unambiguous — with two slots there are fourteen of them.
   // The rail is the signature element: time down the left, events hung off it.
   // A silent slot must still read as a decision rather than a gap.
+  // The failure the screen was blind to. A stopped cron and a day when nothing
+  // cleared the bar both produced "No slot has run yet today", so the one state
+  // that needs action looked exactly like the one that needs none.
+  testWidgets('ScheduleScreen shouts when the scheduler has stopped', (tester) async {
+    final down = statusFixture();
+    down['scheduler'] = {
+      'lastTickAt': DateTime.now().toUtc().subtract(const Duration(hours: 11)).toIso8601String(),
+      'minutesSince': 660,
+      'healthy': false,
+      'staleAfterMinutes': 16,
+    };
+
+    final state = await buildState(down);
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    expect(find.text('SCHEDULER STOPPED'), findsOneWidget);
+    expect(find.textContaining('11 hours'), findsOneWidget);
+    // And it says the escape hatch still works, because that is the next thing
+    // anyone reading this will want to know.
+    expect(find.textContaining('Run a cycle now still works'), findsOneWidget);
+  });
+
+  testWidgets('ScheduleScreen distinguishes never-started from stopped', (tester) async {
+    final never = statusFixture();
+    never['scheduler'] = {
+      'lastTickAt': null,
+      'minutesSince': null,
+      'healthy': false,
+      'staleAfterMinutes': 16,
+    };
+
+    final state = await buildState(never);
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    expect(find.text('SCHEDULER NEVER STARTED'), findsOneWidget);
+    expect(find.textContaining('/api/cron/tick'), findsOneWidget);
+  });
+
+  // A healthy scheduler must stay silent — a banner that is always there is a
+  // banner nobody reads.
+  testWidgets('ScheduleScreen says nothing when the scheduler is healthy', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const ScheduleScreen(), state);
+
+    expect(find.textContaining('SCHEDULER'), findsNothing);
+  });
+
   testWidgets('ScheduleScreen leads with the day rail', (tester) async {
     final withNext = statusFixture();
     (withNext['queue'] as List).insert(0, {

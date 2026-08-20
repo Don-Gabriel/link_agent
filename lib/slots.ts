@@ -485,6 +485,74 @@ export async function withSlotLock<T>(
   }
 }
 
+// --------------------------------------------------------------- heartbeat
+
+/**
+ * How long without a tick before the scheduler is presumed dead.
+ *
+ * Three missed ticks at the recommended 5-minute interval. Long enough to ride
+ * out one slow run or a provider hiccup, short enough that a stopped cron is
+ * noticed within the quarter hour.
+ */
+export const TICK_STALE_MINUTES = 16;
+
+/**
+ * Record that the scheduler checked in.
+ *
+ * Exists because "nothing happened today" has two completely different causes
+ * that looked identical from the app: the agent judged everything below the bar
+ * and stayed quiet, or NOTHING IS RUNNING AT ALL. The first is the system
+ * working; the second is a cron that stopped hours ago, and the only visible
+ * difference was an empty timeline in both cases.
+ *
+ * Never throws. A heartbeat that could break a tick would be worse than no
+ * heartbeat.
+ */
+export async function recordTick(): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO system_status (key, value, updated_at)
+       VALUES ('last_tick', '{}'::jsonb, now())
+       ON CONFLICT (key) DO UPDATE SET updated_at = now()`,
+    );
+  } catch (err) {
+    console.warn("[slots] could not record the tick heartbeat:", err);
+  }
+}
+
+export interface SchedulerHealth {
+  lastTickAt: string | null;
+  minutesSince: number | null;
+  /** False when the cron has stopped, or has never run at all. */
+  healthy: boolean;
+  staleAfterMinutes: number;
+}
+
+export async function schedulerHealth(): Promise<SchedulerHealth> {
+  try {
+    const rows = await query<{ updated_at: Date }>(
+      "SELECT updated_at FROM system_status WHERE key = 'last_tick'",
+    );
+    const last = rows[0]?.updated_at ?? null;
+    if (!last) {
+      // Never ticked. Not a stale heartbeat — an absent one, which usually
+      // means the cron was never pointed at this deployment.
+      return { lastTickAt: null, minutesSince: null, healthy: false, staleAfterMinutes: TICK_STALE_MINUTES };
+    }
+    const minutesSince = Math.floor((Date.now() - last.getTime()) / 60_000);
+    return {
+      lastTickAt: last.toISOString(),
+      minutesSince,
+      healthy: minutesSince <= TICK_STALE_MINUTES,
+      staleAfterMinutes: TICK_STALE_MINUTES,
+    };
+  } catch {
+    // A database hiccup is not evidence the scheduler is down, so this reports
+    // unknown-but-healthy rather than crying wolf.
+    return { lastTickAt: null, minutesSince: null, healthy: true, staleAfterMinutes: TICK_STALE_MINUTES };
+  }
+}
+
 // ---------------------------------------------------------------- timeline
 
 export interface TimelineEntry {

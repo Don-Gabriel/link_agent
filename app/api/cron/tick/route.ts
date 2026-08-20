@@ -32,7 +32,7 @@
 import { after, NextResponse } from "next/server";
 import { runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
 import { publishDuePosts } from "../../../../lib/distribute";
-import { listDueSlots, MISSED_AFTER_MINUTES } from "../../../../lib/slots";
+import { listDueSlots, MISSED_AFTER_MINUTES, recordTick } from "../../../../lib/slots";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -49,6 +49,12 @@ function authorized(request: Request): boolean {
 
 export async function GET(request: Request) {
   if (!authorized(request)) return new NextResponse("Not Found", { status: 404 });
+
+  // Before anything else, and regardless of what the passes then do. The
+  // heartbeat records that the SCHEDULER IS ALIVE — a tick that legitimately
+  // finds nothing due is still proof the cron is running, and that is exactly
+  // the case the app could not previously distinguish from a dead one.
+  await recordTick();
 
   const url = new URL(request.url);
   const forcedAgent = url.searchParams.get("agent");

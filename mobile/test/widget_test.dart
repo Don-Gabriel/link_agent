@@ -171,6 +171,53 @@ void main() {
       expect(find.text('see more'), findsOneWidget);
     });
 
+    // "see more" used to be a caption between two rules, with the rest of the
+    // text already visible underneath — it looked like a button, sat where a
+    // button belongs, and did nothing.
+    testWidgets('see more actually expands and collapses', (tester) async {
+      final tail = 'TAIL_MARKER ' * 6;
+      final post = Post.fromJson({
+        'id': 'p30',
+        'seq': 30,
+        'text': 'A' * (kFoldChars + 5) + ' $tail',
+        'status': 'draft',
+      });
+
+      await tester.pumpWidget(wrap(PostCard(post: post)));
+
+      // Collapsed first: what a reader scrolling their feed sees.
+      expect(find.text('see more'), findsOneWidget);
+      expect(find.textContaining('TAIL_MARKER'), findsNothing);
+
+      await tester.tap(find.text('see more'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('see less'), findsOneWidget);
+      expect(find.textContaining('TAIL_MARKER'), findsOneWidget);
+
+      await tester.tap(find.text('see less'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('see more'), findsOneWidget);
+      expect(find.textContaining('TAIL_MARKER'), findsNothing);
+    });
+
+    // A post that fits above the fold has nothing to expand, so offering the
+    // control would be offering to reveal nothing.
+    testWidgets('a short post gets no toggle at all', (tester) async {
+      final post = Post.fromJson({
+        'id': 'p31',
+        'seq': 31,
+        'text': 'Short enough to survive the fold intact.',
+        'status': 'draft',
+      });
+
+      await tester.pumpWidget(wrap(PostCard(post: post)));
+
+      expect(find.text('see more'), findsNothing);
+      expect(find.text('see less'), findsNothing);
+    });
+
     testWidgets('draft actions appear only when handlers are given', (tester) async {
       final post = Post.fromJson({'id': 'p3', 'seq': 3, 'text': 'Body text.', 'status': 'draft'});
 

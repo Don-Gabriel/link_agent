@@ -403,13 +403,31 @@ class PostCard extends StatelessWidget {
 }
 
 /// Post text with the "see more" boundary drawn across it.
-class _FoldedText extends StatelessWidget {
+/// The post, cut where LinkedIn cuts it, with a real toggle.
+///
+/// Starts COLLAPSED, which is the whole point: what you see first is exactly
+/// what a reader scrolling their feed sees first. Judge the hook against that,
+/// then expand to review the rest.
+///
+/// It used to render "see more" as a divider caption with the remaining text
+/// already visible underneath — a label that looked like a button, sat where a
+/// button belongs, and did nothing when pressed.
+class _FoldedText extends StatefulWidget {
   const _FoldedText(this.text);
 
   final String text;
 
   @override
+  State<_FoldedText> createState() => _FoldedTextState();
+}
+
+class _FoldedTextState extends State<_FoldedText> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final text = widget.text;
+
     // The fold falls at a character offset in the whole post, not at a line
     // break, so the text is split rather than measured — anything else would
     // put the marker in a place LinkedIn does not actually cut.
@@ -423,21 +441,112 @@ class _FoldedText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(above, style: T.body),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: S.x3),
+        _FoldToggle(
+          expanded: _expanded,
+          hiddenChars: below.trim().length,
+          onTap: () => setState(() => _expanded = !_expanded),
+        ),
+        // Collapsed is not "hidden": the text above the fold is the whole post
+        // as far as most readers are concerned, so nothing below it is dimmed
+        // out of existence — it is simply not shown until asked for.
+        if (_expanded) Text(below, style: T.body.copyWith(color: C.textDim)),
+      ],
+    );
+  }
+}
+
+/// The fold marker, which is also the control.
+///
+/// Full-width and touch-sized rather than a caption between two rules: the old
+/// version was the right idea rendered as something unpressable.
+class _FoldToggle extends StatelessWidget {
+  const _FoldToggle({
+    required this.expanded,
+    required this.hiddenChars,
+    required this.onTap,
+  });
+
+  final bool expanded;
+  final int hiddenChars;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      expanded: expanded,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(R.sm),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: kMinTouch),
+          padding: const EdgeInsets.symmetric(vertical: S.x2),
           child: Row(
             children: [
-              const Expanded(child: Divider(color: C.borderStrong, height: 1)),
+              // Dashed in the draft accent, so the boundary reads as part of
+              // the write clock — it is a thing you can still act on.
+              const Expanded(child: _DashedRule()),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: S.x2),
-                child: Text('see more', style: T.xs.copyWith(letterSpacing: 0.5)),
+                padding: const EdgeInsets.symmetric(horizontal: S.x3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      expanded ? 'see less' : 'see more',
+                      style: T.xs.copyWith(
+                        color: C.draft,
+                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (!expanded) ...[
+                      const SizedBox(width: S.x1),
+                      // What LinkedIn is hiding, in the reader's terms.
+                      Text('· $hiddenChars more', style: T.xs),
+                    ],
+                    const SizedBox(width: S.x1),
+                    Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
+                      color: C.draft,
+                    ),
+                  ],
+                ),
               ),
-              const Expanded(child: Divider(color: C.borderStrong, height: 1)),
+              const Expanded(child: _DashedRule()),
             ],
           ),
         ),
-        Text(below, style: T.body.copyWith(color: C.textDim)),
-      ],
+      ),
+    );
+  }
+}
+
+/// A dashed hairline. Drawn rather than using Divider, because a dash pattern
+/// says "cut here" in a way a solid rule does not.
+class _DashedRule extends StatelessWidget {
+  const _DashedRule();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const dash = 5.0;
+        const gap = 4.0;
+        final count = (constraints.maxWidth / (dash + gap)).floor().clamp(0, 200);
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(
+            count,
+            (_) => Container(
+              width: dash,
+              height: 1,
+              margin: const EdgeInsets.only(right: gap),
+              color: C.draft.withValues(alpha: 0.35),
+            ),
+          ),
+        );
+      },
     );
   }
 }

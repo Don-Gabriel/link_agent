@@ -28,6 +28,7 @@ import {
   MAX_SLOTS,
   MIN_LEAD_MINUTES,
   MISSED_AFTER_MINUTES,
+  schedulerHealth,
   slotTimeline,
 } from "../../../lib/slots";
 import { PRESETS } from "../../../lib/style";
@@ -112,7 +113,7 @@ export async function GET() {
       return [];
     });
 
-    const [account, queue, history, rejections, schedule, llm, ambiguous, sent, slots, timeline] =
+    const [account, queue, history, rejections, schedule, llm, ambiguous, sent, slots, timeline, scheduler] =
       await Promise.all([
       getAccountStatus(agent.agentId),
       // Ordered by when it GOES OUT rather than when it was written: with
@@ -144,6 +145,7 @@ export async function GET() {
       sendsToday(agent.agentId, agent.timezone),
       listSlots(agent.agentId),
       slotTimeline(agent.agentId, 7),
+      schedulerHealth(),
     ]);
 
     // The next run comes from the SLOTS, not from scheduler_state. That row's
@@ -206,6 +208,9 @@ export async function GET() {
         nextRunLocal: s.nextRunAt ? formatInZone(new Date(s.nextRunAt), agent.timezone) : null,
       })),
       timeline,
+      // Whether the cron is alive at all. Without this, a stopped scheduler and
+      // a day when nothing cleared the bar look identical from the app.
+      scheduler,
       slotLimits: {
         maxSlots: MAX_SLOTS,
         minLeadMinutes: MIN_LEAD_MINUTES,
