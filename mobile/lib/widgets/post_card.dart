@@ -53,9 +53,15 @@ String _countdown(Duration d) {
 /// only updates on pull-to-refresh is worse than none — it invites you to trust
 /// a figure that is already stale.
 class _ScheduleStrip extends StatefulWidget {
-  const _ScheduleStrip({required this.post});
+  const _ScheduleStrip({required this.post, this.onTap, this.onClear});
 
   final Post post;
+
+  /// Change the time. The strip is the obvious place to tap for that.
+  final VoidCallback? onTap;
+
+  /// Take it off the timetable entirely.
+  final VoidCallback? onClear;
 
   @override
   State<_ScheduleStrip> createState() => _ScheduleStripState();
@@ -114,24 +120,83 @@ class _ScheduleStripState extends State<_ScheduleStrip> {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+      padding: const EdgeInsets.fromLTRB(S.x3, S.x2, S.x2, S.x2),
       decoration: BoxDecoration(
         color: tone.withValues(alpha: 0.10),
         border: Border.all(color: tone.withValues(alpha: 0.40)),
         borderRadius: BorderRadius.circular(R.sm),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, size: 16, color: tone),
           const SizedBox(width: S.x2),
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(fontSize: 13, height: 1.4, color: tone, fontWeight: FontWeight.w500),
+            child: InkWell(
+              onTap: widget.onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x1),
+                child: Text(
+                  message,
+                  style:
+                      TextStyle(fontSize: 13, height: 1.4, color: tone, fontWeight: FontWeight.w500),
+                ),
+              ),
             ),
           ),
+          if (widget.onClear != null)
+            IconButton(
+              onPressed: widget.onClear,
+              icon: const Icon(Icons.timer_off_outlined, size: 18),
+              tooltip: 'Remove the send time',
+              visualDensity: VisualDensity.compact,
+              style: IconButton.styleFrom(foregroundColor: tone.withValues(alpha: 0.8)),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// The offer of a send time, on a draft that has none.
+///
+/// Reads as an invitation rather than an empty field: a draft with no time is a
+/// perfectly normal thing that you will publish when you get to it, so this must
+/// not look like something left unfilled.
+class _OfferATime extends StatelessWidget {
+  const _OfferATime({required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(R.sm),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: kMinTouch),
+        padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+        decoration: BoxDecoration(
+          border: Border.all(color: C.borderStrong, style: BorderStyle.solid),
+          borderRadius: BorderRadius.circular(R.sm),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.schedule, size: 16, color: C.textFaint),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text(
+                'Send at a set time',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: onTap == null ? C.textFaint : C.textDim,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const Text('optional', style: T.xs),
+          ],
+        ),
       ),
     );
   }
@@ -143,6 +208,8 @@ class PostCard extends StatelessWidget {
     required this.post,
     this.onClear,
     this.onSendNow,
+    this.onSchedule,
+    this.onUnschedule,
     this.onDiscard,
     this.onEdit,
     this.busy = false,
@@ -156,13 +223,27 @@ class PostCard extends StatelessWidget {
 
   /// "Send it right now." The override.
   final VoidCallback? onSendNow;
+
+  /// Give this ONE post a send time, or change the time it already has.
+  ///
+  /// Deliberately optional and deliberately empty until used. A draft waiting
+  /// in the queue is not obliged to have a time — most will just be published
+  /// when you get to them — so this is an offer rather than a field you have to
+  /// clear. It is the per-post counterpart to a recurring slot: same machinery
+  /// underneath, no timetable required.
+  final VoidCallback? onSchedule;
+
+  /// Take this post back off the timetable, leaving it a plain draft.
+  final VoidCallback? onUnschedule;
+
   final VoidCallback? onDiscard;
   final VoidCallback? onEdit;
   final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    final actionable = onClear != null || onSendNow != null || onDiscard != null || onEdit != null;
+    final actionable =
+        onClear != null || onSendNow != null || onDiscard != null || onEdit != null;
 
     return Panel(
       child: Column(
@@ -171,7 +252,10 @@ class PostCard extends StatelessWidget {
           _header(),
           if (post.isScheduled && !post.isPublished) ...[
             const SizedBox(height: S.x3),
-            _ScheduleStrip(post: post),
+            _ScheduleStrip(post: post, onTap: busy ? null : onSchedule, onClear: busy ? null : onUnschedule),
+          ] else if (onSchedule != null && !post.isPublished) ...[
+            const SizedBox(height: S.x3),
+            _OfferATime(onTap: busy ? null : onSchedule),
           ],
           const SizedBox(height: S.x3),
           _FoldedText(post.text),

@@ -219,6 +219,45 @@ void main() {
       expect(find.textContaining('Sends at $hhmm'), findsOneWidget);
     });
 
+    // A draft with no time is a perfectly normal thing you will publish when
+    // you get to it, so the control has to read as an OFFER rather than an
+    // empty field waiting to be filled.
+    testWidgets('an unscheduled draft is offered a send time', (tester) async {
+      final post = Post.fromJson({
+        'id': 'p7',
+        'seq': 7,
+        'text': 'A draft with no send time of its own.',
+        'status': 'draft',
+      });
+
+      await tester.pumpWidget(
+        wrap(PostCard(post: post, onSendNow: () {}, onSchedule: () {})),
+      );
+
+      expect(find.text('Send at a set time'), findsOneWidget);
+      expect(find.text('optional'), findsOneWidget);
+    });
+
+    // Once it has a time the countdown replaces the offer — showing both would
+    // suggest there are two different times in play.
+    testWidgets('a scheduled draft shows the countdown, not the offer', (tester) async {
+      final at = DateTime.now().add(const Duration(minutes: 30));
+      final post = Post.fromJson({
+        'id': 'p8',
+        'seq': 8,
+        'text': 'A draft that already has a send time.',
+        'status': 'draft',
+        'scheduledFor': at.toUtc().toIso8601String(),
+      });
+
+      await tester.pumpWidget(
+        wrap(PostCard(post: post, onSendNow: () {}, onSchedule: () {}, onUnschedule: () {})),
+      );
+
+      expect(find.text('Send at a set time'), findsNothing);
+      expect(find.textContaining('Sends at'), findsOneWidget);
+    });
+
     testWidgets('a cleared post says so and stops offering Clear', (tester) async {
       final at = DateTime.now().add(const Duration(minutes: 20));
       final post = Post.fromJson({

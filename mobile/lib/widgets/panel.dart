@@ -238,6 +238,66 @@ class ToggleRow extends StatelessWidget {
   }
 }
 
+/// A label and a value. Read-only.
+class Readout extends StatelessWidget {
+  const Readout(this.label, this.value, {super.key});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 120, child: Text(label, style: T.xs)),
+            Expanded(
+              child: Text(value, style: const TextStyle(fontSize: 14, color: C.text)),
+            ),
+          ],
+        ),
+      );
+}
+
+/// A settings row that opens a picker. Full-width tap target, chevron to say so.
+class TappableRow extends StatelessWidget {
+  const TappableRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(R.sm),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: kMinTouch),
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        child: Row(
+          children: [
+            SizedBox(width: 120, child: Text(label, style: T.xs)),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(fontSize: 15, color: onTap == null ? C.textFaint : C.text),
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 20, color: C.textFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Inline error text. Always shown next to the thing that failed.
 class ErrorText extends StatelessWidget {
   const ErrorText(this.message, {super.key});

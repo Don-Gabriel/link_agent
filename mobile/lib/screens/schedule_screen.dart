@@ -5,14 +5,19 @@
 /// — one buried "post time" field on a settings page, and a queue sorted by
 /// when drafts happened to be written.
 ///
-/// Two halves, in this order:
-///   TODAY  the next post and its deadline, then the day as a rail.
-///   SLOTS  the recurring rules you can actually edit.
+/// Everything about WHEN, in one place:
+///   TODAY       the next post and its deadline, then the day as a rail.
+///   RUN NOW     write one immediately, off the timetable.
+///   SLOTS       the recurring rules, with their days and review windows.
+///   PUBLISHING  timezone, pause, publish-without-me, the daily allowance.
 ///
-/// Today leads, and leads with ONE thing at full weight, because it is the half
-/// with a deadline. The rules are what you set once; today is what you check.
-/// The old version gave both halves an identical bordered panel and let the eye
-/// pick — which is the "seven identical boxes" problem in miniature.
+/// The last two used to sit on the Status tab, a screen away from the timetable
+/// they govern — and the old "daily post time" field there kept alive a control
+/// that slots had already replaced, so editing it changed nothing. Status is now
+/// only what it says: what this thing IS, and whether it is well.
+///
+/// Today leads, and leads with ONE thing at full weight, because it is the part
+/// with a deadline. The rest is what you set once and revisit.
 library;
 
 import 'package:flutter/material.dart';
@@ -38,8 +43,9 @@ class ScheduleScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final status = state.status;
+    final agent = status?.agent;
 
-    if (status == null) {
+    if (status == null || agent == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -52,7 +58,11 @@ class ScheduleScreen extends StatelessWidget {
         children: [
           _Today(status: status),
           const SizedBox(height: S.x5),
+          _RunNow(agent: agent),
+          const SizedBox(height: S.x4),
           _SlotsPanel(state: state, status: status),
+          const SizedBox(height: S.x4),
+          _Publishing(status: status, agent: agent),
           const SizedBox(height: S.x6),
         ],
       ),
@@ -268,8 +278,12 @@ class _SlotTile extends StatelessWidget {
           const SizedBox(height: S.x3),
           _LeadRow(slot: slot, limits: limits, enabled: !busy && slot.enabled),
           const SizedBox(height: S.x2),
+          // Scoped wording on purpose. This toggle and the master switch further
+          // down used to share the label "Publish without me", which is the kind
+          // of duplicate that makes a screen impossible to reason about — two
+          // controls, same words, different reach.
           ToggleRow(
-            title: 'Publish without me',
+            title: 'This time publishes itself',
             blurb: slot.autoPublish
                 ? 'Goes out at ${slot.localTime} whether or not you have read it.'
                 : 'Waits for you to clear it. If you do not, it stays put.',
@@ -551,4 +565,277 @@ class _MiniStep extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
         ),
       );
+}
+/// Write one now, off the timetable.
+///
+/// Lives here rather than on Status because it is a scheduling action — it is
+/// what you press when you do not want to wait for a slot. The draft it makes
+/// has no send time of its own; give it one from its card in the queue, or just
+/// publish it when you are happy with it.
+class _RunNow extends StatelessWidget {
+  const _RunNow({required this.agent});
+
+  final Agent agent;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+
+    return Panel(
+      title: 'Write one now',
+      subtitle: 'Runs the whole cycle immediately, ignoring the timetable.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: state.loading || agent.paused
+                  ? null
+                  : () async {
+                      final error = await state.runCycleNow();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(error ??
+                              'Started. A draft appears in 30-60 seconds if anything clears the bar.'),
+                        ),
+                      );
+                    },
+              icon: const Icon(Icons.play_arrow, size: 20),
+              label: const Text('Run a cycle now'),
+            ),
+          ),
+          if (agent.paused)
+            const Padding(
+              padding: EdgeInsets.only(top: S.x2),
+              child: Text('Paused — turn it back on below to run cycles.', style: T.xs),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Timezone, pause, publish-without-me, and the agent's daily allowance.
+///
+/// Moved here from Status because all of it acts on the timetable above. The
+/// old "daily post time" field that used to sit alongside is gone: slots
+/// replaced it, so it was a control that looked live and changed nothing.
+class _Publishing extends StatelessWidget {
+  const _Publishing({required this.status, required this.agent});
+
+  final AppStatus status;
+  final Agent agent;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final budget = status.budget;
+    final connected = status.account.usable;
+
+    return Panel(
+      title: 'Publishing',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TappableRow(
+            label: 'Timezone',
+            value: agent.timezone,
+            // Every slot time is read in this zone, so changing it moves the
+            // whole timetable — the server reschedules each slot on the way.
+            onTap: state.loading ? null : () => _editTimezone(context),
+          ),
+          const Divider(color: C.border, height: S.x5),
+          ToggleRow(
+            title: 'Paused',
+            blurb: 'Stops every slot. Drafts and history are untouched.',
+            value: agent.paused,
+            onChanged: state.loading ? null : state.setPaused,
+          ),
+          const Divider(color: C.border, height: S.x5),
+          ToggleRow(
+            title: 'Publish without me',
+            blurb: connected
+                ? 'The master switch. Individual slots can still be set to wait for you.'
+                : 'Connect LinkedIn before enabling this.',
+            value: agent.autoPublish,
+            onChanged: state.loading || !connected ? null : state.setAutoPublish,
+          ),
+          const Divider(color: C.border, height: S.x5),
+          Text('AGENT ALLOWANCE', style: T.fieldLabel),
+          const SizedBox(height: S.x1),
+          const Text(
+            'The most the agent may publish by itself in a day. It follows how '
+            'many posting times you have, so you should rarely need to touch it. '
+            'Your own posts do not count against it.',
+            style: T.xs,
+          ),
+          const SizedBox(height: S.x3),
+          _CapStepper(
+            value: agent.autoPublishCap,
+            max: status.maxAutoCap,
+            enabled: !state.loading,
+            onChanged: state.setAutoPublishCap,
+          ),
+          const SizedBox(height: S.x4),
+          _BudgetBar(
+            label: 'Agent published',
+            used: budget.autoUsed,
+            cap: budget.autoCap,
+            tone: budget.autoExhausted ? BadgeTone.warn : BadgeTone.good,
+          ),
+          const SizedBox(height: S.x3),
+          _BudgetBar(
+            label: 'You published',
+            used: budget.manualUsed,
+            cap: budget.manualCap,
+            tone: BadgeTone.neutral,
+          ),
+          const SizedBox(height: S.x2),
+          Text(
+            'Your own publishing is limited only by LinkedIn, which allows about '
+            '${budget.linkedinDailyRequests} API calls a day across posts, image '
+            'uploads and token checks.',
+            style: T.xs,
+          ),
+          const SizedBox(height: S.x3),
+          Readout('Cycles run', '${status.cycleCount}'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editTimezone(BuildContext context) async {
+    final state = context.read<AppState>();
+    final controller = TextEditingController(text: agent.timezone);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.surface2,
+        title: const Text('Timezone'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Asia/Kolkata'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (value == null || value.isEmpty || !context.mounted) return;
+    // An unrecognised zone is not rejected — lib/schedule.ts falls back to UTC
+    // and logs, so a typo shows up as a wrong next-run time rather than a crash.
+    final error = await state.setTimezone(value);
+    if (!context.mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+}
+
+class _CapStepper extends StatelessWidget {
+  const _CapStepper({
+    required this.value,
+    required this.max,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int max;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: S.x2,
+      children: [
+        for (var n = 1; n <= max; n++)
+          InkWell(
+            onTap: enabled && n != value ? () => onChanged(n) : null,
+            borderRadius: BorderRadius.circular(R.sm),
+            child: Container(
+              width: 56,
+              height: kMinTouch,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: n == value ? C.accentDim : C.surface2,
+                border: Border.all(color: n == value ? C.accent : C.borderStrong),
+                borderRadius: BorderRadius.circular(R.sm),
+              ),
+              child: Text(
+                '$n',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: n == value ? FontWeight.w600 : FontWeight.w400,
+                  color: n == value ? C.text : C.textDim,
+                ),
+              ),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(left: S.x2),
+          child: SizedBox(
+            height: kMinTouch,
+            child: Center(
+              child: Text(value == 1 ? 'post / day' : 'posts / day', style: T.xs),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BudgetBar extends StatelessWidget {
+  const _BudgetBar({
+    required this.label,
+    required this.used,
+    required this.cap,
+    required this.tone,
+  });
+
+  final String label;
+  final int used;
+  final int cap;
+  final BadgeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colour = switch (tone) {
+      BadgeTone.good => C.good,
+      BadgeTone.warn => C.warn,
+      BadgeTone.bad => C.bad,
+      BadgeTone.live => C.live,
+      BadgeTone.neutral => C.textFaint,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 14, color: C.text))),
+            Text('$used / $cap', style: T.xs.copyWith(color: colour)),
+          ],
+        ),
+        const SizedBox(height: S.x1),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: cap == 0 ? 0 : (used / cap).clamp(0.0, 1.0),
+            minHeight: 4,
+            backgroundColor: C.surface3,
+            valueColor: AlwaysStoppedAnimation(colour),
+          ),
+        ),
+      ],
+    );
+  }
 }

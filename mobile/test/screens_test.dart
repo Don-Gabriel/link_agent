@@ -309,7 +309,10 @@ void main() {
     final state = await buildState(fixture);
     await pumpScreen(tester, const QueueScreen(), state);
 
-    await scrollTo(tester, find.textContaining('never confirmed'));
+    // 'never confirmed' appears in BOTH the post body and the explanation
+    // above it, and dragUntilVisible needs exactly one match. The section
+    // heading is unique.
+    await scrollTo(tester, find.text('NEEDS ATTENTION'));
     // Only the real draft is publishable — republishing an ambiguous send is
     // how you post twice to a real audience.
     expect(find.text('Publish'), findsOneWidget);
@@ -582,7 +585,7 @@ void main() {
     expect(find.text('Sign out'), findsOneWidget);
   });
 
-  testWidgets('StatusScreen shows both publishing budgets separately', (tester) async {
+  testWidgets('ScheduleScreen shows both publishing budgets separately', (tester) async {
     final fixture = statusFixture();
     fixture['budget'] = {
       'autoUsed': 1,
@@ -592,7 +595,7 @@ void main() {
       'linkedinDailyRequests': 150,
     };
     final state = await buildState(fixture);
-    await pumpScreen(tester, const StatusScreen(), state);
+    await pumpScreen(tester, const ScheduleScreen(), state);
 
     await scrollTo(tester, find.text('Agent published'));
     // The whole point of the split: a spent agent allowance and six manual
@@ -603,12 +606,12 @@ void main() {
     expect(find.text('6 / 40'), findsOneWidget);
   });
 
-  testWidgets('StatusScreen refuses auto-publish without a usable connection', (tester) async {
+  testWidgets('ScheduleScreen refuses auto-publish without a usable connection', (tester) async {
     final state = await buildState(statusFixture(connected: false));
-    await pumpScreen(tester, const StatusScreen(), state);
+    await pumpScreen(tester, const ScheduleScreen(), state);
 
-    await scrollTo(tester, find.text('Publish automatically'));
-    final row = find.ancestor(of: find.text('Publish automatically'), matching: find.byType(ToggleRow));
+    await scrollTo(tester, find.text('Publish without me'));
+    final row = find.ancestor(of: find.text('Publish without me'), matching: find.byType(ToggleRow));
     final toggle = tester.widget<Switch>(
       find.descendant(of: row, matching: find.byType(Switch)),
     );

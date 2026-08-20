@@ -45,13 +45,13 @@ class StatusScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
         children: [
+          // Scheduling, publishing and "Run a cycle now" now live on the
+          // Schedule tab, with the timetable they act on. Splitting them across
+          // two screens left the old daily-post-time field sitting here quietly
+          // doing nothing once slots replaced it.
           _RunningNow(status: status, agent: agent),
           const SizedBox(height: S.x4),
-          _Schedule(status: status, agent: agent),
-          const SizedBox(height: S.x4),
           _Topics(agent: agent),
-          const SizedBox(height: S.x4),
-          _Publishing(status: status, agent: agent),
           const SizedBox(height: S.x4),
           _Connection(status: status),
           const SizedBox(height: S.x4),
@@ -74,7 +74,6 @@ class _RunningNow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
     return Panel(
       title: 'Agent',
       child: Column(
@@ -98,124 +97,11 @@ class _RunningNow extends StatelessWidget {
                   tone: agent.autoPublish ? BadgeTone.live : BadgeTone.neutral),
             ],
           ),
-          const SizedBox(height: S.x4),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: state.loading || agent.paused
-                  ? null
-                  : () async {
-                      final error = await state.runCycleNow();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(error ??
-                              'Cycle started. A draft appears in 30-60 seconds if anything clears the bar.'),
-                        ),
-                      );
-                    },
-              icon: const Icon(Icons.play_arrow, size: 20),
-              label: const Text('Run a cycle now'),
-            ),
-          ),
-          if (agent.paused)
-            const Padding(
-              padding: EdgeInsets.only(top: S.x2),
-              child: Text('Unpause below to run cycles.', style: T.xs),
-            ),
         ],
       ),
     );
   }
 }
-
-class _Schedule extends StatelessWidget {
-  const _Schedule({required this.status, required this.agent});
-
-  final AppStatus status;
-  final Agent agent;
-
-  Future<void> _pickTime(BuildContext context) async {
-    final state = context.read<AppState>();
-    final parts = agent.postTimeLocal.split(':');
-    final initial = TimeOfDay(
-      hour: int.tryParse(parts.first) ?? 9,
-      minute: int.tryParse(parts.length > 1 ? parts[1] : '30') ?? 30,
-    );
-
-    final picked = await showTimePicker(context: context, initialTime: initial);
-    if (picked == null || !context.mounted) return;
-
-    final hhmm = '${picked.hour.toString().padLeft(2, '0')}:'
-        '${picked.minute.toString().padLeft(2, '0')}';
-    final error = await state.setPostTime(hhmm);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error ??
-            'Daily time set to $hhmm. If that moment has already passed today, '
-                'the next run is tomorrow.'),
-      ),
-    );
-  }
-
-  Future<void> _editTimezone(BuildContext context) async {
-    final state = context.read<AppState>();
-    final controller = TextEditingController(text: agent.timezone);
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: C.surface2,
-        title: const Text('Timezone'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Asia/Kolkata'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (value == null || value.isEmpty || !context.mounted) return;
-    // An unrecognised zone is not rejected — lib/schedule.ts falls back to UTC
-    // and logs, so a typo shows up as a wrong next-run time rather than a crash.
-    final error = await state.setTimezone(value);
-    if (!context.mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final busy = context.watch<AppState>().loading;
-    return Panel(
-      title: 'Schedule',
-      child: Column(
-        children: [
-          _Tappable(
-            label: 'Daily post time',
-            value: agent.postTimeLocal,
-            onTap: busy ? null : () => _pickTime(context),
-          ),
-          _Tappable(
-            label: 'Timezone',
-            value: agent.timezone,
-            onTap: busy ? null : () => _editTimezone(context),
-          ),
-          _Readout('Next run', status.nextRunLocal ?? 'not scheduled'),
-          _Readout('Cycles run', '${status.cycleCount}'),
-        ],
-      ),
-    );
-  }
-}
-
 class _Topics extends StatelessWidget {
   const _Topics({required this.agent});
 
@@ -251,83 +137,6 @@ class _Topics extends StatelessWidget {
     );
   }
 }
-
-class _Publishing extends StatelessWidget {
-  const _Publishing({required this.status, required this.agent});
-
-  final AppStatus status;
-  final Agent agent;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final budget = status.budget;
-    final connected = status.account.usable;
-
-    return Panel(
-      title: 'Publishing',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ToggleRow(
-            title: 'Paused',
-            blurb: 'Stops the daily cycle entirely. Drafts and history are untouched.',
-            value: agent.paused,
-            onChanged: state.loading ? null : state.setPaused,
-          ),
-          const Divider(color: C.border, height: S.x5),
-          ToggleRow(
-            title: 'Publish automatically',
-            blurb: connected
-                ? 'Off means every post waits for you. Turn it on once the voice sounds like you.'
-                : 'Connect LinkedIn before enabling this.',
-            value: agent.autoPublish,
-            onChanged: state.loading || !connected ? null : state.setAutoPublish,
-          ),
-          const Divider(color: C.border, height: S.x5),
-
-          Text('AGENT ALLOWANCE', style: T.fieldLabel),
-          const SizedBox(height: S.x1),
-          const Text(
-            'The most the agent may publish by itself in 24 hours. Your own '
-            'posts do not count against it.',
-            style: T.xs,
-          ),
-          const SizedBox(height: S.x3),
-          _CapStepper(
-            value: agent.autoPublishCap,
-            max: status.maxAutoCap,
-            enabled: !state.loading,
-            onChanged: state.setAutoPublishCap,
-          ),
-          const SizedBox(height: S.x4),
-
-          _BudgetBar(
-            label: 'Agent published',
-            used: budget.autoUsed,
-            cap: budget.autoCap,
-            tone: budget.autoExhausted ? BadgeTone.warn : BadgeTone.good,
-          ),
-          const SizedBox(height: S.x3),
-          _BudgetBar(
-            label: 'You published',
-            used: budget.manualUsed,
-            cap: budget.manualCap,
-            tone: BadgeTone.neutral,
-          ),
-          const SizedBox(height: S.x2),
-          Text(
-            'Your own publishing is limited only by LinkedIn, which allows about '
-            '${budget.linkedinDailyRequests} API calls per day across posts, image '
-            'uploads and token checks.',
-            style: T.xs,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Connection extends StatelessWidget {
   const _Connection({required this.status});
 
@@ -402,7 +211,7 @@ class _Diagnostics extends StatelessWidget {
       child: Column(
         children: [
           for (final usage in status.llm)
-            _Readout(usage.model, usage.cap > 0 ? '${usage.calls} / ${usage.cap}' : '${usage.calls}'),
+            Readout(usage.model, usage.cap > 0 ? '${usage.calls} / ${usage.cap}' : '${usage.calls}'),
         ],
       ),
     );
@@ -434,61 +243,6 @@ class _Session extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- pieces
-
-class _Readout extends StatelessWidget {
-  const _Readout(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(width: 120, child: Text(label, style: T.xs)),
-            Expanded(
-              child: Text(value, style: const TextStyle(fontSize: 14, color: C.text)),
-            ),
-          ],
-        ),
-      );
-}
-
-/// A settings row that opens a picker. Full-width tap target, chevron to say so.
-class _Tappable extends StatelessWidget {
-  const _Tappable({required this.label, required this.value, required this.onTap});
-
-  final String label;
-  final String value;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(R.sm),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: kMinTouch),
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(
-          children: [
-            SizedBox(width: 120, child: Text(label, style: T.xs)),
-            Expanded(
-              child: Text(
-                value,
-                style: TextStyle(fontSize: 15, color: onTap == null ? C.textFaint : C.text),
-              ),
-            ),
-            const Icon(Icons.chevron_right, size: 20, color: C.textFaint),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CategoryChip extends StatelessWidget {
   const _CategoryChip({
     required this.label,
@@ -525,108 +279,6 @@ class _CategoryChip extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// 1..max selector for the agent's own allowance.
-class _CapStepper extends StatelessWidget {
-  const _CapStepper({
-    required this.value,
-    required this.max,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final int value;
-  final int max;
-  final bool enabled;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: S.x2,
-      children: [
-        for (var n = 1; n <= max; n++)
-          InkWell(
-            onTap: enabled && n != value ? () => onChanged(n) : null,
-            borderRadius: BorderRadius.circular(R.sm),
-            child: Container(
-              width: 56,
-              height: kMinTouch,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: n == value ? C.accentDim : C.surface2,
-                border: Border.all(color: n == value ? C.accent : C.borderStrong),
-                borderRadius: BorderRadius.circular(R.sm),
-              ),
-              child: Text(
-                '$n',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: n == value ? FontWeight.w600 : FontWeight.w400,
-                  color: n == value ? C.text : C.textDim,
-                ),
-              ),
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.only(left: S.x2),
-          child: SizedBox(
-            height: kMinTouch,
-            child: Center(
-              child: Text(value == 1 ? 'post / day' : 'posts / day', style: T.xs),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BudgetBar extends StatelessWidget {
-  const _BudgetBar({
-    required this.label,
-    required this.used,
-    required this.cap,
-    required this.tone,
-  });
-
-  final String label;
-  final int used;
-  final int cap;
-  final BadgeTone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final colour = switch (tone) {
-      BadgeTone.good => C.good,
-      BadgeTone.warn => C.warn,
-      BadgeTone.bad => C.bad,
-      BadgeTone.live => C.live,
-      BadgeTone.neutral => C.textFaint,
-    };
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(child: Text(label, style: const TextStyle(fontSize: 14, color: C.text))),
-            Text('$used / $cap', style: T.xs.copyWith(color: colour)),
-          ],
-        ),
-        const SizedBox(height: S.x1),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: cap == 0 ? 0 : (used / cap).clamp(0.0, 1.0),
-            minHeight: 4,
-            backgroundColor: C.surface3,
-            valueColor: AlwaysStoppedAnimation(colour),
-          ),
-        ),
-      ],
     );
   }
 }

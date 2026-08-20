@@ -340,7 +340,21 @@ export async function publishDuePosts(missedAfterMinutes = 45): Promise<DuePubli
         AND p.scheduled_for <= now()
         AND p.status IN ('draft', 'approved', 'failed')
         AND (p.hold_until IS NULL OR p.hold_until <= now())
-        AND (p.cleared_at IS NOT NULL OR COALESCE(s.auto_publish, FALSE))
+        -- Either a human cleared it, or BOTH switches say it may go on its own.
+        --
+        -- The agent-level flag is ANDed deliberately. Without it the master
+        -- "publish without me" control was dead: the send pass consulted only
+        -- the slot, so turning the global switch off changed nothing and the
+        -- agent kept publishing. A global stop that does not stop anything is
+        -- worse than no control at all.
+        --
+        -- Clearing still wins over both. Saying yes to a specific post is an
+        -- explicit decision about that post, and a global default should not
+        -- override it.
+        AND (
+          p.cleared_at IS NOT NULL
+          OR (COALESCE(s.auto_publish, FALSE) AND a.auto_publish)
+        )
         AND a.active AND NOT a.paused
       ORDER BY p.scheduled_for`,
   );
