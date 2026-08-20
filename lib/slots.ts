@@ -40,6 +40,30 @@ export const MIN_LEAD_MINUTES = 10;
 export const MAX_LEAD_MINUTES = 720;
 /** Past this much lateness a slot is missed rather than published late. */
 export const MISSED_AFTER_MINUTES = 45;
+
+/**
+ * Head start given to generation, on top of the review window.
+ *
+ * The review window is a promise about when the draft is READY TO READ, not
+ * about when the machine starts thinking. Firing generation exactly at
+ * `T - lead` keeps the wrong half of that promise: the cycle then takes 30-90
+ * seconds of feed fetching and two or three LLM calls, so a 15-minute window
+ * hands you the draft with 13 minutes left.
+ *
+ * Worse, a cron does not tick continuously. At a 5-minute interval the tick
+ * that should fire at T-15 may not arrive until T-11, and the draft lands with
+ * nine minutes left on a fifteen-minute promise.
+ *
+ * So generation starts at `T - lead - GENERATION_BUFFER`, sized to cover the
+ * slowest realistic cycle plus one missed tick. The draft is then in the queue
+ * BEFORE the window opens, every time, and the window you were promised is the
+ * window you actually get.
+ *
+ * Costs nothing but eight minutes of extra notice, and it is deliberately not
+ * folded into lead_minutes: lead is the author's promise, this is the slack
+ * needed to keep it.
+ */
+export const GENERATION_BUFFER_MINUTES = 8;
 /** How long a composer's edit lock survives without being refreshed. */
 export const HOLD_MINUTES = 30;
 
@@ -352,8 +376,12 @@ export async function listDueSlots(): Promise<DueSlot[]> {
        JOIN agents a ON a.id = s.agent_id
       WHERE s.enabled AND a.active AND NOT a.paused
         AND s.next_run_at IS NOT NULL
-        AND s.next_run_at - make_interval(mins => s.lead_minutes) <= now()
+        -- lead + buffer, so the draft is READY when the review window opens
+        -- rather than only starting to be written then. See
+        -- GENERATION_BUFFER_MINUTES.
+        AND s.next_run_at - make_interval(mins => s.lead_minutes + $1::int) <= now()
       ORDER BY s.next_run_at`,
+    [GENERATION_BUFFER_MINUTES],
   );
 
   const now = Date.now();

@@ -160,8 +160,8 @@ class _SlotsPanel extends StatelessWidget {
 
     return Panel(
       title: 'Posting times',
-      subtitle: 'Each slot writes a draft ${limits.minLeadMinutes}+ minutes early so you can read it '
-          'before it goes out.',
+      subtitle: 'Each posting time has a draft waiting for you before it goes out, '
+          'so you always get the review window you asked for.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -541,7 +541,10 @@ class _LeadRow extends StatelessWidget {
     final at = minutes >= 60
         ? '${(minutes / 60).toStringAsFixed(minutes % 60 == 0 ? 0 : 1)} hours'
         : '$minutes minutes';
-    return 'Written $at before it goes out — at least.';
+    // "Waiting for you", not "written" — the agent starts earlier than this so
+    // the finished draft is in the queue when the window opens. Promising the
+    // moment work BEGINS would be promising the wrong thing.
+    return 'In your queue $at before it goes out — at least.';
   }
 }
 

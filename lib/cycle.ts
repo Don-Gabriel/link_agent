@@ -66,20 +66,24 @@ export interface CycleContext {
   scheduledFor?: Date;
 }
 
-async function scheduleNext(
-  agentId: string,
-  settings: AgentSettings,
-  options: { retrySoon?: boolean } = {},
-): Promise<void> {
-  const next = options.retrySoon
-    ? new Date(Date.now() + RETRY_MINUTES * 60_000)
-    : nextDailyRun(settings.timezone, settings.postTimeLocal);
+/**
+ * Record that a cycle ran. Bumps last_run_at and the counter, nothing else.
+ *
+ * It used to also write scheduler_state.next_run_at, computed from the legacy
+ * agents.post_time_local — a column slots replaced and nothing consults any
+ * more. So the dashboard cheerfully displayed a "next run" that no longer
+ * corresponded to anything: a time derived from a dead setting, for a scheduler
+ * that had stopped reading it. next_run_at is now cleared, and the real answer
+ * comes from the slots themselves.
+ */
+async function recordCycleRan(agentId: string): Promise<void> {
   await query(
     `INSERT INTO scheduler_state (agent_id, last_run_at, next_run_at, cycle_count)
-     VALUES ($1, now(), $2, 1)
+     VALUES ($1, now(), NULL, 1)
      ON CONFLICT (agent_id) DO UPDATE
-       SET last_run_at = now(), next_run_at = $2, cycle_count = scheduler_state.cycle_count + 1`,
-    [agentId, next.toISOString()],
+       SET last_run_at = now(), next_run_at = NULL,
+           cycle_count = scheduler_state.cycle_count + 1`,
+    [agentId],
   );
 }
 
@@ -90,7 +94,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   if (!settings) return { agentId, ran: false, drafted: false, published: false, skippedReason: "unknown_agent" };
   if (settings.paused) {
     // Still reschedule, so unpausing does not require a manual kick.
-    await scheduleNext(agentId, settings);
+    await recordCycleRan(agentId);
     return { agentId, ran: false, drafted: false, published: false, skippedReason: "paused" };
   }
 
@@ -149,7 +153,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   );
 
   if (candidates.length === 0) {
-    await scheduleNext(agentId, settings, { retrySoon: true });
+    await recordCycleRan(agentId);
     return { agentId, ran: true, drafted: false, published: false, skippedReason: "no_candidates" };
   }
 
@@ -176,7 +180,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   );
   if (!judged.ok) {
     console.warn(`[cycle] agent=${agentId} judging failed: ${judged.reason}`);
-    await scheduleNext(agentId, settings, { retrySoon: true });
+    await recordCycleRan(agentId);
     return { agentId, ran: true, drafted: false, published: false, skippedReason: `judge:${judged.reason}` };
   }
   if (judged.data.servedBy) servedBy.push(judged.data.servedBy);
@@ -217,7 +221,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   }
 
   if (!winner) {
-    await scheduleNext(agentId, settings);
+    await recordCycleRan(agentId);
     console.log(`[cycle] agent=${agentId} nothing cleared ${PUBLISH_THRESHOLD} — silent day (max ${stats.max})`);
     return { agentId, ran: true, drafted: false, published: false, skippedReason: "below_threshold", stats, servedBy };
   }
@@ -284,7 +288,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
 
   if (!draft.ok) {
     console.warn(`[cycle] agent=${agentId} writing failed: ${draft.reason}`);
-    await scheduleNext(agentId, settings, { retrySoon: true });
+    await recordCycleRan(agentId);
     return { agentId, ran: true, drafted: false, published: false, skippedReason: `writer:${draft.reason}`, stats, servedBy };
   }
   if (draft.data.servedBy) servedBy.push(draft.data.servedBy);
@@ -338,7 +342,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     rejected.slice(0, 3).map((r) => ({ title: r.title, reason: r.reason })),
   );
 
-  await scheduleNext(agentId, settings);
+  await recordCycleRan(agentId);
 
   console.log(
     `[cycle] agent=${agentId} scored n=${stats.n} min=${stats.min} max=${stats.max} mean=${stats.mean} drafted=${postId} servedBy=${servedBy.join(",") || "n/a"}`,
@@ -496,14 +500,3 @@ export async function runDueSlots(): Promise<CycleResult[]> {
   return results;
 }
 
-/** All active, unpaused agents whose cycles are due right now. */
-export async function listDueAgents(): Promise<string[]> {
-  const due = await query<{ id: string }>(
-    `SELECT a.id FROM agents a
-       LEFT JOIN scheduler_state s ON s.agent_id = a.id
-      WHERE a.active AND NOT a.paused
-        AND (s.agent_id IS NULL OR s.next_run_at IS NULL OR s.next_run_at <= now())
-      ORDER BY a.created_at`,
-  );
-  return due.map((r) => r.id);
-}

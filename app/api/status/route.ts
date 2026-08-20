@@ -146,7 +146,16 @@ export async function GET() {
       slotTimeline(agent.agentId, 7),
     ]);
 
-    const nextRunAt = schedule[0]?.next_run_at ?? null;
+    // The next run comes from the SLOTS, not from scheduler_state. That row's
+    // next_run_at was derived from the legacy agents.post_time_local, which
+    // slots replaced — so it reported a confident time for a schedule nothing
+    // was reading, and the dashboard showed an hour that matched no slot the
+    // user had ever set. It is now written as NULL and this reads the real one.
+    const nextSlotRun = slots
+      .filter((s) => s.enabled && s.nextRunAt)
+      .map((s) => new Date(s.nextRunAt!))
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    const nextRunAt = nextSlotRun ?? null;
 
     return NextResponse.json({
       initialized: true,

@@ -43,6 +43,10 @@ dependencies:
   shared_preferences: ^2.3.2 # session cookie + server address
   image_picker: ^1.1.2 # attach photos; also does the downscale (see media upload)
   http_parser: ^4.0.2 # MediaType for multipart uploads — see _imageSubtype
+  # Opens LinkedIn's consent page in the SYSTEM browser. OAuth cannot happen
+  # inside the app's own HTTP client: the consent screen needs a real browser,
+  # and a token minted anywhere else would not be the one the session carries.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

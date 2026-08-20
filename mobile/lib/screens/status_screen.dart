@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/models.dart';
 import '../state/app_state.dart';
@@ -171,28 +172,131 @@ class _Connection extends StatelessWidget {
               style: T.xs,
             ),
           ],
-          if (!account.usable || account.expiringSoon) ...[
-            const SizedBox(height: S.x3),
-            // Connecting is an OAuth redirect, which needs a browser — the app
-            // cannot complete it, so it says where to go rather than offering a
-            // button that would dead-end.
-            Container(
-              padding: const EdgeInsets.all(S.x3),
-              decoration: BoxDecoration(
-                color: C.surface2,
-                borderRadius: BorderRadius.circular(R.sm),
-                border: Border.all(color: C.border),
-              ),
-              child: const Text(
-                'Reconnecting is an OAuth redirect and has to happen in a browser. '
-                'Open the web dashboard and press Connect LinkedIn.',
-                style: T.xs,
-              ),
-            ),
-          ],
+          const SizedBox(height: S.x3),
+          _ConnectionActions(account: account),
           if (account.lastError != null) ErrorText(account.lastError!),
         ],
       ),
+    );
+  }
+}
+
+/// Connect or disconnect LinkedIn, from the phone.
+///
+/// Consent is an OAuth redirect and genuinely cannot happen inside the app's
+/// own HTTP client — the screen needs a real browser, and the session that
+/// comes back has to belong to one. The app therefore asks the server for the
+/// consent URL (`/api/linkedin/connect?json=1`, which answers with the URL
+/// instead of a 302) and hands it to the system browser.
+///
+/// Before this the panel simply told you to go and find the web dashboard,
+/// which is a poor answer on the surface where everything else is done.
+class _ConnectionActions extends StatefulWidget {
+  const _ConnectionActions({required this.account});
+
+  final Account account;
+
+  @override
+  State<_ConnectionActions> createState() => _ConnectionActionsState();
+}
+
+class _ConnectionActionsState extends State<_ConnectionActions> {
+  bool _busy = false;
+
+  Future<void> _connect() async {
+    final state = context.read<AppState>();
+    setState(() => _busy = true);
+    final url = await state.linkedInConsentUrl();
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    if (url == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not start the connection. Is the server reachable?')),
+      );
+      return;
+    }
+
+    final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(opened
+            ? 'Approve it in the browser, then come back and pull to refresh.'
+            : 'No browser could open the LinkedIn page.'),
+      ),
+    );
+  }
+
+  Future<void> _confirmDisconnect() async {
+    final state = context.read<AppState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.surface2,
+        title: const Text('Disconnect LinkedIn?'),
+        content: const Text(
+          'The stored token is deleted and nothing can publish until you '
+          'reconnect. Your drafts and history are untouched.',
+          style: T.sm,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: C.alarm),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final error = await state.disconnectLinkedIn();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error ?? 'Disconnected.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = _busy || context.watch<AppState>().loading;
+    final account = widget.account;
+    final connected = account.connected;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: busy ? null : _connect,
+                icon: const Icon(Icons.link, size: 18),
+                // Reconnecting an expiring token is the same round trip as a
+                // first connection, but calling it "Connect" when something is
+                // already connected reads as though it would replace nothing.
+                label: Text(connected ? 'Reconnect' : 'Connect LinkedIn'),
+              ),
+            ),
+            if (connected) ...[
+              const SizedBox(width: S.x2),
+              OutlinedButton(
+                onPressed: busy ? null : _confirmDisconnect,
+                child: const Text('Disconnect'),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: S.x2),
+        Text(
+          connected
+              ? 'Reconnecting opens LinkedIn in your browser and issues a fresh 60-day token.'
+              : 'Opens LinkedIn in your browser to approve posting access.',
+          style: T.xs,
+        ),
+      ],
     );
   }
 }

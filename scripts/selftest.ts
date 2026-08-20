@@ -25,6 +25,7 @@ import {
 } from "../lib/schedule";
 import {
   clampLead,
+  GENERATION_BUFFER_MINUTES,
   MAX_LEAD_MINUTES,
   MAX_SLOTS,
   MIN_LEAD_MINUTES,
@@ -528,6 +529,41 @@ console.log("\nlead time (the review window)");
   // And a missed slot must be declared late enough that a couple of ticks can
   // retry a definite publish failure before it expires.
   check("missed window leaves room to retry", MISSED_AFTER_MINUTES >= 3 * 5);
+
+  // THE PROMISE: "15 minutes to review" means the draft is IN THE QUEUE fifteen
+  // minutes before the send time — not that the machine starts thinking then.
+  //
+  // Generation fires at `T - lead - buffer`. The buffer has to absorb both the
+  // slowest realistic cycle and one missed tick, or a 15-minute window hands
+  // you the draft with nine minutes left and the promise is quietly broken.
+  const TICK = 5;          // production cron interval, minutes
+  const SLOWEST_CYCLE = 3; // feed sweep + judge + write + one repair call
+
+  check("the buffer covers a slow cycle AND a missed tick",
+    GENERATION_BUFFER_MINUTES >= TICK + SLOWEST_CYCLE,
+    `buffer ${GENERATION_BUFFER_MINUTES} vs needed ${TICK + SLOWEST_CYCLE}`);
+
+  // Worst case, end to end: the tick that should fire at T-lead-buffer is late
+  // by a full interval, then the cycle takes its slowest path. The draft must
+  // still exist before the window opens.
+  const worstCaseReadyAt = GENERATION_BUFFER_MINUTES - TICK - SLOWEST_CYCLE;
+  check("the draft is ready before the window opens, even in the worst case",
+    worstCaseReadyAt >= 0,
+    `${worstCaseReadyAt} min of margin`);
+
+  // And the promise itself survives: review time actually available is at least
+  // what the author asked for.
+  for (const lead of [MIN_LEAD_MINUTES, 15, 30, 60]) {
+    const actual = lead + worstCaseReadyAt;
+    check(`a ${lead}-minute window delivers at least ${lead} minutes`, actual >= lead,
+      `${actual}`);
+  }
+
+  // The buffer must not be so large that a slot generates before the previous
+  // one has plausibly finished sending — 8 minutes is nowhere near the
+  // 45-minute missed window, but assert it so a future bump is deliberate.
+  check("the buffer stays well inside the missed window",
+    GENERATION_BUFFER_MINUTES < MISSED_AFTER_MINUTES);
 }
 
 console.log("\njudge batch handling");

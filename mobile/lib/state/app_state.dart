@@ -164,6 +164,27 @@ class AppState extends ChangeNotifier {
   Future<String?> setCategories(List<String> categories) =>
       mutate(() => _api.patch('/api/settings', {'categories': categories}));
 
+  // -------------------------------------------------------------- LinkedIn
+
+  /// Ask the server for LinkedIn's consent URL.
+  ///
+  /// `?json=1` because the browser-facing route answers with a 302, which this
+  /// client must not follow: consent has to happen in the SYSTEM browser, not
+  /// inside the app's HTTP stack.
+  Future<String?> linkedInConsentUrl() async {
+    try {
+      final res = await _api.get('/api/linkedin/connect?json=1');
+      final url = (res as Map)['url'];
+      return url is String && url.isNotEmpty ? url : null;
+    } on ApiException catch (e) {
+      debugPrint('[state] could not get a consent URL: $e');
+      return null;
+    }
+  }
+
+  Future<String?> disconnectLinkedIn() =>
+      mutate(() => _api.post('/api/linkedin/disconnect', const {}));
+
   /// Writing samples the writer studies before drafting.
   ///
   /// Replaced wholesale rather than appended: the corpus is a set the author
