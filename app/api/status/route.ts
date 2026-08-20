@@ -101,20 +101,32 @@ export async function GET() {
       });
     }
 
-    // Migrate before reading, so an agent that predates slots never renders an
-    // empty timetable. Idempotent and a single cheap SELECT after the first run.
-    const slots = await ensureSlotsMigrated(
-      agent.agentId,
-      agent.postTimeLocal,
-      agent.timezone,
-      agent.autoPublish,
-    ).catch((err) => {
-      console.warn("[status] slot migration skipped:", err);
-      return [];
-    });
-
-    const [account, posts, rejections, schedule, llm, ambiguous, sent, timeline, scheduler] =
-      await Promise.all([
+    const [
+      slots,
+      account,
+      posts,
+      rejections,
+      schedule,
+      llm,
+      ambiguous,
+      sent,
+      timeline,
+      scheduler,
+    ] = await Promise.all([
+      // Migrating a pre-slots agent used to be AWAITED before this batch, which
+      // cost a whole extra round trip on every single request to a database
+      // that is not in the same country — for a check that has been a no-op
+      // since the first time it ran. It needs the agent id and nothing else, so
+      // it belongs in the fan-out.
+      ensureSlotsMigrated(
+        agent.agentId,
+        agent.postTimeLocal,
+        agent.timezone,
+        agent.autoPublish,
+      ).catch((err) => {
+        console.warn("[status] slot migration skipped:", err);
+        return [];
+      }),
       getAccountStatus(agent.agentId),
       // Ordered by when it GOES OUT rather than when it was written: with
       // several drafts waiting at once, the one with the nearest deadline is
