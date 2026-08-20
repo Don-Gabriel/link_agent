@@ -33,3 +33,6 @@ dist/
 # their own directory.
 .dart_tool/
 .flutter-plugins-dependencies
+
+# Verification builds go here, never into .next — see scripts/build-check.mjs
+.next-verify/
