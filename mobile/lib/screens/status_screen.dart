@@ -20,10 +20,18 @@ import '../widgets/panel.dart';
 /// Fallback labels, used only when the server has not told us its categories
 /// yet — a cold start, or a backend too old to serve them. The live list comes
 /// from /api/status so adding a category needs no client release.
+///
+/// It has to list every id, not just the ones an early build shipped with. When
+/// this held only the three original music-and-emerging ids, a cold start
+/// rendered a picker with four categories missing and no hint they existed.
 const _fallbackCategoryLabels = {
-  'music-tech-software': 'Music tech · software',
-  'music-tech-hardware': 'Music tech · hardware',
+  'music-tech-software': 'Music tech — software',
+  'music-tech-hardware': 'Music tech — hardware',
   'emerging-tech': 'Emerging tech',
+  'ai-ml': 'AI & ML engineering',
+  'dev-tooling': 'Developer tooling',
+  'hardware-embedded': 'Hardware & embedded',
+  'compute-silicon': 'Compute & silicon',
 };
 
 class StatusScreen extends StatelessWidget {
@@ -39,6 +47,14 @@ class StatusScreen extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Resolved once and handed to both panels, so the line under the name and
+    // the chips below it are literally the same data rendered twice. They used
+    // to come from different places — the header printed agent.domain, a
+    // sentence typed once at setup and never revised, while the chips showed
+    // the live selection. Switch music off and the header still announced an
+    // agent that wrote about music.
+    final labels = _availableCategories(state);
+
     return RefreshIndicator(
       onRefresh: state.refresh,
       backgroundColor: C.surface2,
@@ -50,9 +66,9 @@ class StatusScreen extends StatelessWidget {
           // Schedule tab, with the timetable they act on. Splitting them across
           // two screens left the old daily-post-time field sitting here quietly
           // doing nothing once slots replaced it.
-          _RunningNow(status: status, agent: agent),
+          _RunningNow(status: status, agent: agent, categoryLabels: labels),
           const SizedBox(height: S.x4),
-          _Topics(agent: agent),
+          _Topics(agent: agent, categoryLabels: labels),
           const SizedBox(height: S.x4),
           _Connection(status: status),
           const SizedBox(height: S.x4),
@@ -68,13 +84,19 @@ class StatusScreen extends StatelessWidget {
 // ---------------------------------------------------------------- sections
 
 class _RunningNow extends StatelessWidget {
-  const _RunningNow({required this.status, required this.agent});
+  const _RunningNow({required this.status, required this.agent, required this.categoryLabels});
 
   final AppStatus status;
   final Agent agent;
+  final Map<String, String> categoryLabels;
 
   @override
   Widget build(BuildContext context) {
+    // Walked in the picker's order rather than the agent's, so this line reads
+    // top-to-bottom in the same order as the chips it is summarising. The
+    // stored list is in the order the categories were tapped.
+    final selected = categoryLabels.keys.where(agent.categories.contains).toList();
+
     return Panel(
       title: 'Agent',
       child: Column(
@@ -84,7 +106,16 @@ class _RunningNow extends StatelessWidget {
           // not the small-caps treatment panel titles use.
           Text(agent.name, style: T.lg),
           const SizedBox(height: S.x1),
-          Text(agent.domain, style: T.sm),
+          // What it covers, read straight off the selection below rather than
+          // from agent.domain. The server now keeps that field in step too, but
+          // deriving it here means the two halves of this screen cannot
+          // disagree even against a backend that has not been updated.
+          Text(
+            selected.isEmpty
+                ? 'No topics selected — it has nothing to look for.'
+                : selected.map((id) => categoryLabels[id] ?? id).join('  ·  '),
+            style: T.sm,
+          ),
           const SizedBox(height: S.x3),
           Wrap(
             spacing: S.x2,
@@ -104,21 +135,26 @@ class _RunningNow extends StatelessWidget {
   }
 }
 class _Topics extends StatelessWidget {
-  const _Topics({required this.agent});
+  const _Topics({required this.agent, required this.categoryLabels});
 
   final Agent agent;
+  final Map<String, String> categoryLabels;
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return Panel(
       title: 'What it reads',
-      subtitle: 'Discovery pulls from these; the judge scores against them.',
+      // Says out loud that this list is the agent's whole remit, because it is
+      // also what the line under the name reports and what the persona is built
+      // from — changing it here changes what the agent thinks it is about.
+      subtitle: 'Discovery pulls from these; the judge scores against them, and '
+          'the agent describes itself by them.',
       child: Wrap(
         spacing: S.x2,
         runSpacing: S.x2,
         children: [
-          for (final entry in _availableCategories(state).entries)
+          for (final entry in categoryLabels.entries)
             _CategoryChip(
               label: entry.value,
               selected: agent.categories.contains(entry.key),

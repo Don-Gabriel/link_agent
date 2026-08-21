@@ -49,9 +49,11 @@ import {
   ALL_CATEGORY_IDS,
   CATEGORIES,
   categoryBlock,
+  describeCategories,
   hashtagsFor,
   isCategoryId,
   parseCategories,
+  sameCategorySet,
 } from "../lib/categories";
 import { FEEDS } from "../lib/discovery";
 import { isRawScore, outputBudgetFor } from "../lib/judge";
@@ -320,6 +322,37 @@ console.log("\ncategories");
   check("hashtagsFor resolves a known id", hashtagsFor("compute-silicon").length > 0);
   check("hashtagsFor tolerates a bad id", hashtagsFor("nope" as never).length === 0);
   check("hashtagsFor tolerates null", hashtagsFor(null).length === 0);
+}
+
+console.log("\nscope line (agents.domain, the app's header, and the persona prompt)");
+{
+  // The whole point: the scope line is a rendering of the categories, so it
+  // cannot describe an interest that is switched off. This is the regression
+  // that had the app announcing an agent as covering music technology above a
+  // list of chips with both music categories deselected.
+  const off = describeCategories(["emerging-tech", "ai-ml", "hardware-embedded", "compute-silicon"]);
+  check("a switched-off interest is not described", !/music|audio|synth/i.test(off), off);
+  check("every active interest is described",
+    off.includes("emerging tech") && off.includes("AI and ML") && off.includes("silicon"), off);
+
+  for (const id of ALL_CATEGORY_IDS) {
+    const c = CATEGORIES[id];
+    check(`${id} has a scope fragment`, c.scope.length > 3 && c.scope === c.scope.trimEnd());
+    check(`${id}'s scope reads as prose, not a label`, !c.scope.includes("—") && !c.scope.includes("·"));
+    check(`${id} is named by its own scope line`, describeCategories([id]) === c.scope);
+  }
+
+  // Falls back to everything for the same reason the rest of the pipeline does:
+  // an agent with no categories watches all of them, so it must say so.
+  check("no categories describes all of them", describeCategories([]).includes("compute and silicon"));
+
+  // Order-insensitive: the app sends the chips in tap order, and a reordered
+  // list must not read as a changed interest set and trigger a persona rebuild.
+  check("set comparison ignores order", sameCategorySet(["ai-ml", "emerging-tech"], ["emerging-tech", "ai-ml"]));
+  check("set comparison catches a removal", !sameCategorySet(["ai-ml", "emerging-tech"], ["ai-ml"]));
+  check("set comparison catches an addition", !sameCategorySet(["ai-ml"], ["ai-ml", "dev-tooling"]));
+  check("set comparison catches a swap", !sameCategorySet(["ai-ml"], ["dev-tooling"]));
+  check("two empty sets match", sameCategorySet([], []));
 }
 
 console.log("\nvoice samples (few-shot examples)");

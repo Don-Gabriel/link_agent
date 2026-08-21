@@ -20,7 +20,7 @@
  * A failed cycle is a logged non-event: it never throws, never corrupts state,
  * and the next slot tries again.
  */
-import { getAgentSettings, getPersona, type AgentSettings } from "./agents";
+import { getAgentSettings, getPersona, refreshPersonaIfStale, type AgentSettings } from "./agents";
 import type { CategoryId } from "./categories";
 import { getPool, query } from "./db";
 import { discover } from "./discovery";
@@ -98,6 +98,12 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     return { agentId, ran: false, drafted: false, published: false, skippedReason: "paused" };
   }
 
+  // The identity is derived from the categories, so it is rebuilt here if they
+  // have moved since it was last built. Doing it at the top of the cycle rather
+  // than in the settings handler means a run of category taps costs one rebuild
+  // instead of one per tap, and the rebuild lands before the prompts that read it.
+  await refreshPersonaIfStale(agentId);
+
   const persona = await getPersona(agentId);
   if (!persona) {
     return { agentId, ran: false, drafted: false, published: false, skippedReason: "persona_not_ready" };
@@ -171,12 +177,28 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
         ).map((r) => r.fingerprint);
 
   // 3. Judge — ONE batched call for all candidates.
+  //
+  // The recent category mix goes in with them. Judging every candidate purely
+  // on its own merits reads well in isolation and narrows the profile over
+  // time: whichever category yields the strongest stories takes every cycle.
+  // Drafts count, not just published posts — a draft has already consumed the
+  // subject whether or not the author ever approved it.
+  const recentCategories = (
+    await query<{ category: CategoryId | null }>(
+      `SELECT category FROM posts
+        WHERE agent_id = $1 AND category IS NOT NULL
+        ORDER BY seq DESC LIMIT 12`,
+      [agentId],
+    )
+  ).flatMap((r) => (r.category ? [r.category] : []));
+
   const judged = await judgeCandidates(
     persona,
     activeCategories,
     candidates,
     judgeMemory,
     priorFingerprints,
+    recentCategories,
   );
   if (!judged.ok) {
     console.warn(`[cycle] agent=${agentId} judging failed: ${judged.reason}`);

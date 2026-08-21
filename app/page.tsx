@@ -235,9 +235,6 @@ function Gate({ onIn }: { onIn: () => Promise<void> }) {
 
 function Setup({ onDone }: { onDone: () => Promise<void> }) {
   const [name, setName] = useState("");
-  const [domain, setDomain] = useState(
-    "music technology, audio software and hardware, and emerging tech generally",
-  );
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata",
@@ -256,7 +253,7 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
     setError("");
     const res = await api("/api/init", {
       method: "POST",
-      body: JSON.stringify({ name, domain, categories, timezone, postTimeLocal: postTime }),
+      body: JSON.stringify({ name, categories, timezone, postTimeLocal: postTime }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -279,13 +276,13 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
           <span>Your name</span>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="How you sign your work" />
         </label>
+        {/* There is deliberately no free-text "what you write about" box any
+            more. It was the one thing here that could disagree with the
+            categories, and it always eventually did: typed once, fed into the
+            persona, then never revised when the categories moved underneath it.
+            The scope is the categories, so it is only asked for once. */}
         <label className="field">
           <span>What you write about</span>
-          <textarea value={domain} onChange={(e) => setDomain(e.target.value)} style={{ minHeight: "5rem" }} />
-          <p className="hint">Used once to build the voice. Be specific about the angle you take.</p>
-        </label>
-        <label className="field">
-          <span>Categories</span>
           <div className="chips">
             {Object.entries(CATEGORY_LABELS).map(([id, label]) => (
               <button
@@ -299,6 +296,10 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
               </button>
             ))}
           </div>
+          <p className="hint">
+            The agent&apos;s voice, its reading list and how it describes itself all come from
+            these. Change them whenever you like — it rebuilds itself to match.
+          </p>
         </label>
         <div className="row" style={{ alignItems: "flex-end" }}>
           <label className="field" style={{ flex: "1 1 8rem" }}>

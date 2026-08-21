@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import type { CategoryId } from "./categories";
-import { ALL_CATEGORY_IDS, parseCategories } from "./categories";
+import { ALL_CATEGORY_IDS, describeCategories, parseCategories, sameCategorySet } from "./categories";
 import { query } from "./db";
 import { MAX_AUTO_CAP } from "./distribute";
 import { expandPersona, type PersonaRecord } from "./persona";
@@ -119,6 +119,74 @@ export async function expandStoredPersona(agentId: string): Promise<void> {
   ]);
 }
 
+/**
+ * Rebuild the stored identity when it no longer matches the agent's categories.
+ *
+ * The persona is DERIVED from the categories, so switching one off has to
+ * change it. Nothing did: expandStoredPersona refuses to re-run once
+ * `identity` exists and updateAgentSettings never touched persona_json, so an
+ * agent whose music categories had been switched off months ago still carried
+ * music interests, music opinions and a music domain line into every judge and
+ * writer prompt. Discovery stopped fetching music; the persona kept asking for
+ * it, so whatever in the remaining feeds looked closest to music won.
+ *
+ * Called at the top of a cycle rather than from the settings PATCH on purpose:
+ * selecting categories is several taps and each one is its own request, so
+ * rebuilding per request would spend an LLM call per tap. The domain line the
+ * UI reads is updated synchronously by updateAgentSettings; only the identity
+ * waits, and it waits exactly until the moment it is next used.
+ *
+ * Never throws, and never leaves the agent without an identity: a failed
+ * rebuild keeps the previous record, and the next cycle tries again.
+ */
+export async function refreshPersonaIfStale(agentId: string): Promise<boolean> {
+  try {
+    const rows = await query<{
+      name: string;
+      persona_json: PersonaRecord & { input: InitPersona };
+      categories_json: CategoryId[];
+    }>("SELECT name, persona_json, categories_json FROM agents WHERE id = $1", [agentId]);
+    const record = rows[0]?.persona_json;
+    // Not expanded yet — that is expandStoredPersona's job, not this one's.
+    if (!record?.identity) return false;
+
+    const parsed = parseCategories(rows[0].categories_json);
+    const categories = parsed.length > 0 ? parsed : ALL_CATEGORY_IDS;
+    // A record with no builtFor predates this field: rebuild once to learn it.
+    // A fallback record is retried too — it is the mechanical identity written
+    // when the LLM was unavailable, and it should not be the permanent answer.
+    const fresh =
+      record.builtFor !== undefined &&
+      record.generator === "llm" &&
+      sameCategorySet(record.builtFor, categories);
+    if (fresh) return false;
+
+    const domain = describeCategories(categories);
+    const rebuilt = await expandPersona(rows[0].name, domain, categories);
+    await query("UPDATE agents SET persona_json = $2, domain = $3 WHERE id = $1", [
+      agentId,
+      // input.name is preserved; input.domain follows the categories, because
+      // personaBlock prints it and a stale one is the loudest bias in the prompt.
+      // input.categories is refreshed for the same reason — it is not read by
+      // anything today, and leaving the setup-time list sitting in the record
+      // is exactly the kind of quietly-wrong field this whole change is about.
+      JSON.stringify({
+        ...rebuilt,
+        input: { ...record.input, name: rows[0].name, domain, categories },
+      }),
+      domain,
+    ]);
+    console.log(
+      `[persona] rebuilt for agent=${agentId} (${rebuilt.generator}) — categories now: ${categories.join(", ")}`,
+    );
+    return true;
+  } catch (err) {
+    // A cycle with a slightly stale persona is far better than no cycle.
+    console.warn("[persona] refresh failed, keeping the stored identity:", String((err as Error)?.message ?? err));
+    return false;
+  }
+}
+
 export async function getPersona(agentId: string): Promise<PersonaRecord | null> {
   const rows = await query<{ persona_json: PersonaRecord }>(
     "SELECT persona_json FROM agents WHERE id = $1",
@@ -216,6 +284,12 @@ export async function updateAgentSettings(
     // list would silently discover nothing and look like a broken cron.
     if (categories.length === 0) return getAgentSettings(agentId);
     push("categories_json", JSON.stringify(categories));
+    // The scope line is a rendering of the categories, so it moves with them in
+    // the same write. It used to be free text typed once at setup, which is how
+    // the app came to describe an agent as covering music above a list of
+    // chips with every music category switched off. The full identity is
+    // rebuilt later, by refreshPersonaIfStale at the top of the next cycle.
+    push("domain", describeCategories(categories));
   }
   if (patch.timezone) push("timezone", patch.timezone);
   if (patch.postTimeLocal !== undefined) {

@@ -9,7 +9,7 @@
  * credibility with people who actually know you.
  */
 import type { CategoryId } from "./categories";
-import { ALL_CATEGORY_IDS, categoryBlock, isCategoryId } from "./categories";
+import { ALL_CATEGORY_IDS, CATEGORIES, categoryBlock, isCategoryId } from "./categories";
 import type { Candidate } from "./discovery";
 import { complete, parseJson } from "./llm";
 import type { MemoryContext } from "./memory";
@@ -105,6 +105,36 @@ Respond with a JSON array, one object per candidate, exactly:
 [{"index": number, "persona_fit": number, "category_fit": number, "novelty": number, "timeliness": number, "non_duplication": number, "category": "category-id", "reason": "one line"}]
 Include every candidate index exactly once.`;
 
+/**
+ * What the profile has actually been publishing, by category.
+ *
+ * Scoring each candidate purely on its own merits is right for quality and
+ * wrong for range: whichever category happens to produce the strongest stories
+ * wins every single cycle, and a profile that watches seven interests quietly
+ * becomes a profile about one. non_duplication catches a repeated STORY; it has
+ * nothing to say about a repeated subject.
+ *
+ * This tilts the bar rather than reserving slots. Nothing here can force out a
+ * post the judge does not rate — an under-covered category still has to earn
+ * its score, and a silent day is still an acceptable outcome.
+ */
+function coverageBlock(active: CategoryId[], recent: CategoryId[]): string {
+  if (recent.length === 0) return "RECENT COVERAGE BY CATEGORY: nothing published yet — score purely on merit.";
+  const counts = new Map<CategoryId, number>();
+  for (const c of recent) counts.set(c, (counts.get(c) ?? 0) + 1);
+  const lines = active.map((id) => {
+    const n = counts.get(id) ?? 0;
+    return `- ${id} (${CATEGORIES[id].label}): ${n} of the last ${recent.length} posts`;
+  });
+  return [
+    `RECENT COVERAGE BY CATEGORY (last ${recent.length} posts):`,
+    ...lines,
+    "This profile is meant to cover all of its active categories, not the one that writes most easily.",
+    "A candidate in a category that already dominates the list above must be clearly better — higher novelty and a real reason to write now — to deserve another post. A candidate in an active category with little or no recent coverage is worth more, all else equal.",
+    "Do not invent merit to fill a gap. If nothing outside the dominant category is any good, score it that way and let the day be silent.",
+  ].join("\n");
+}
+
 function candidateLine(c: Candidate, i: number, summaryLen: number): string {
   return `${i}. [${c.source} · likely ${c.categoryHint}] ${c.title}\n   ${c.summary.slice(0, summaryLen)}`;
 }
@@ -115,6 +145,7 @@ function buildUser(
   candidates: Candidate[],
   memory: MemoryContext,
   priorFingerprints: string[],
+  recentCategories: CategoryId[],
   summaryLen: number,
   factCap: number,
 ): string {
@@ -123,6 +154,8 @@ function buildUser(
     personaBlock(persona),
     "",
     categoryBlock(categories),
+    "",
+    coverageBlock(categories, recentCategories),
     "",
     `PRIOR COVERAGE AND POSITIONS (memory source: ${memory.source}):`,
     priorParts.length > 0 ? priorParts.map((f) => `- ${f}`).join("\n") : "- none yet",
@@ -144,13 +177,16 @@ export async function judgeCandidates(
   candidates: Candidate[],
   memory: MemoryContext,
   priorFingerprints: string[],
+  /** Categories of the most recent posts, newest first. Drives the coverage tilt. */
+  recentCategories: CategoryId[] = [],
 ): Promise<{ ok: true; data: JudgeOutcome } | { ok: false; reason: string }> {
   if (candidates.length === 0) return { ok: false, reason: "no_candidates" };
 
   const active = categories.length > 0 ? categories : ALL_CATEGORY_IDS;
-  const user = buildUser(persona, active, candidates, memory, priorFingerprints, 300, 10);
+  const recent = recentCategories.filter((c) => active.includes(c));
+  const user = buildUser(persona, active, candidates, memory, priorFingerprints, recent, 300, 10);
   // Compact variant for the 16K-TPM Gemma path: shorter summaries, fewer facts.
-  const compactUser = buildUser(persona, active, candidates, memory, priorFingerprints, 80, 5);
+  const compactUser = buildUser(persona, active, candidates, memory, priorFingerprints, recent, 80, 5);
 
   let callsUsed = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
