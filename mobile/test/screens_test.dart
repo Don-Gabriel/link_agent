@@ -7,8 +7,12 @@
 /// failure, since the test binding reports overflows as exceptions.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linkdin_mobile/api/client.dart';
 import 'package:linkdin_mobile/api/models.dart';
 import 'package:linkdin_mobile/screens/composer_screen.dart';
@@ -168,6 +172,28 @@ String _todayLocal() {
 Future<AppState> buildState(Map<String, dynamic>? status) async {
   SharedPreferences.setMockInitialValues({});
   final state = AppState(await ApiClient.create());
+  if (status != null) {
+    state.status = AppStatus.fromJson(status);
+    state.phase = AuthPhase.signedIn;
+  }
+  return state;
+}
+
+/// Same, wired to a transport that answers every call with [response].
+/// Needed by anything that presses a button which actually talks to the server.
+Future<AppState> buildStateWithApi(
+  Map<String, dynamic>? status,
+  Map<String, dynamic> response,
+) async {
+  SharedPreferences.setMockInitialValues(
+    {'session_cookie': 'lc_session=abc', 'base_url': 'http://test.local'},
+  );
+  final client = MockClient((_) async => http.Response(
+        jsonEncode(response),
+        200,
+        headers: {'content-type': 'application/json'},
+      ));
+  final state = AppState(await ApiClient.create(httpClient: client));
   if (status != null) {
     state.status = AppStatus.fromJson(status);
     state.phase = AuthPhase.signedIn;
@@ -423,6 +449,72 @@ void main() {
     expect(find.text('#MusicTech'), findsOneWidget);
     expect(find.text('#AudioDev'), findsOneWidget);
     expect(find.text('HASHTAGS (2/2)'), findsOneWidget);
+  });
+
+  // Rewriting must never delete a tag the author typed. It used to replace the
+  // list outright with whatever the model suggested, so pressing "Rewrite with
+  // AI" on a post you had tagged yourself silently threw those tags away.
+  testWidgets('accepting a rewrite keeps the hashtags the author chose', (tester) async {
+    final state = await buildStateWithApi(statusFixture(), {
+      'ok': true,
+      'text': 'A different treatment of the same material, at length.',
+      'hashtags': ['Inference', 'Latency'],
+    });
+    state.startEditing(state.status!.queue.first);
+    await pumpScreen(tester, const ComposerScreen(), state);
+
+    await scrollTo(tester, find.text('Rewrite with AI'));
+    await tester.tap(find.text('Rewrite with AI'));
+    await tester.pumpAndSettle();
+    await scrollTo(tester, find.text('Use this'));
+    await tester.tap(find.text('Use this'));
+    await tester.pumpAndSettle();
+
+    // p12 was tagged MusicTech and AudioDev, and the cap is 2 — so the author's
+    // two survive and the model's suggestions simply do not fit.
+    await scrollTo(tester, find.text('#MusicTech'));
+    expect(find.text('#MusicTech'), findsOneWidget);
+    expect(find.text('#AudioDev'), findsOneWidget);
+    expect(find.text('#Inference'), findsNothing);
+    expect(find.text('HASHTAGS (2/2)'), findsOneWidget);
+  });
+
+  testWidgets('a rewrite may add hashtags into the room left under the cap', (tester) async {
+    final fixture = statusFixture();
+    (fixture['agent'] as Map<String, dynamic>)['style'] = {
+      'structure': 'prose',
+      'hashtagCount': 4,
+    };
+    // One tag of the author's own, three slots free. Applied to every queued
+    // post rather than the first entry of the fixture: AppStatus sorts the
+    // queue by deadline, so the one the composer opens is not necessarily the
+    // one written first here.
+    for (final post in fixture['queue'] as List) {
+      (post as Map<String, dynamic>)['hashtags'] = ['MusicTech'];
+    }
+
+    final state = await buildStateWithApi(fixture, {
+      'ok': true,
+      'text': 'A different treatment of the same material, at length.',
+      'hashtags': ['Inference', 'MUSICTECH', 'Latency'],
+    });
+    state.startEditing(state.status!.queue.first);
+    await pumpScreen(tester, const ComposerScreen(), state);
+
+    await scrollTo(tester, find.text('Rewrite with AI'));
+    await tester.tap(find.text('Rewrite with AI'));
+    await tester.pumpAndSettle();
+    await scrollTo(tester, find.text('Use this'));
+    await tester.tap(find.text('Use this'));
+    await tester.pumpAndSettle();
+
+    await scrollTo(tester, find.text('#MusicTech'));
+    expect(find.text('#MusicTech'), findsOneWidget);
+    expect(find.text('#Inference'), findsOneWidget);
+    expect(find.text('#Latency'), findsOneWidget);
+    // MUSICTECH is the author's own tag in different casing, not a new one.
+    expect(find.text('#MUSICTECH'), findsNothing);
+    expect(find.text('HASHTAGS (3/4)'), findsOneWidget);
   });
 
   testWidgets('ComposerScreen shows a preview before anything is saved', (tester) async {

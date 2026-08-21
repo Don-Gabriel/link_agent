@@ -20,7 +20,13 @@
  * A failed cycle is a logged non-event: it never throws, never corrupts state,
  * and the next slot tries again.
  */
-import { getAgentSettings, getPersona, refreshPersonaIfStale, type AgentSettings } from "./agents";
+import {
+  getAgentSettings,
+  getPersona,
+  refreshPersonaIfStale,
+  voiceReferencesFor,
+  type AgentSettings,
+} from "./agents";
 import type { CategoryId } from "./categories";
 import { getPool, query } from "./db";
 import { discover } from "./discovery";
@@ -35,7 +41,7 @@ import {
   withSlotLock,
   type DueSlot,
 } from "./slots";
-import { pickSamples, SAMPLES_IN_PROMPT } from "./voice";
+
 import { writePost, type PriorPost } from "./writer";
 
 /** Nothing published in this long widens discovery (more sources, higher caps). */
@@ -267,20 +273,11 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     usedQuote: p.used_quote,
   }));
 
-  // Few-shot voice references. Published posts only: a draft the author never
-  // approved is not evidence of how they want to sound, and feeding rejected
-  // text back in would let the agent's own worst habits reinforce themselves.
-  const publishedSamples = (
-    await query<{ text: string }>(
-      // posts.text, not original_text: the published version is the one the
-      // author was willing to sign, edits and all. That is the voice to imitate.
-      `SELECT text FROM posts
-        WHERE agent_id = $1 AND status = 'published' AND length(text) > 200
-        ORDER BY published_at DESC NULLS LAST, seq DESC
-        LIMIT $2`,
-      [agentId, SAMPLES_IN_PROMPT * 2],
-    )
-  ).map((r) => r.text);
+  // Few-shot voice references, from the same helper the composer's rewrite and
+  // the voice preview use. They were separate before, and the composer's copy
+  // simply did not exist — so "Rewrite with AI" ran on the style toggles alone
+  // and ignored the author's samples entirely.
+  const voice = await voiceReferencesFor(settings);
 
   // The signature ration counts PUBLISHED posts only. Counting drafts would let
   // a quote in something the author discarded consume the budget, silently
@@ -303,8 +300,8 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     runnersUp,
     memory: writeMemory,
     priorPosts,
-    samples: pickSamples(settings.corpus, publishedSamples),
-    editNotes: settings.editNotes,
+    samples: voice.samples,
+    editNotes: voice.editNotes,
     publishedQuotesInLastFive: quotesInLastFivePublished,
   });
 

@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 
 import '../api/models.dart';
 import '../theme.dart';
+import 'post_card.dart' show countdownTick;
 
 /// How one entry on the rail should read.
 enum RailTone { live, draft, quiet, alarm, pending }
@@ -196,12 +197,27 @@ class NextUpCard extends StatefulWidget {
 
 class _NextUpCardState extends State<NextUpCard> {
   Timer? _ticker;
+  Duration? _interval;
 
   @override
   void initState() {
     super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+    _schedule();
+  }
+
+  /// Ticks once a second only while the last two minutes are running down —
+  /// which is exactly when this card's urgent styling depends on the seconds.
+  /// The rest of the time the reading is in minutes and so is the timer.
+  void _schedule() {
+    final at = widget.post.scheduledFor;
+    final next = countdownTick(at == null ? Duration.zero : at.difference(DateTime.now()));
+    if (_interval == next && _ticker != null) return;
+    _interval = next;
+    _ticker?.cancel();
+    _ticker = Timer.periodic(next, (_) {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
     });
   }
 

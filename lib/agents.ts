@@ -19,7 +19,7 @@ import { MAX_AUTO_CAP } from "./distribute";
 import { expandPersona, type PersonaRecord } from "./persona";
 import { normalizeHhMm } from "./schedule";
 import { parseStyle, type StyleConfig } from "./style";
-import { parseCorpus } from "./voice";
+import { parseCorpus, pickSamples, SAMPLES_IN_PROMPT, type VoiceSample } from "./voice";
 
 export function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -251,6 +251,38 @@ export async function getPrimaryAgent(): Promise<AgentSettings | null> {
     `SELECT ${SETTINGS_COLUMNS} FROM agents WHERE active ORDER BY created_at LIMIT 1`,
   );
   return rows[0] ? toSettings(rows[0]) : null;
+}
+
+/**
+ * The author's voice references: the samples they chose plus what they have
+ * actually published, and the standing notes learned from their edits.
+ *
+ * Shared by the cycle and by the composer's rewrite actions on purpose. The
+ * cycle used to be the only caller, so "Rewrite with AI" ran on the style
+ * toggles alone — the writing samples and edit notes, which are the half of
+ * the Voice screen that actually carries a voice, never reached it. Editing
+ * them changed what the agent wrote on its own and changed nothing about the
+ * rewrites, which reads exactly like the setting being ignored.
+ */
+export interface VoiceReferences {
+  samples: VoiceSample[];
+  editNotes: string | null;
+}
+
+export async function voiceReferencesFor(agent: AgentSettings): Promise<VoiceReferences> {
+  const published = (
+    await query<{ text: string }>(
+      // posts.text, not original_text: the published version is the one the
+      // author was willing to sign, edits and all. That is the voice to imitate.
+      // Drafts are excluded — text nobody approved is not evidence of anything.
+      `SELECT text FROM posts
+        WHERE agent_id = $1 AND status = 'published' AND length(text) > 200
+        ORDER BY published_at DESC NULLS LAST, seq DESC
+        LIMIT $2`,
+      [agent.agentId, SAMPLES_IN_PROMPT * 2],
+    )
+  ).map((r) => r.text);
+  return { samples: pickSamples(agent.corpus, published), editNotes: agent.editNotes };
 }
 
 export interface SettingsPatch {

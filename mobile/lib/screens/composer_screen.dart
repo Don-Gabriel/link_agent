@@ -12,6 +12,10 @@
 ///   * A voice change does not rewrite anything on its own. It raises a banner
 ///     offering to. Silently regenerating text somebody typed, because they
 ///     touched a settings toggle on another tab, would be indefensible.
+///   * Rewriting reads the CURRENT voice — every style rule, plus the author's
+///     writing samples and edit notes — because the server builds that prompt
+///     fresh on each request. Anything saved on the Voice tab is in effect on
+///     the very next press, with nothing cached in between.
 ///   * Images upload on save, not on pick, so abandoning a draft does not leave
 ///     orphaned assets registered at LinkedIn.
 library;
@@ -123,7 +127,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
         _hashtags = [];
         _scheduledFor = null;
         _variant = null;
-        _voiceAtLoad = state.style.summary;
+        _voiceAtLoad = state.styleFingerprint;
       }
       return;
     }
@@ -138,7 +142,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
     _scheduledFor = target.scheduledFor;
     _pending.clear();
     _variant = null;
-    _voiceAtLoad = state.style.summary;
+    _voiceAtLoad = state.styleFingerprint;
 
     // Take the edit lock so the scheduled send cannot fire while this is open
     // and publish half a sentence. Time-bounded on the server, so forgetting to
@@ -212,18 +216,37 @@ class _ComposerScreenState extends State<ComposerScreen> {
     final variant = _variant;
     if (variant == null) return;
     final state = context.read<AppState>();
-    // The tags come with the text. A rewrite that changes the angle should be
-    // free to change the tags with it — keeping the old ones would leave a post
-    // about one thing carrying the hashtags of another.
-    final suggested = state.lastVariantHashtags;
+
+    // The author's hashtags are kept, and the rewrite's suggestions fill
+    // whatever room is left under the cap. This used to replace the list
+    // outright, which quietly deleted tags someone had typed deliberately —
+    // the model's opinion about tags is worth less than an explicit choice.
+    //
+    // Existing tags are never dropped even if there are already more of them
+    // than the cap allows: trimming is the tag editor's job, not a side effect
+    // of pressing rewrite.
+    final kept = List.of(_hashtags);
+    final room = state.style.hashtagCount - kept.length;
+    final added = room <= 0
+        ? const <String>[]
+        : state.lastVariantHashtags
+            .where((t) => !kept.any((k) => k.toLowerCase() == t.toLowerCase()))
+            .take(room)
+            .toList();
+
     setState(() {
       _text.text = variant;
-      if (suggested.isNotEmpty) _hashtags = List.of(suggested);
+      _hashtags = [...kept, ...added];
       _variant = null;
-      _voiceAtLoad = state.style.summary;
-      _status = suggested.isEmpty
-          ? 'Applied. Not saved yet.'
-          : 'Applied, with its own hashtags. Not saved yet.';
+      _voiceAtLoad = state.styleFingerprint;
+      _status = switch ((kept.isEmpty, added.isEmpty)) {
+        (true, true) => 'Applied. Not saved yet.',
+        (true, false) => 'Applied, with ${added.length} suggested '
+            '${added.length == 1 ? 'hashtag' : 'hashtags'}. Not saved yet.',
+        (false, true) => 'Applied. Your hashtags are unchanged. Not saved yet.',
+        (false, false) => 'Applied. Your ${kept.length} '
+            '${kept.length == 1 ? 'hashtag' : 'hashtags'} kept, ${added.length} added. Not saved yet.',
+      };
     });
   }
 
@@ -333,7 +356,12 @@ class _ComposerScreenState extends State<ComposerScreen> {
     final tooLong = length > kMaxBodyChars;
     final hookLength = _text.text.split('\n').first.length;
     final canSend = !_busy && !tooShort && !tooLong;
-    final voiceStale = _voiceAtLoad != null && _voiceAtLoad != state.style.summary && length > 0;
+    // Compared against the FULL voice, not style.summary. That summary names
+    // the structure, the emoji policy and the tag count and nothing else, so
+    // changing the register, the hook, the length or a custom rule left the
+    // banner silent — the voice really had moved on and the composer said
+    // nothing about it.
+    final voiceStale = _voiceAtLoad != null && _voiceAtLoad != state.styleFingerprint && length > 0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),

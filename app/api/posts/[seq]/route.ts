@@ -15,7 +15,7 @@
  * time of its own.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent } from "../../../../lib/agents";
+import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
 import { query } from "../../../../lib/db";
 import { publishPost, resolveAmbiguousSend } from "../../../../lib/distribute";
 import { assemblePost, checkLength, MAX_BODY_CHARS } from "../../../../lib/format";
@@ -254,20 +254,22 @@ export async function PATCH(
       if (current.length < 20) {
         return NextResponse.json({ error: "nothing_to_rewrite" }, { status: 400 });
       }
-      const persona = await getPersona(agent.agentId);
+      const [persona, voice] = await Promise.all([
+        getPersona(agent.agentId),
+        voiceReferencesFor(agent),
+      ]);
       if (!persona) return NextResponse.json({ error: "persona_not_ready" }, { status: 409 });
 
       // Deliberately NOT saved. A variant the user has not seen yet must never
       // replace the draft they already approved of — they choose, then the app
       // sends a normal 'edit'.
-      const variant = await rewriteDraft(persona, current, agent.style, Number(body.variant ?? 0));
+      const variant = await rewriteDraft(persona, current, agent.style, Number(body.variant ?? 0), voice);
       if (!variant.ok) {
         return NextResponse.json({ error: "rewrite_failed", detail: variant.reason }, { status: 502 });
       }
-      // Hashtags travel with the variant. A rewrite that changes the angle
-      // should be free to change the tags with it — the old prompt demanded an
-      // empty array, so every alternative silently inherited whatever tags the
-      // original happened to carry, even when it was now about something else.
+      // Hashtags are SUGGESTIONS. The composer keeps whatever the author chose
+      // and fills the remaining room under the cap from these, so pressing
+      // rewrite can never delete a tag someone typed on purpose.
       return NextResponse.json({
         ok: true,
         text: variant.data.text,

@@ -12,7 +12,7 @@
  * than the same sentence reshuffled.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent } from "../../../../lib/agents";
+import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
 import { MAX_BODY_CHARS } from "../../../../lib/format";
 import { rewriteDraft } from "../../../../lib/writer";
 
@@ -23,7 +23,13 @@ export async function POST(request: Request) {
   const agent = await getPrimaryAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
-  const persona = await getPersona(agent.agentId);
+  // Fetched together: two independent reads against a database that is not in
+  // the same country, and awaiting them in sequence adds a round trip to every
+  // press of a button the user is already waiting on an LLM for.
+  const [persona, voice] = await Promise.all([
+    getPersona(agent.agentId),
+    voiceReferencesFor(agent),
+  ]);
   if (!persona) return NextResponse.json({ error: "persona_not_ready" }, { status: 409 });
 
   let body: { text?: string; variant?: number };
@@ -44,15 +50,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const variant = await rewriteDraft(persona, text, agent.style, Number(body.variant ?? 0));
+  const variant = await rewriteDraft(persona, text, agent.style, Number(body.variant ?? 0), voice);
   if (!variant.ok) {
     return NextResponse.json({ error: "rewrite_failed", detail: variant.reason }, { status: 502 });
   }
 
-  // Hashtags travel with the variant. A rewrite that changes the angle
-  // should be free to change the tags with it — the old prompt demanded an
-  // empty array, so every alternative silently inherited whatever tags the
-  // original happened to carry, even when it was now about something else.
+  // Hashtags are SUGGESTIONS. The composer keeps whatever the author chose and
+  // fills the remaining room under the cap from these, so pressing rewrite can
+  // never delete a tag someone typed on purpose.
   return NextResponse.json({
     ok: true,
     text: variant.data.text,

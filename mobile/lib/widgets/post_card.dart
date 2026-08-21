@@ -33,6 +33,18 @@ String _hhmm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 /// "in 12 min", "in 3h 40m", "2 min ago" — coarse on purpose above an hour.
+/// How often a countdown showing [remaining] actually needs to repaint.
+///
+/// These readouts are rendered in MINUTES — the finest thing they ever say is
+/// "less than a minute" — so a one-second timer was asking Flutter to rebuild
+/// sixty times for every frame that could possibly look different, once per
+/// scheduled post on screen. Under two minutes the resolution genuinely
+/// matters, because that is where the urgent styling flips and where "less
+/// than a minute" appears; past that, twenty seconds keeps every minute
+/// boundary fresh to within a third of a minute and costs a twentieth as much.
+Duration countdownTick(Duration remaining) =>
+    remaining.abs().inMinutes < 2 ? const Duration(seconds: 1) : const Duration(seconds: 20);
+
 String _countdown(Duration d) {
   final late = d.isNegative;
   final total = d.abs();
@@ -69,12 +81,26 @@ class _ScheduleStrip extends StatefulWidget {
 
 class _ScheduleStripState extends State<_ScheduleStrip> {
   Timer? _ticker;
+  Duration? _interval;
 
   @override
   void initState() {
     super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+    _schedule();
+  }
+
+  /// Re-arms at the rate the current distance to the deadline deserves, and
+  /// only replaces the timer when that rate actually changes.
+  void _schedule() {
+    final at = widget.post.scheduledFor;
+    final next = countdownTick(at == null ? Duration.zero : at.difference(DateTime.now()));
+    if (_interval == next && _ticker != null) return;
+    _interval = next;
+    _ticker?.cancel();
+    _ticker = Timer.periodic(next, (_) {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
     });
   }
 

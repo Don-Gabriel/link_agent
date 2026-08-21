@@ -7,7 +7,7 @@
  * text came from a person.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent } from "../../../lib/agents";
+import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../lib/agents";
 import { isCategoryId } from "../../../lib/categories";
 import { query } from "../../../lib/db";
 import { publishPost } from "../../../lib/distribute";
@@ -55,9 +55,14 @@ export async function POST(request: Request) {
   // Tags the polish step suggested, used only if the author gave none.
   let polishedTags: string[] = [];
   if (body.polish) {
-    const persona = await getPersona(agent.agentId);
+    // Both reads at once — they are independent, and this sits in front of an
+    // LLM call the author is already waiting on.
+    const [persona, voice] = await Promise.all([
+      getPersona(agent.agentId),
+      voiceReferencesFor(agent),
+    ]);
     if (persona) {
-      const polished = await polishCustomPost(persona, text, agent.style);
+      const polished = await polishCustomPost(persona, text, agent.style, voice);
       if (polished.ok) {
         text = polished.data.text.trim();
         polishedBy = polished.data.servedBy;

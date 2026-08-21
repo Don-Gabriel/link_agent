@@ -16,7 +16,7 @@
  * Costs one LLM call, so it is button-triggered and never runs on keystroke.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent } from "../../../../lib/agents";
+import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
 import { query } from "../../../../lib/db";
 import { assemblePost, checkLength, hookOf } from "../../../../lib/format";
 import { parseStyle } from "../../../../lib/style";
@@ -32,7 +32,10 @@ export async function POST(request: Request) {
   const agent = await getPrimaryAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
-  const persona = await getPersona(agent.agentId);
+  const [persona, voice] = await Promise.all([
+    getPersona(agent.agentId),
+    voiceReferencesFor(agent),
+  ]);
   if (!persona) return NextResponse.json({ error: "persona_not_ready" }, { status: 409 });
 
   let body: { style?: unknown; text?: string };
@@ -66,7 +69,10 @@ export async function POST(request: Request) {
     }
   }
 
-  const result = await polishCustomPost(persona, source, style);
+  // The preview has to run the SAME prompt the real writer runs, samples and
+  // all. A preview that consults only the style toggles would look convincing
+  // and still not be what saving this voice actually produces.
+  const result = await polishCustomPost(persona, source, style, voice);
   if (!result.ok) {
     return NextResponse.json({ error: "preview_failed", detail: result.reason }, { status: 502 });
   }

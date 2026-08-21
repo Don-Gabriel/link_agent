@@ -296,6 +296,23 @@ async function repairIfNeeded(
 }
 
 /**
+ * Persona, then the author's voice references, then the task.
+ *
+ * The same order the cycle's writer prompt uses, so a composer rewrite and an
+ * agent-written post look at the same evidence about how this person sounds.
+ * Omits the block entirely when there is nothing to show, rather than leaving a
+ * labelled empty section — which reads to a model as "this person has no voice".
+ */
+function withVoice(
+  persona: PersonaRecord,
+  voice: { samples?: VoiceSample[]; editNotes?: string | null },
+  task: string[],
+): string {
+  const refs = voiceBlock(voice.samples ?? [], voice.editNotes);
+  return [personaBlock(persona), ...(refs ? ["", refs] : []), "", ...task].join("\n");
+}
+
+/**
  * Produce a genuinely DIFFERENT treatment of the same material.
  *
  * Distinct from polishCustomPost, which is conservative by design and told to
@@ -313,6 +330,13 @@ export async function rewriteDraft(
   draft: string,
   style: StyleConfig = DEFAULT_STYLE,
   attempt = 0,
+  /**
+   * The author's samples and edit notes. Defaulted rather than required so the
+   * signature stays compatible, but every real caller should pass them: without
+   * them a rewrite obeys the style toggles and ignores the half of the Voice
+   * screen that actually demonstrates a voice.
+   */
+  voice: { samples?: VoiceSample[]; editNotes?: string | null } = {},
 ): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const angles = [
     "Open from a different entry point than the current draft — if it opens with the result, open with the problem, and vice versa.",
@@ -335,7 +359,7 @@ ${style.hashtagCount === 0
 
   const res = await complete({
     system,
-    user: [personaBlock(persona), "", "CURRENT DRAFT:", draft, "", "Write the alternative version."].join("\n"),
+    user: withVoice(persona, voice, ["CURRENT DRAFT:", draft, "", "Write the alternative version."]),
     jsonMode: true,
     maxOutputTokens: 1536,
   });
@@ -362,6 +386,7 @@ export async function polishCustomPost(
   persona: PersonaRecord,
   draft: string,
   style: StyleConfig = DEFAULT_STYLE,
+  voice: { samples?: VoiceSample[]; editNotes?: string | null } = {},
 ): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const system = `${buildSystem(style)}
 
@@ -378,7 +403,10 @@ ${style.hashtagCount === 0
 
   const res = await complete({
     system,
-    user: [personaBlock(persona), "", "AUTHOR'S DRAFT:", draft, "", "Return the edited post."].join("\n"),
+    // The author's own samples matter more here than anywhere else: this is
+    // their draft being edited, and the point is that it comes back sounding
+    // like them rather than like the house style.
+    user: withVoice(persona, voice, ["AUTHOR'S DRAFT:", draft, "", "Return the edited post."]),
     jsonMode: true,
     maxOutputTokens: 1536,
   });

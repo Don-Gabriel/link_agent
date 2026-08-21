@@ -232,6 +232,23 @@ class Agent {
   /// enough edited-then-published posts exist to say anything honest.
   final String? editNotes;
 
+  /// The same agent with a different category list, for optimistic updates.
+  /// The server's reply replaces this the moment it lands.
+  Agent withCategories(List<String> next) => Agent(
+        agentId: agentId,
+        name: name,
+        domain: domain,
+        categories: next,
+        timezone: timezone,
+        postTimeLocal: postTimeLocal,
+        autoPublish: autoPublish,
+        paused: paused,
+        autoPublishCap: autoPublishCap,
+        style: style,
+        corpus: corpus,
+        editNotes: editNotes,
+      );
+
   factory Agent.fromJson(Map<String, dynamic> j) => Agent(
         agentId: _str(j['agentId'], ''),
         name: _str(j['name'], 'Agent'),
@@ -631,6 +648,37 @@ class AppStatus {
     required this.categories,
     required this.scheduler,
   });
+
+  /// The same payload with a new agent, everything else untouched.
+  ///
+  /// PATCH /api/settings answers with the updated agent, so a settings change
+  /// can be applied from that response instead of re-fetching the entire
+  /// dashboard. Nothing else in this object can have moved: the queue, the
+  /// history, the rejections and the slot timeline are not derived from agent
+  /// settings. Timezone and post time ARE — they reschedule slots — and those
+  /// callers deliberately still take the full refresh.
+  AppStatus withAgent(Agent next) => AppStatus(
+        initialized: initialized,
+        agent: next,
+        account: account,
+        liveMode: liveMode,
+        maxAutoCap: maxAutoCap,
+        maxHashtags: maxHashtags,
+        presets: presets,
+        queue: queue,
+        history: history,
+        rejections: rejections,
+        llm: llm,
+        budget: budget,
+        nextRunLocal: nextRunLocal,
+        cycleCount: cycleCount,
+        ambiguousCount: ambiguousCount,
+        slots: slots,
+        timeline: timeline,
+        slotLimits: slotLimits,
+        categories: categories,
+        scheduler: scheduler,
+      );
 
   final bool initialized;
   final Agent? agent;

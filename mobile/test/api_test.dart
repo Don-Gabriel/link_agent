@@ -418,4 +418,155 @@ void main() {
       expect(status.needingReview, 2);
     });
   });
+
+  // Every settings change used to cost two sequential round trips to a database
+  // on another continent — the PATCH, then a full /api/status rebuild of the
+  // queue, history, rejections, slot timeline and LLM budget, none of which a
+  // settings change can alter. At roughly half a second each, with the whole UI
+  // disabled in between, that was most of what "the app feels slow" meant.
+  group('settings changes cost one round trip, not two', () {
+    Map<String, dynamic> agentJson({List<String> categories = const ['ai-ml']}) => {
+          'agentId': 'a1',
+          'name': 'A Working Engineer',
+          'domain': 'AI and ML engineering',
+          'categories': categories,
+          'timezone': 'Asia/Kolkata',
+          'postTimeLocal': '09:30',
+          'autoPublish': false,
+          'paused': false,
+          'autoPublishCap': 1,
+          'style': {'structure': 'prose', 'hashtagCount': 2},
+        };
+
+    Future<AppState> seeded({Map<String, dynamic>? response, int status = 200}) async {
+      final state = await buildState(
+        response: response ?? {'ok': true, 'agent': agentJson()},
+        status: status,
+      );
+      state.status = AppStatus.fromJson({
+        'initialized': true,
+        'agent': agentJson(categories: ['ai-ml', 'dev-tooling']),
+        'account': {'connected': true},
+        'config': {'liveMode': false},
+      });
+      return state;
+    }
+
+    test('a style change does not refetch the whole dashboard', () async {
+      final state = await seeded();
+      await state.setStyle(StyleConfig.houseStyle.copyWith(register: 'blunt'));
+
+      expect(calls.map((c) => c.path), ['/api/settings'],
+          reason: 'the PATCH already answers with the updated agent');
+    });
+
+    test('the updated agent is taken from the PATCH response', () async {
+      final state = await seeded(
+        response: {'ok': true, 'agent': agentJson(categories: ['compute-silicon'])},
+      );
+      await state.setPaused(true);
+      expect(state.agent!.categories, ['compute-silicon']);
+    });
+
+    test('a response without an agent still falls back to a full refresh', () async {
+      // An older backend, or a shape this build does not recognise. Showing
+      // possibly-stale settings would be worse than paying for the round trip.
+      final state = await seeded(response: {'ok': true});
+      await state.setPaused(true);
+      expect(calls.map((c) => c.path), ['/api/settings', '/api/status']);
+    });
+
+    test('the schedule fields still take the full refresh', () async {
+      // Changing the timezone reschedules every slot, and slots are not part of
+      // the agent object — so this one genuinely has to re-read everything.
+      final state = await seeded();
+      await state.setTimezone('Europe/Berlin');
+      expect(calls.map((c) => c.path), ['/api/settings', '/api/status']);
+    });
+
+    test('a category tap shows immediately, before the server answers', () async {
+      final state = await seeded();
+      final pending = state.setCategories(['ai-ml']);
+      expect(state.agent!.categories, ['ai-ml'],
+          reason: 'the chip must not wait half a second to look pressed');
+      expect(state.loading, isFalse,
+          reason: 'setting loading would disable every control on the screen');
+      await pending;
+    });
+
+    test('a rejected category change is rolled back', () async {
+      final state = await seeded(response: {'error': 'update_failed'}, status: 500);
+      final error = await state.setCategories(['ai-ml']);
+
+      expect(error, isNotNull);
+      expect(state.agent!.categories, ['ai-ml', 'dev-tooling'],
+          reason: 'a refused change must never be left looking accepted');
+    });
+  });
+
+  // The composer watches this to decide whether to offer a re-run. It used to
+  // watch StyleConfig.summary, which names three fields out of a prompt built
+  // from every style rule plus the author's samples and edit notes.
+  group('the voice fingerprint notices every part of the voice', () {
+    Map<String, dynamic> withAgent(Map<String, dynamic> agent) => {
+          'initialized': true,
+          'agent': agent,
+          'account': {'connected': true},
+          'config': {'liveMode': false},
+        };
+
+    Map<String, dynamic> base({
+      Map<String, dynamic> style = const {'structure': 'prose', 'hashtagCount': 2},
+      List<String> corpus = const [],
+      String? editNotes,
+    }) =>
+        {
+          'agentId': 'a1',
+          'name': 'N',
+          'domain': 'd',
+          'categories': ['ai-ml'],
+          'timezone': 'UTC',
+          'postTimeLocal': '09:30',
+          'autoPublish': false,
+          'paused': false,
+          'autoPublishCap': 1,
+          'style': style,
+          'corpus': corpus,
+          'editNotes': editNotes,
+        };
+
+    Future<String> fingerprintOf(Map<String, dynamic> agent) async {
+      final state = await buildState();
+      state.status = AppStatus.fromJson(withAgent(agent));
+      return state.styleFingerprint;
+    }
+
+    test('a register change moves it', () async {
+      expect(
+        await fingerprintOf(base(style: {'structure': 'prose', 'register': 'blunt'})),
+        isNot(await fingerprintOf(base(style: {'structure': 'prose', 'register': 'practitioner'}))),
+        reason: 'style.summary never mentioned the register, so the banner stayed silent',
+      );
+    });
+
+    test('adding a writing sample moves it', () async {
+      // The single largest lever on how the output sounds, and previously
+      // invisible to the composer entirely.
+      expect(
+        await fingerprintOf(base(corpus: ['A sample of how this person writes.'])),
+        isNot(await fingerprintOf(base())),
+      );
+    });
+
+    test('edit notes move it', () async {
+      expect(
+        await fingerprintOf(base(editNotes: 'Open on the number.')),
+        isNot(await fingerprintOf(base())),
+      );
+    });
+
+    test('an unchanged voice keeps the same fingerprint', () async {
+      expect(await fingerprintOf(base(corpus: ['x'])), await fingerprintOf(base(corpus: ['x'])));
+    });
+  });
 }

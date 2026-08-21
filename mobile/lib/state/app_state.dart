@@ -56,6 +56,24 @@ class AppState extends ChangeNotifier {
   Agent? get agent => status?.agent;
   StyleConfig get style => agent?.style ?? StyleConfig.houseStyle;
 
+  /// Everything that shapes how the writer sounds, as one comparable string.
+  ///
+  /// For change DETECTION, never for display. The composer used to watch
+  /// [StyleConfig.summary], which names the structure, the emoji policy and the
+  /// tag count — three fields out of a prompt built from every style rule plus
+  /// the author's writing samples and edit notes. Editing the register, the
+  /// length, a banned phrase or a sample moved the real voice and left the
+  /// composer's "voice changed" banner silent.
+  String get styleFingerprint {
+    final a = agent;
+    if (a == null) return '';
+    return [
+      a.style.toJson().toString(),
+      a.corpus.join(String.fromCharCode(0)),
+      a.editNotes ?? '',
+    ].join('|');
+  }
+
   Future<void> bootstrap() async {
     phase = _api.hasSession ? AuthPhase.signedIn : AuthPhase.signedOut;
     notifyListeners();
@@ -119,6 +137,10 @@ class AppState extends ChangeNotifier {
   ///
   /// Returns null on success or the error string on failure, so callers can
   /// decide between a snackbar and inline text without re-reading [error].
+  ///
+  /// Use [mutateAgent] instead for anything that only changes agent settings —
+  /// this one pays for a full status refetch, which is the right price for a
+  /// mutation that moves posts or slots and far too much for a toggle.
   Future<String?> mutate(Future<void> Function() action) async {
     loading = true;
     notifyListeners();
@@ -134,23 +156,67 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// A settings change that only touches the agent, applied from the response.
+  ///
+  /// PATCH /api/settings already answers with the updated agent, so re-fetching
+  /// the whole dashboard afterwards asked a database on another continent to
+  /// rebuild the queue, the history, the rejection log, the slot timeline and
+  /// the LLM budget — none of which the change could have altered. Every toggle
+  /// cost two sequential round trips at roughly half a second each, with the
+  /// entire UI disabled in between. This costs one, and the second is the one
+  /// that was pure waste.
+  ///
+  /// Anything that moves the schedule (timezone, post time) still goes through
+  /// [mutate]: the server recomputes every slot's next occurrence, and those
+  /// live outside the agent object.
+  Future<String?> mutateAgent(Future<dynamic> Function() action) async {
+    loading = true;
+    notifyListeners();
+    try {
+      final json = await action();
+      final updated = json is Map<String, dynamic> ? json['agent'] as Map<String, dynamic>? : null;
+      if (updated != null && status != null) {
+        status = status!.withAgent(Agent.fromJson(updated));
+        error = null;
+        loading = false;
+        notifyListeners();
+        return null;
+      }
+    } on ApiException catch (e) {
+      loading = false;
+      error = e.toString();
+      notifyListeners();
+      return e.toString();
+    }
+    // The server answered without an agent — an older build, or a shape we do
+    // not recognise. Fall back to the full refetch rather than showing state
+    // that might now be wrong.
+    await refresh();
+    return null;
+  }
+
   // ---------------------------------------------------------------- actions
+  //
+  // These all take mutateAgent: PATCH /api/settings returns the updated agent,
+  // and nothing else on the dashboard is derived from these fields. setPostTime
+  // and setTimezone are the exceptions and stay on mutate — they reschedule
+  // every slot, which lives outside the agent object.
 
   Future<String?> setStyle(StyleConfig style) =>
-      mutate(() => _api.patch('/api/settings', {'style': style.toJson()}));
+      mutateAgent(() => _api.patch('/api/settings', {'style': style.toJson()}));
 
   Future<String?> applyPreset(String presetId) =>
-      mutate(() => _api.patch('/api/settings', {'preset': presetId}));
+      mutateAgent(() => _api.patch('/api/settings', {'preset': presetId}));
 
   Future<String?> setAutoPublish(bool value) =>
-      mutate(() => _api.patch('/api/settings', {'autoPublish': value}));
+      mutateAgent(() => _api.patch('/api/settings', {'autoPublish': value}));
 
   Future<String?> setPaused(bool value) =>
-      mutate(() => _api.patch('/api/settings', {'paused': value}));
+      mutateAgent(() => _api.patch('/api/settings', {'paused': value}));
 
   /// How many posts the agent may publish by itself per rolling 24h (1-3).
   Future<String?> setAutoPublishCap(int value) =>
-      mutate(() => _api.patch('/api/settings', {'autoPublishCap': value}));
+      mutateAgent(() => _api.patch('/api/settings', {'autoPublishCap': value}));
 
   /// "HH:MM" in the agent's timezone. Changing it reschedules the next run —
   /// and because nextDailyRun is strictly future, setting today's time after
@@ -161,8 +227,55 @@ class AppState extends ChangeNotifier {
   Future<String?> setTimezone(String tz) =>
       mutate(() => _api.patch('/api/settings', {'timezone': tz}));
 
-  Future<String?> setCategories(List<String> categories) =>
-      mutate(() => _api.patch('/api/settings', {'categories': categories}));
+  /// Toggle a category, applied on screen before the server has answered.
+  ///
+  /// A chip tap is the most-repeated interaction in the app and it changes one
+  /// list on one object, so waiting half a second with every chip disabled to
+  /// find out whether it worked is the wrong trade. The new selection is shown
+  /// at once and the server's answer overwrites it a moment later; if the
+  /// request fails the previous selection is restored and the error surfaces,
+  /// so a rejected change can never be left looking accepted.
+  ///
+  /// Deliberately does NOT set [loading] — that disables every control on the
+  /// screen, which is exactly the freeze this is removing.
+  Future<String?> setCategories(List<String> categories) async {
+    // Nothing blocks a second tap while the first is in flight, so two replies
+    // can land out of order and the older one would win. Only the newest
+    // request is allowed to write the server's answer back.
+    final mySeq = ++_categoriesSeq;
+    final previous = status?.agent;
+    if (previous != null && status != null) {
+      status = status!.withAgent(previous.withCategories(categories));
+      error = null;
+      notifyListeners();
+    }
+    try {
+      final json = await _api.patch('/api/settings', {'categories': categories});
+      if (mySeq != _categoriesSeq) return null; // a newer tap already owns the state
+      final updated = json is Map<String, dynamic> ? json['agent'] as Map<String, dynamic>? : null;
+      if (updated != null && status != null) {
+        // The server is the authority on what was actually stored: it refuses
+        // to leave the agent with no categories, and it rewrites the scope line
+        // to match. Taking its answer keeps the header honest.
+        status = status!.withAgent(Agent.fromJson(updated));
+      } else {
+        await refresh();
+      }
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      // Only roll back if nothing newer has been sent — otherwise this would
+      // undo a selection the user has since made and the server has accepted.
+      if (mySeq == _categoriesSeq && previous != null && status != null) {
+        status = status!.withAgent(previous);
+      }
+      error = e.toString();
+      notifyListeners();
+      return e.toString();
+    }
+  }
+
+  int _categoriesSeq = 0;
 
   // -------------------------------------------------------------- LinkedIn
 
@@ -194,7 +307,7 @@ class AppState extends ChangeNotifier {
   List<String> get corpus => agent?.corpus ?? const [];
 
   Future<String?> setCorpus(List<String> samples) =>
-      mutate(() => _api.patch('/api/settings', {'corpus': samples}));
+      mutateAgent(() => _api.patch('/api/settings', {'corpus': samples}));
 
   Future<String?> addCorpusSample(String text) =>
       setCorpus([...corpus, text.trim()]);
@@ -290,12 +403,12 @@ class AppState extends ChangeNotifier {
   Future<String> rewriteText(String text, {int variant = 0}) =>
       _readVariant(_api.post('/api/compose/rewrite', {'text': text, 'variant': variant}));
 
-  /// Hashtags the last rewrite suggested, if any.
+  /// Hashtags the last rewrite SUGGESTED, if any.
   ///
-  /// A rewrite that changes the angle should be free to change the tags with
-  /// it. The prompt used to demand an empty array, so every alternative
-  /// silently inherited the original's tags even when it was now about
-  /// something else.
+  /// Suggestions, not a replacement. The composer keeps whatever the author
+  /// chose and fills the room left under the cap from these — a model's opinion
+  /// about tags is worth less than an explicit choice, and accepting a variant
+  /// used to delete tags someone had typed on purpose.
   List<String> lastVariantHashtags = const [];
 
   Future<String> _readVariant(Future<dynamic> call) async {
