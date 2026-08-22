@@ -1,0 +1,64 @@
+# The outside observer.
+#
+# This exists because of one structural fact: a dead scheduler cannot report its
+# own death. If the cron tick is what checks whether ticks are happening, then
+# the single failure that most needs an alert produces silence instead.
+#
+# So this runs on GitHub's infrastructure, on a different schedule, hitting
+# /api/watchdog — which checks the scheduler heartbeat and the LinkedIn token
+# and pushes to the phone if either has gone bad. The two can only fail
+# together if GitHub and the app host are both down, which is a different and
+# much louder kind of day.
+#
+# GitHub's cron is unreliable — it floors at 5 minutes and often runs 15+ late.
+# That is fine HERE and would not be fine for the tick: this is asking "has
+# anything been wrong for a while", not "is anything due right now".
+name: Watchdog
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: is anything wrong
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the app how it is
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          test -n "$APP_URL" || { echo "::error::APP_URL secret is not set"; exit 1; }
+          test -n "$CRON_SECRET" || { echo "::error::CRON_SECRET secret is not set"; exit 1; }
+
+          # --max-time so a hung host fails the step instead of holding a runner
+          # for six hours. Retries because a cold start on a free tier can take
+          # ten seconds and a single timeout is not news.
+          body="$(curl -sS --max-time 45 --retry 3 --retry-delay 10 --retry-all-errors \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            -w '\n%{http_code}' \
+            "$APP_URL/api/watchdog")" || {
+              echo "::error::could not reach $APP_URL — the app itself may be down"
+              exit 1
+            }
+
+          code="$(printf '%s' "$body" | tail -n1)"
+          json="$(printf '%s' "$body" | sed '$d')"
+          echo "$json"
+
+          if [ "$code" = "404" ]; then
+            echo "::error::404 — CRON_SECRET does not match the deployed one"
+            exit 1
+          fi
+          test "$code" = "200" || { echo "::error::watchdog returned HTTP $code"; exit 1; }
+
+          # Surfaced in the Actions run as well as pushed to the phone, so the
+          # history of "when did this start" is readable without a database.
+          if printf '%s' "$json" | grep -q '"alerts":\[\]'; then
+            echo "healthy"
+          else
+            echo "::warning::the watchdog raised alerts — see the JSON above"
+          fi

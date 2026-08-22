@@ -303,6 +303,35 @@ CREATE TABLE IF NOT EXISTS media_assets (
 );
 
 /*
+ * Devices that may receive push notifications, and what has been sent.
+ *
+ * The token is the primary key rather than an id: FCM issues one per app
+ * install and rotates it, so the same phone reappearing with a new token is a
+ * new row and the old one is deleted when FCM reports it dead.
+ */
+CREATE TABLE IF NOT EXISTS device_tokens (
+  token        TEXT PRIMARY KEY,
+  agent_id     UUID NOT NULL REFERENCES agents(id),
+  platform     TEXT NOT NULL DEFAULT 'android',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS device_tokens_agent ON device_tokens (agent_id);
+
+/*
+ * What has been sent, so a standing problem is not reported on every tick.
+ * A stalled scheduler is re-detected every minute; without this the two alerts
+ * that most need to be believed would be the two that get muted first.
+ */
+CREATE TABLE IF NOT EXISTS push_log (
+  id       BIGSERIAL PRIMARY KEY,
+  agent_id UUID NOT NULL REFERENCES agents(id),
+  kind     TEXT NOT NULL,
+  sent_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_log_agent_kind_at ON push_log (agent_id, kind, sent_at DESC);
+
+/*
  * Failed login attempts, for rate limiting.
  *
  * In a table rather than in memory because the gate runs on serverless

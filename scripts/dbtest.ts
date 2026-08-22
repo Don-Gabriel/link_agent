@@ -30,6 +30,7 @@ import { ensureSchema, getPool, query } from "../lib/db";
 import { listAmbiguousSends, sendsToday } from "../lib/distribute";
 import { getTodayCalls } from "../lib/llm";
 import { recall } from "../lib/memory";
+import { forgetDevice, notify, pushConfigured, registerDevice } from "../lib/push";
 import { checkLoginAllowed, clearLoginFailures, recordLoginFailure, MAX_ATTEMPTS } from "../lib/ratelimit";
 import {
   claimSlotRun,
@@ -260,6 +261,40 @@ async function main() {
       (await checkLoginAllowed(client))?.allowed === true);
   }
 
+  console.log("\npush notifications");
+  {
+    const token = `dbtest-token-${randomUUID()}${"x".repeat(40)}`;
+    await runs("registerDevice inserts", () => registerDevice(agentId, token, "android"));
+    await runs("registerDevice is an upsert", () => registerDevice(agentId, token, "android"));
+    check("the device was stored once",
+      (await query("SELECT 1 FROM device_tokens WHERE token = $1", [token])).length === 1);
+
+    // Without FCM credentials notify() must be a no-op rather than an error:
+    // the app has to work identically for someone who never set push up.
+    check("push is not configured in tests", pushConfigured() === false);
+    const sent = await runs("notify is a silent no-op with no credentials", () =>
+      notify(agentId, { kind: "published", seq: 1 }),
+    );
+    check("nothing was delivered", sent === 0);
+
+    // The cooldown query is the part with real SQL in it — an interval cast and
+    // a count — and it runs on every single notification.
+    await runs("the cooldown query executes", () =>
+      query(
+        `SELECT count(*) AS recent FROM push_log
+          WHERE agent_id = $1 AND kind = $2 AND sent_at > now() - ($3 || ' minutes')::interval`,
+        [agentId, "scheduler_stalled", "360"],
+      ),
+    );
+    await runs("push_log accepts a row", () =>
+      query("INSERT INTO push_log (agent_id, kind) VALUES ($1, $2)", [agentId, "published"]),
+    );
+
+    await runs("forgetDevice removes it", () => forgetDevice(token));
+    check("the device is gone",
+      (await query("SELECT 1 FROM device_tokens WHERE token = $1", [token])).length === 0);
+  }
+
   // ---- cleanup. Ordered by foreign key, deepest first.
   console.log("\ncleanup");
   {
@@ -270,7 +305,7 @@ async function main() {
         "DELETE FROM slot_runs WHERE slot_id IN (SELECT id FROM post_slots WHERE agent_id = $1)",
         [agentId],
       ).catch(() => []);
-      for (const table of ["distributions", "media_assets", "rejections", "posts", "post_slots", "scheduler_state", "linkedin_accounts"]) {
+      for (const table of ["push_log", "device_tokens", "distributions", "media_assets", "rejections", "posts", "post_slots", "scheduler_state", "linkedin_accounts"]) {
         await query(`DELETE FROM ${table} WHERE agent_id = $1`, [agentId]).catch(() => []);
       }
       await query("DELETE FROM agents WHERE id = $1", [agentId]);
