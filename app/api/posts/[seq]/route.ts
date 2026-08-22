@@ -20,13 +20,14 @@ import { query } from "../../../../lib/db";
 import { publishPost, resolveAmbiguousSend } from "../../../../lib/distribute";
 import { assemblePost, checkLength, MAX_BODY_CHARS } from "../../../../lib/format";
 import { HOLD_MINUTES } from "../../../../lib/slots";
-import { rewriteDraft } from "../../../../lib/writer";
+import { rewriteDraft, writeFollowUp } from "../../../../lib/writer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 type Action =
   | "edit"
+  | "followup"
   | "clear"
   | "unclear"
   | "publish"
@@ -275,6 +276,53 @@ export async function PATCH(
         text: variant.data.text,
         hashtags: (variant.data.hashtags ?? []).slice(0, agent.style.hashtagCount),
         servedBy: variant.data.servedBy,
+      });
+    }
+
+    case "followup": {
+      // Only from something that actually went out. A follow-up to a draft is a
+      // rewrite with extra steps, and rewrite already exists for that.
+      if (status !== "published") {
+        return NextResponse.json(
+          { error: "not_published", detail: "Follow-ups are written from posts that have gone out." },
+          { status: 409 },
+        );
+      }
+      const rows = await query<{ text: string; published_at: Date | null }>(
+        "SELECT text, published_at FROM posts WHERE agent_id = $1 AND seq = $2",
+        [agent.agentId, seq],
+      );
+      const original = rows[0];
+      if (!original || original.text.length < 20) {
+        return NextResponse.json({ error: "nothing_to_follow" }, { status: 400 });
+      }
+
+      const [persona, voice] = await Promise.all([
+        getPersona(agent.agentId),
+        voiceReferencesFor(agent),
+      ]);
+      if (!persona) return NextResponse.json({ error: "persona_not_ready" }, { status: 409 });
+
+      const followUp = await writeFollowUp(
+        persona,
+        {
+          text: original.text,
+          publishedAt: original.published_at?.toISOString().slice(0, 10) ?? null,
+        },
+        agent.style,
+        voice,
+      );
+      if (!followUp.ok) {
+        return NextResponse.json({ error: "followup_failed", detail: followUp.reason }, { status: 502 });
+      }
+
+      // Deliberately NOT saved, exactly like a rewrite. This is a suggestion
+      // about what to write next; the composer shows it and the author decides.
+      return NextResponse.json({
+        ok: true,
+        text: followUp.data.text,
+        hashtags: followUp.data.hashtags.slice(0, agent.style.hashtagCount),
+        servedBy: followUp.data.servedBy,
       });
     }
 

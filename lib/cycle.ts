@@ -460,6 +460,34 @@ export async function runCycleWithLock(agentId: string, force = false): Promise<
  *      cannot leave next_run_at in the past and wedge the slot into retrying
  *      forever.
  */
+/**
+ * Is something already on its way out at or before this slot's moment?
+ *
+ * A slot exists to make sure something gets published at that time — not to
+ * make sure the AGENT wrote it. If a post is already scheduled to go out by
+ * then, generating another one produces two posts competing for one moment and
+ * spends two LLM calls to create the problem.
+ *
+ * Deliberately counts only SCHEDULED posts. An unscheduled draft is not going
+ * anywhere on its own, and treating it as "the queue has content" would let one
+ * forgotten draft silence the agent permanently — a far worse failure than an
+ * occasional extra post, and one nobody would diagnose quickly.
+ */
+async function queueAlreadyCovers(agentId: string, scheduledFor: Date): Promise<number | null> {
+  const rows = await query<{ seq: number }>(
+    `SELECT seq FROM posts
+       WHERE agent_id = $1
+         AND status IN ('draft', 'approved')
+         AND scheduled_for IS NOT NULL
+         AND scheduled_for <= $2
+         AND scheduled_for > now() - interval '5 minutes'
+       ORDER BY scheduled_for
+       LIMIT 1`,
+    [agentId, scheduledFor.toISOString()],
+  );
+  return rows[0]?.seq ?? null;
+}
+
 export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
   const { slot, runDate, scheduledFor } = due;
   const base: CycleResult = {
@@ -483,6 +511,21 @@ export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
           });
           console.warn(`[cycle] slot=${slot.id} ${slot.localTime} MISSED for ${runDate}`);
           return { ...base, skippedReason: "missed" };
+        }
+
+        // Nothing to write if something is already queued for this moment —
+        // whether the author composed it by hand or an earlier run produced it.
+        // Recorded as a silent slot with the reason, because the timetable
+        // showing a gap it cannot explain is the thing this app refuses to do.
+        const covered = await queueAlreadyCovers(slot.agentId, scheduledFor);
+        if (covered !== null) {
+          await settleSlotRun(slot.id, runDate, "silent", {
+            detail: `Post #${covered} is already queued for this slot — nothing new was written.`,
+          });
+          console.log(
+            `[cycle] slot=${slot.id} ${slot.localTime} already covered by p${covered} — skipping generation`,
+          );
+          return { ...base, ran: true, skippedReason: "queue_already_covers" };
         }
 
         const result = await runCycle(slot.agentId, {

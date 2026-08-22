@@ -398,6 +398,76 @@ ${style.hashtagCount === 0
 }
 
 /**
+ * Write a follow-up to a post that has already gone out.
+ *
+ * Distinct from every other writer here. rewriteDraft produces another
+ * treatment of the SAME material and polishCustomPost edits what the author
+ * typed; this one starts from a published post and goes somewhere new — the
+ * objection it raised and never answered, what happened since, the part that
+ * got cut. The original is context, not source material.
+ *
+ * The hard rule is that it must not restate the original. A follow-up that
+ * re-explains what everyone already read is the most common way this goes
+ * wrong, and it is worse than posting nothing: it spends a slot telling the
+ * same audience the same thing.
+ *
+ * Nothing is saved. The composer shows the text and the author decides, exactly
+ * as with a rewrite — a follow-up is a suggestion about what to write next, not
+ * a post written on somebody's behalf.
+ */
+export async function writeFollowUp(
+  persona: PersonaRecord,
+  original: { text: string; publishedAt: string | null },
+  style: StyleConfig = DEFAULT_STYLE,
+  voice: VoiceOpt = {},
+): Promise<
+  { ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }
+> {
+  const system = `${buildSystem(style)}
+
+OVERRIDE FOR THIS TASK: you are writing a FOLLOW-UP to a post this author already published.
+- The original is CONTEXT, not material. Do not summarise it, do not restate its argument, and do not re-explain its terms. The people reading this have already seen it.
+- Go somewhere the original did not. A good follow-up does one of these: answers the objection it raised and left hanging, reports what has actually happened since, takes the specific case where the original was general, or admits where it turned out to be wrong.
+- Refer back to it briefly and naturally, the way a person picks a thought up days later — one clause, never a recap paragraph.
+- Invent nothing. With no new facts, take a position the original implied but never stated outright. That is a real follow-up; a reworded original is not.
+- It must stand alone. Someone who missed the first post still has to get something complete out of this one.
+Respond with JSON exactly: {"text": "...", "rationale": "one line on what this adds", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": ["Tag"], "used_quote": true or false}
+${
+  style.hashtagCount === 0
+    ? "- hashtags: return an empty array. This author does not use them."
+    : `- hashtags: EXACTLY ${style.hashtagCount} single-word alphanumeric tags that fit THIS post — not fewer, not more. They are appended automatically, so do not put them in the text.`
+}`;
+
+  const res = await complete({
+    system,
+    user: withVoice(persona, voice, [
+      original.publishedAt
+        ? `THE POST YOU ARE FOLLOWING UP (published ${original.publishedAt}):`
+        : "THE POST YOU ARE FOLLOWING UP:",
+      original.text,
+      "",
+      "Write the follow-up.",
+    ]),
+    jsonMode: true,
+    maxOutputTokens: 1536,
+  });
+  if (!res.ok) return { ok: false, reason: res.reason };
+  const parsed = parseJson(res.text, isDraft);
+  if (!parsed) return { ok: false, reason: "followup_json_invalid" };
+
+  // Held to the author's settings like everything else the writer produces.
+  const checked = await repairIfNeeded(parsed, style, persona, voice);
+  return {
+    ok: true,
+    data: {
+      text: checked.draft.text.trim(),
+      hashtags: checked.draft.hashtags ?? [],
+      servedBy: res.model,
+    },
+  };
+}
+
+/**
  * Rewrite a user's own draft in the persona's voice, preserving their meaning.
  * Used by the composer's optional "polish" action — deliberately conservative:
  * it is the user's post, so this tightens the hook and strips influencer tics

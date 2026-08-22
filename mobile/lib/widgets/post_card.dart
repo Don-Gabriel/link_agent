@@ -238,6 +238,7 @@ class PostCard extends StatelessWidget {
     this.onUnschedule,
     this.onDiscard,
     this.onEdit,
+    this.onFollowUp,
     this.busy = false,
   });
 
@@ -262,14 +263,21 @@ class PostCard extends StatelessWidget {
   /// Take this post back off the timetable, leaving it a plain draft.
   final VoidCallback? onUnschedule;
 
+  /// "Write the next one." Offered only on posts that have gone out — a
+  /// follow-up to a draft is a rewrite, and rewriting already exists.
+  final VoidCallback? onFollowUp;
+
   final VoidCallback? onDiscard;
   final VoidCallback? onEdit;
   final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    final actionable =
-        onClear != null || onSendNow != null || onDiscard != null || onEdit != null;
+    final actionable = onClear != null ||
+        onSendNow != null ||
+        onDiscard != null ||
+        onEdit != null ||
+        onFollowUp != null;
 
     return Panel(
       child: Column(
@@ -375,6 +383,20 @@ class PostCard extends StatelessWidget {
                 label: Text(post.isCleared ? 'Send now' : 'Publish'),
               )
             : null;
+
+    // A published post has no send controls left, so the follow-up stands on
+    // its own as the full-width primary action rather than an icon nobody
+    // finds. It is the only thing left worth doing with a post that is out.
+    if (primary == null && onFollowUp != null) {
+      return SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: busy ? null : onFollowUp,
+          icon: const Icon(Icons.subdirectory_arrow_right, size: 18),
+          label: const Text('Write a follow-up'),
+        ),
+      );
+    }
 
     return Row(
       children: [

@@ -122,6 +122,25 @@ class _ComposerScreenState extends State<ComposerScreen> {
     final state = context.read<AppState>();
     final target = state.editing;
 
+    // A follow-up arrives as text with no post behind it. Taken before the
+    // edit-mode branches below, and consumed on the way, so navigating away and
+    // back does not resurrect it over whatever has been typed since.
+    if (target == null) {
+      final seed = state.takeComposeSeed();
+      if (seed != null) {
+        _loadedSeq = null;
+        _text.text = seed.text;
+        _hashtags = List.of(seed.hashtags);
+        _existingMedia = [];
+        _pending.clear();
+        _scheduledFor = null;
+        _variant = null;
+        _voiceAtLoad = state.styleFingerprint;
+        _status = 'A follow-up, ready to edit. Not saved yet.';
+        return;
+      }
+    }
+
     if (target == null) {
       if (_loadedSeq != null) {
         // Left edit mode — clear back to a blank composer. Release the edit

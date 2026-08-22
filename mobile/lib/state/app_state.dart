@@ -42,6 +42,25 @@ class AppState extends ChangeNotifier {
   /// still switches tabs when the same post is already loaded.
   int composeRequest = 0;
 
+  /// Text waiting to be dropped into an EMPTY composer, and the tags with it.
+  ///
+  /// Distinct from [editing], which loads an existing post to change. This is a
+  /// suggestion for something new — currently only a follow-up — and it is
+  /// consumed once: the composer takes it, clears it, and it never reappears if
+  /// the user navigates away and back.
+  String? composeSeed;
+  List<String> composeSeedHashtags = const [];
+
+  /// Take the pending seed, if any, and forget it.
+  ({String text, List<String> hashtags})? takeComposeSeed() {
+    final text = composeSeed;
+    if (text == null) return null;
+    final tags = composeSeedHashtags;
+    composeSeed = null;
+    composeSeedHashtags = const [];
+    return (text: text, hashtags: tags);
+  }
+
   /// A tab a notification asked for, and a counter so the same tab twice still
   /// registers. Same shape as [composeRequest] and for the same reason: the
   /// shell has to be able to tell "asked again" from "asked once".
@@ -339,6 +358,43 @@ class AppState extends ChangeNotifier {
       await _api.post('/api/devices', {'token': token, 'platform': 'android'});
     } on ApiException catch (e) {
       debugPrint('[state] could not register for notifications: $e');
+    }
+  }
+
+  /// Ask the writer for a follow-up to a post that has already gone out, and
+  /// carry it to the composer.
+  ///
+  /// Nothing is saved: the endpoint answers with text and never writes a row,
+  /// so this is a suggestion about what to write next rather than a post
+  /// created on the author's behalf. Leaving edit mode first matters — a
+  /// follow-up is a NEW post, and arriving in a composer still bound to the
+  /// original would silently overwrite the thing being followed up.
+  Future<String?> followUp(int seq) async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      final json = await _api.patch('/api/posts/$seq', {'action': 'followup'});
+      final map = json as Map<String, dynamic>?;
+      final text = map?['text'];
+      if (text is! String || text.trim().isEmpty) {
+        loading = false;
+        notifyListeners();
+        return 'The writer returned nothing usable.';
+      }
+      final tags = map?['hashtags'];
+      editing = null;
+      composeSeed = text;
+      composeSeedHashtags = tags is List ? tags.whereType<String>().toList() : const [];
+      composeRequest++; // brings the composer forward
+      loading = false;
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      loading = false;
+      error = e.toString();
+      notifyListeners();
+      return e.toString();
     }
   }
 

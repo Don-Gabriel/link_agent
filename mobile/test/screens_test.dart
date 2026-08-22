@@ -260,6 +260,62 @@ void main() {
     expect(find.text('LinkedIn needs reconnecting'), findsOneWidget);
   });
 
+  testWidgets('a published post offers a follow-up, and a draft does not', (tester) async {
+    final fixture = statusFixture();
+    fixture['history'] = [
+      {
+        'id': 'p1',
+        'seq': 1,
+        'text': 'A post that already went out to LinkedIn some time ago.',
+        'status': 'published',
+        'hashtags': <String>[],
+        'publishedAt': '2026-08-10T09:30:00.000Z',
+      },
+    ];
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const QueueScreen(), state);
+
+    // Not on drafts: a follow-up to something unpublished is a rewrite, and
+    // the composer already does that.
+    expect(find.text('Write a follow-up'), findsNothing);
+
+    await tester.tap(find.text('Published'));
+    await tester.pumpAndSettle();
+    expect(find.text('Write a follow-up'), findsOneWidget);
+  });
+
+  testWidgets('the composer picks up a follow-up and consumes it', (tester) async {
+    final state = await buildState(statusFixture());
+    // What AppState.followUp leaves behind once the writer answers.
+    state.composeSeed = 'The follow-up the writer produced, long enough to be a real post.';
+    state.composeSeedHashtags = ['DSP'];
+
+    await pumpScreen(tester, const ComposerScreen(), state);
+    expect(find.textContaining('The follow-up the writer produced'), findsOneWidget);
+    await scrollTo(tester, find.text('#DSP'));
+    expect(find.text('#DSP'), findsOneWidget);
+
+    // Consumed on the way in. Otherwise leaving the tab and coming back would
+    // resurrect it over whatever had been typed since.
+    expect(state.composeSeed, isNull);
+    expect(state.takeComposeSeed(), isNull);
+  });
+
+  testWidgets('a follow-up is a NEW post, not an edit of the original', (tester) async {
+    final state = await buildState(statusFixture());
+    // Edit mode is left behind by followUp() deliberately: arriving in a
+    // composer still bound to the original would overwrite the post being
+    // followed up the moment it was saved.
+    state.startEditing(state.status!.queue.first);
+    state.editing = null;
+    state.composeSeed = 'A follow-up that must not be bound to the post it follows.';
+
+    await pumpScreen(tester, const ComposerScreen(), state);
+    expect(find.textContaining('must not be bound'), findsOneWidget);
+    // "Editing p12" is the banner shown when a real post is loaded.
+    expect(find.textContaining('Editing'), findsNothing);
+  });
+
   testWidgets('QueueScreen segments reach published history and rejections', (tester) async {
     final fixture = statusFixture();
     fixture['history'] = [

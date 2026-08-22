@@ -125,6 +125,22 @@ class _QueueScreenState extends State<QueueScreen> {
     ];
   }
 
+  /// Ask for a follow-up, then let the composer take over.
+  ///
+  /// The writer call takes a few seconds, so the snackbar is the only signal
+  /// that the tap registered before the tab changes underneath the user.
+  Future<void> _followUp(BuildContext context, int seq) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Writing a follow-up…'), duration: Duration(seconds: 8)),
+    );
+    final error = await context.read<AppState>().followUp(seq);
+    messenger.hideCurrentSnackBar();
+    if (error != null) {
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
   List<Widget> _published(AppStatus? status) {
     final history = status?.history ?? const <Post>[];
     if (history.isEmpty) {
@@ -136,9 +152,17 @@ class _QueueScreenState extends State<QueueScreen> {
         ),
       ];
     }
+    final state = context.watch<AppState>();
     return [
       for (final post in history) ...[
-        PostCard(post: post),
+        PostCard(
+          post: post,
+          busy: state.loading,
+          // The one thing still worth doing with a post that has gone out.
+          // Answers with text and saves nothing, then brings the composer
+          // forward with it loaded — the same shape as accepting a rewrite.
+          onFollowUp: () => _followUp(context, post.seq),
+        ),
         const SizedBox(height: S.x4),
       ],
     ];

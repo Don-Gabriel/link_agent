@@ -297,6 +297,68 @@ async function main() {
       (await query("SELECT 1 FROM device_tokens WHERE token = $1", [token])).length === 0);
   }
 
+  console.log("\na queued post covers its slot");
+  {
+    // A slot exists to make sure something is published at that time, not that
+    // the AGENT wrote it. The query below is what stops a hand-written post and
+    // a generated one competing for the same moment.
+    const soon = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const covers = async (at: string) =>
+      (
+        await query<{ seq: number }>(
+          `SELECT seq FROM posts
+             WHERE agent_id = $1
+               AND status IN ('draft', 'approved')
+               AND scheduled_for IS NOT NULL
+               AND scheduled_for <= $2
+               AND scheduled_for > now() - interval '5 minutes'
+             ORDER BY scheduled_for LIMIT 1`,
+          [agentId, at],
+        )
+      )[0]?.seq ?? null;
+
+    check("an empty queue covers nothing", (await covers(soon)) === null);
+
+    // An unscheduled draft must NOT count. Otherwise one forgotten draft
+    // silences the agent forever, which is far worse than an extra post.
+    await runs("insert an unscheduled draft", () =>
+      query(
+        `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint,
+                            cycle_id, status, kind, hashtags_json, used_quote)
+         VALUES ($1, 90, 'An unscheduled draft body that is long enough to be real.', 'r',
+                 '[]'::jsonb, 'fp — x', 1, 'draft', 'custom', '[]'::jsonb, false)`,
+        [agentId],
+      ),
+    );
+    check("an unscheduled draft does NOT block generation", (await covers(soon)) === null,
+      "one forgotten draft must never silence the agent");
+
+    await runs("insert a post scheduled before the slot", () =>
+      query(
+        `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint,
+                            cycle_id, status, kind, hashtags_json, used_quote, scheduled_for)
+         VALUES ($1, 91, 'A hand written post already waiting for its time.', 'r',
+                 '[]'::jsonb, 'fp — y', 1, 'draft', 'custom', '[]'::jsonb, false,
+                 now() + interval '30 minutes')`,
+        [agentId],
+      ),
+    );
+    check("a scheduled post DOES cover the slot", (await covers(soon)) === 91);
+
+    // Already published, so it is not competing for anything.
+    await query("UPDATE posts SET status = 'published' WHERE agent_id = $1 AND seq = 91", [agentId]);
+    check("a published post no longer covers it", (await covers(soon)) === null);
+
+    // Scheduled for well after this slot: a later slot's business, not this one's.
+    await query(
+      "UPDATE posts SET status = 'draft', scheduled_for = now() + interval '10 hours' WHERE agent_id = $1 AND seq = 91",
+      [agentId],
+    );
+    check("a post scheduled after the slot does not cover it", (await covers(soon)) === null);
+
+    await query("DELETE FROM posts WHERE agent_id = $1 AND seq IN (90, 91)", [agentId]);
+  }
+
   console.log("\nfeed health");
   {
     const feed = `dbtest-feed-${randomUUID()}`;
