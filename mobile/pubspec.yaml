@@ -35,9 +35,10 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
-  # Deliberately three dependencies and no more. Every package added here is a
-  # thing that can break a build months from now, and this app's whole job is
-  # rendering one JSON document and PATCHing bits of it back.
+  # Kept small on purpose. Every package here is a thing that can break a build
+  # months from now, and this app's whole job is rendering one JSON document and
+  # PATCHing bits of it back — so each one below earns its place by doing
+  # something the app genuinely cannot do without.
   http: ^1.2.2 # API calls
   provider: ^6.1.2 # app-wide state
   shared_preferences: ^2.3.2 # session cookie + server address
@@ -47,6 +48,14 @@ dependencies:
   # inside the app's own HTTP client: the consent screen needs a real browser,
   # and a token minted anywhere else would not be the one the session carries.
   url_launcher: ^6.3.0
+  # Push notifications. Comfortably the largest thing in this file, and taken
+  # deliberately: there is no way to reach an Android app that is not currently
+  # running without FCM, and the whole point of the alerts is hearing that the
+  # agent has stopped on a day you never opened it. The alternative was routing
+  # them through a second app, which trades this weight for a notification that
+  # is not ours and cannot open the right tab.
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.5
 
 dev_dependencies:
   flutter_test:

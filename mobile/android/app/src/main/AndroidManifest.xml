@@ -2,6 +2,9 @@
     <!-- Release builds need this too: the debug manifest is not merged into
          them, and every screen in this app is a call to the backend. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 13 and later. Without it the system shows nothing and reports
+         no error; the app must ask at runtime, which lib/push.dart does. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="LinkdIn"
@@ -29,6 +32,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The channel a message falls back to if it names one that does not
+             exist. MainActivity creates both on launch, so this should never be
+             reached — but the failure it guards against is a notification that
+             vanishes with nothing logged, which is not worth risking. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="linkdin_updates" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

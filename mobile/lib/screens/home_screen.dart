@@ -27,6 +27,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   int _seenComposeRequest = 0;
+  int _seenTabRequest = 0;
 
   static const _titles = ['Queue', 'Schedule', 'Compose', 'Voice', 'Status'];
   static const _composeTab = 2;
@@ -51,6 +52,19 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_index != _composeTab) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _index = _composeTab);
+        });
+      }
+    }
+
+    // A tapped notification, which names the tab it is about — a failed send
+    // opens the queue, a stalled scheduler opens status. Landing on whatever
+    // tab happened to be showing would make the tap feel like it did nothing.
+    if (state.tabRequest != _seenTabRequest) {
+      _seenTabRequest = state.tabRequest;
+      final wanted = state.requestedTab;
+      if (_index != wanted && wanted >= 0 && wanted < _titles.length) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _index = wanted);
         });
       }
     }

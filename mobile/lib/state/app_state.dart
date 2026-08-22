@@ -40,6 +40,19 @@ class AppState extends ChangeNotifier {
   /// still switches tabs when the same post is already loaded.
   int composeRequest = 0;
 
+  /// A tab a notification asked for, and a counter so the same tab twice still
+  /// registers. Same shape as [composeRequest] and for the same reason: the
+  /// shell has to be able to tell "asked again" from "asked once".
+  int tabRequest = 0;
+  int requestedTab = 0;
+
+  /// Bring a tab forward. Called when a notification is tapped.
+  void requestTab(int index) {
+    requestedTab = index;
+    tabRequest++;
+    notifyListeners();
+  }
+
   void startEditing(Post post) {
     editing = post;
     composeRequest++;
@@ -276,6 +289,22 @@ class AppState extends ChangeNotifier {
   }
 
   int _categoriesSeq = 0;
+
+  /// Attach this phone to the agent, so the server can push to it.
+  ///
+  /// Called on every launch, not only the first: FCM rotates tokens whenever it
+  /// likes and tells no one, so re-registering is the only way the server's
+  /// address stays current. The endpoint upserts, which is what makes that
+  /// cheap. Failure is deliberately quiet — an app that cannot register for
+  /// notifications is still a working control surface, and saying so on the
+  /// gate screen would be alarming out of all proportion.
+  Future<void> registerDevice(String token) async {
+    try {
+      await _api.post('/api/devices', {'token': token, 'platform': 'android'});
+    } on ApiException catch (e) {
+      debugPrint('[state] could not register for notifications: $e');
+    }
+  }
 
   // -------------------------------------------------------------- LinkedIn
 

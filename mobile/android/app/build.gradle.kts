@@ -2,6 +2,10 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Must come after the Android plugin. Fails the build loudly if
+    // google-services.json is missing, which is the correct behaviour: a silent
+    // success would produce an app that registers for push and never receives.
+    id("com.google.gms.google-services")
 }
 
 android {
