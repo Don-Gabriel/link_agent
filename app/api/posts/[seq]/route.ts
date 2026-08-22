@@ -23,7 +23,11 @@ import { HOLD_MINUTES } from "../../../../lib/slots";
 import { rewriteDraft, writeFollowUp } from "../../../../lib/writer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Two model calls in the worst case, not one: rewrite and followup both go
+// through repairIfNeeded, which spends a second call whenever the draft misses
+// the author's word range or hashtag count — which, on a narrow range, is most
+// of the time. Sixty seconds fitted one call comfortably and two only sometimes.
+export const maxDuration = 120;
 
 type Action =
   | "edit"

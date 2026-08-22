@@ -504,6 +504,42 @@ void main() {
     });
   });
 
+  // A follow-up is two database reads, a model call, and usually a SECOND model
+  // call repairing the draft to the author's word range — with every model call
+  // paced four seconds behind the last. Half a minute is normal. The client used
+  // to give up at thirty seconds flat, so the post was written and thrown away.
+  group('calls that wait on a model get a longer ceiling', () {
+    test('the writer ceiling outlasts the server, so the server error wins', () {
+      // If the client gave up first, the user would see a stopwatch message
+      // instead of whatever actually went wrong.
+      expect(kWriterTimeout.inSeconds, greaterThan(120),
+          reason: 'the routes behind these calls allow 120s');
+    });
+
+    test('a follow-up survives longer than a status refresh would', () async {
+      // Answers after 40s: past the old 30s default, inside the writer ceiling.
+      SharedPreferences.setMockInitialValues(
+        {'session_cookie': 'lc_session=abc', 'base_url': 'http://test.local'},
+      );
+      final slow = MockClient((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        return http.Response(
+          jsonEncode({'ok': true, 'text': 'A follow-up long enough to be a real post body.'}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final state = AppState(await ApiClient.create(httpClient: slow));
+      final error = await state.followUp(7);
+
+      expect(error, isNull);
+      expect(state.composeSeed, contains('A follow-up'));
+      // A follow-up is a NEW post; arriving bound to the original would
+      // overwrite the post being followed up.
+      expect(state.editing, isNull);
+    });
+  });
+
   // The composer watches this to decide whether to offer a re-run. It used to
   // watch StyleConfig.summary, which names three fields out of a prompt built
   // from every style rule plus the author's samples and edit notes.

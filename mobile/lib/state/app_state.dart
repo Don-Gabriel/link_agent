@@ -374,7 +374,8 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final json = await _api.patch('/api/posts/$seq', {'action': 'followup'});
+      final json =
+          await _api.patch('/api/posts/$seq', {'action': 'followup'}, timeout: kWriterTimeout);
       final map = json as Map<String, dynamic>?;
       final text = map?['text'];
       if (text is! String || text.trim().isEmpty) {
@@ -524,13 +525,14 @@ class AppState extends ChangeNotifier {
   /// [variant] cycles the angle the writer is told to take, so pressing the
   /// button repeatedly gives genuinely different options rather than the same
   /// rephrasing each time.
-  Future<String> rewriteDraft(int seq, {int variant = 0}) =>
-      _readVariant(_api.patch('/api/posts/$seq', {'action': 'rewrite', 'variant': variant}));
+  Future<String> rewriteDraft(int seq, {int variant = 0}) => _readVariant(
+      _api.patch('/api/posts/$seq', {'action': 'rewrite', 'variant': variant},
+          timeout: kWriterTimeout));
 
   /// Same, for text that has not been saved yet — the composer writing
   /// something new has no seq to reference.
-  Future<String> rewriteText(String text, {int variant = 0}) =>
-      _readVariant(_api.post('/api/compose/rewrite', {'text': text, 'variant': variant}));
+  Future<String> rewriteText(String text, {int variant = 0}) => _readVariant(
+      _api.post('/api/compose/rewrite', {'text': text, 'variant': variant}, kWriterTimeout));
 
   /// Hashtags the last rewrite SUGGESTED, if any.
   ///
@@ -581,7 +583,9 @@ class AppState extends ChangeNotifier {
             // the send pass does not care who wrote the text. Scheduling counts
             // as clearing it: you wrote it, so there is nothing left to review.
             'scheduledFor': ?scheduledFor?.toUtc().toIso8601String(),
-          }));
+          },
+          // Composing with polish on is a model call like any other.
+          polish ? kWriterTimeout : null));
 
   // ------------------------------------------------------------------ slots
 
@@ -635,7 +639,8 @@ class AppState extends ChangeNotifier {
   /// Preview a candidate voice without saving it. Returns the server payload
   /// rather than storing it — a preview is screen-local by nature.
   Future<Map<String, dynamic>> previewStyle(StyleConfig style) async {
-    final json = await _api.post('/api/style/preview', {'style': style.toJson()});
+    final json =
+        await _api.post('/api/style/preview', {'style': style.toJson()}, kWriterTimeout);
     return (json as Map<String, dynamic>?) ?? const {};
   }
 }

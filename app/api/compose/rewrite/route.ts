@@ -17,7 +17,8 @@ import { MAX_BODY_CHARS } from "../../../../lib/format";
 import { rewriteDraft } from "../../../../lib/writer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Same reason as /api/posts/[seq]: the rewrite may be followed by a repair call.
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   const agent = await getPrimaryAgent();

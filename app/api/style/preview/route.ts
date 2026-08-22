@@ -23,7 +23,8 @@ import { parseStyle } from "../../../../lib/style";
 import { polishCustomPost } from "../../../../lib/writer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// polishCustomPost, plus a possible repair call.
+export const maxDuration = 120;
 
 /** Used only when the archive is empty — deliberately plain, so the style does the work. */
 const SAMPLE = `I spent the weekend replacing a hand-rolled retry loop with a proper backoff library, and the incident rate on that service dropped to zero. The original loop retried three times with no jitter, so every client in the fleet retried in lockstep and turned a two-second blip into a thundering herd. The fix was twelve lines shorter than what it replaced. Most reliability work looks like this: not clever, just correcting an assumption nobody revisited.`;

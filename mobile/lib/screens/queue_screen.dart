@@ -127,12 +127,34 @@ class _QueueScreenState extends State<QueueScreen> {
 
   /// Ask for a follow-up, then let the composer take over.
   ///
-  /// The writer call takes a few seconds, so the snackbar is the only signal
-  /// that the tap registered before the tab changes underneath the user.
+  /// This is the slowest thing in the app and it is worth saying so. The writer
+  /// call is paced four seconds behind any other model call, then usually spends
+  /// a SECOND call repairing the draft to the author's word range — so half a
+  /// minute is normal and a minute is not alarming.
+  ///
+  /// The notice stays up until the work finishes rather than expiring after a
+  /// few seconds. A message that disappears while the request is still running
+  /// is worse than none: it reads as the tap having been lost, which is exactly
+  /// what this looked like before.
   Future<void> _followUp(BuildContext context, int seq) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
-      const SnackBar(content: Text('Writing a follow-up…'), duration: Duration(seconds: 8)),
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: S.x3),
+            Expanded(child: Text('Writing a follow-up — this takes up to a minute.')),
+          ],
+        ),
+        // Effectively "until dismissed": hidden explicitly below. The server
+        // gives up at 120s, so nothing can outlive this.
+        duration: Duration(minutes: 3),
+      ),
     );
     final error = await context.read<AppState>().followUp(seq);
     messenger.hideCurrentSnackBar();

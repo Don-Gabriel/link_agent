@@ -6,6 +6,9 @@
     "app/api/cycle/run/route.ts": { "maxDuration": 300 },
     "app/api/init/route.ts": { "maxDuration": 300 },
     "app/api/posts/route.ts": { "maxDuration": 120 },
+    "app/api/posts/[seq]/route.ts": { "maxDuration": 120 },
+    "app/api/compose/rewrite/route.ts": { "maxDuration": 120 },
+    "app/api/style/preview/route.ts": { "maxDuration": 120 },
     "app/api/media/route.ts": { "maxDuration": 120 }
   }
 }

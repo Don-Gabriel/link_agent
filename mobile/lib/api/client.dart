@@ -42,6 +42,21 @@ String _imageSubtype(String path) {
 /// dashboard and takes ~9s against a cold Neon free-tier database.
 const Duration _kTimeout = Duration(seconds: 30);
 
+/// For requests that sit in front of a language model.
+///
+/// Thirty seconds is right for reading state and wrong for writing prose. A
+/// follow-up is two database reads and then up to TWO model calls — one to
+/// write, and one to repair the draft when it misses the author's word range or
+/// hashtag count, which on a narrow range is most of the time. That routinely
+/// runs past thirty seconds, and the client was giving up while the server was
+/// still working: the post got written and thrown away.
+///
+/// Longer than the server's own 120s ceiling on those routes, deliberately. If
+/// something really is stuck, the useful error is the server's — "the writer
+/// returned nothing usable" — not a client-side stopwatch that says only that
+/// the phone stopped listening.
+const Duration kWriterTimeout = Duration(seconds: 135);
+
 /// Thrown for any non-2xx response, carrying the server's own error string so
 /// the UI can show the real reason instead of "something went wrong".
 class ApiException implements Exception {
@@ -127,13 +142,14 @@ class ApiClient {
     throw ApiException(res.statusCode, error, detail: detail);
   }
 
-  Future<dynamic> _send(Future<http.Response> Function() run) async {
+  Future<dynamic> _send(Future<http.Response> Function() run, {Duration? timeout}) async {
+    final limit = timeout ?? _kTimeout;
     final http.Response res;
     try {
-      res = await run().timeout(_kTimeout);
+      res = await run().timeout(limit);
     } on TimeoutException {
       throw ApiException(0, 'timeout',
-          detail: 'No response from $baseUrl after ${_kTimeout.inSeconds}s. '
+          detail: 'No response from $baseUrl after ${limit.inSeconds}s. '
               'On a real phone use http://localhost:3000 with `adb reverse tcp:3000 tcp:3000` '
               '— 10.0.2.2 only works on an emulator.');
     } on Exception catch (e) {
@@ -148,11 +164,13 @@ class ApiClient {
 
   Future<dynamic> get(String path) => _send(() => _http.get(_uri(path), headers: _authHeaders));
 
-  Future<dynamic> post(String path, [Map<String, dynamic>? body]) =>
-      _send(() => _http.post(_uri(path), headers: _authHeaders, body: jsonEncode(body ?? {})));
+  Future<dynamic> post(String path, [Map<String, dynamic>? body, Duration? timeout]) =>
+      _send(() => _http.post(_uri(path), headers: _authHeaders, body: jsonEncode(body ?? {})),
+          timeout: timeout);
 
-  Future<dynamic> patch(String path, Map<String, dynamic> body) =>
-      _send(() => _http.patch(_uri(path), headers: _authHeaders, body: jsonEncode(body)));
+  Future<dynamic> patch(String path, Map<String, dynamic> body, {Duration? timeout}) =>
+      _send(() => _http.patch(_uri(path), headers: _authHeaders, body: jsonEncode(body)),
+          timeout: timeout);
 
   Future<dynamic> delete(String path) =>
       _send(() => _http.delete(_uri(path), headers: _authHeaders));
