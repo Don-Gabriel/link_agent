@@ -95,6 +95,12 @@ class _PushListenerState extends State<PushListener> {
 
   void _showInApp(RemoteMessage message) {
     if (!mounted) return;
+
+    // The message says something changed on the server, and the user is looking
+    // straight at the screen that would show it. Refreshing here is what makes
+    // a draft appear in the queue on its own rather than on the next pull-down.
+    context.read<AppState>().refresh(quiet: true);
+
     final title = message.notification?.title;
     final body = message.notification?.body;
     if (title == null && body == null) return;
@@ -120,10 +126,7 @@ class _PushListenerState extends State<PushListener> {
     final tab = _tabs[message.data['tab']];
     if (tab == null || !mounted) return;
     context.read<AppState>().requestTab(tab);
-    // The payload says something changed on the server; the phone's copy is now
-    // one refresh behind, and the user is looking straight at the screen that
-    // would show it.
-    context.read<AppState>().refresh();
+    context.read<AppState>().refresh(quiet: true);
   }
 
   @override

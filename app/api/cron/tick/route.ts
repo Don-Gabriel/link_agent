@@ -31,11 +31,8 @@
  */
 import { after, NextResponse } from "next/server";
 import { runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
-import { query } from "../../../../lib/db";
 import { publishDuePosts } from "../../../../lib/distribute";
-import { hookOf } from "../../../../lib/format";
 import { notify } from "../../../../lib/push";
-import { formatInZone } from "../../../../lib/schedule";
 import { listDueSlots, MISSED_AFTER_MINUTES, recordTick } from "../../../../lib/slots";
 
 /**
@@ -114,31 +111,10 @@ export async function GET(request: Request) {
       // per-model LLM rate limit, so concurrency here just produces 429s.
       try {
         const generated = await runDueSlots();
+        // Drafts announce themselves from inside runCycle, so every trigger —
+        // this tick, "Run a cycle now", a forced run — reports identically.
         for (const g of generated) {
           console.log(`[tick] slot agent=${g.agentId}: ${JSON.stringify(g)}`);
-
-          if (g.drafted && g.seq !== undefined) {
-            // The hook, not the whole post: a notification is a reason to open
-            // the app, not a place to read a draft.
-            const rows = await query<{ text: string; scheduled_for: Date | null; timezone: string }>(
-              `SELECT p.text, p.scheduled_for, a.timezone
-                 FROM posts p JOIN agents a ON a.id = p.agent_id
-                WHERE p.agent_id = $1 AND p.seq = $2`,
-              [g.agentId, g.seq],
-            );
-            const row = rows[0];
-            await notify(g.agentId, {
-              kind: "draft_ready",
-              seq: g.seq,
-              hook: row ? hookOf(row.text).slice(0, 120) : "A new draft is waiting.",
-              at: row?.scheduled_for ? formatInZone(row.scheduled_for, row.timezone) : null,
-            });
-          } else if (g.ran && g.skippedReason?.startsWith("judge:")) {
-            // A cycle that RAN and could not produce anything for a mechanical
-            // reason. "below_threshold" and "no_candidates" are deliberately
-            // excluded — a silent day is correct behaviour, not a fault.
-            await notify(g.agentId, { kind: "cycle_failed", detail: g.skippedReason });
-          }
         }
       } catch (err) {
         console.error("[tick] generate pass failed:", err);

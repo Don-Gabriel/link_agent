@@ -7,6 +7,8 @@
 /// is precisely the bug class an approval queue must not have.
 library;
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 
 import '../api/client.dart';
@@ -125,9 +127,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refresh() async {
-    loading = true;
-    notifyListeners();
+  /// Re-read everything from the server.
+  ///
+  /// [quiet] skips the loading flag. A background poll must not disable every
+  /// control on screen every fifteen seconds — the spinner is for refreshes the
+  /// user asked for and is waiting on.
+  Future<void> refresh({bool quiet = false}) async {
+    if (!quiet) {
+      loading = true;
+      notifyListeners();
+    }
     try {
       final json = await _api.get('/api/status');
       status = AppStatus.fromJson(json as Map<String, dynamic>);
@@ -144,6 +153,33 @@ class AppState extends ChangeNotifier {
     }
     loading = false;
     notifyListeners();
+  }
+
+  /// Watch for the draft a cycle is about to produce.
+  ///
+  /// A cycle answers in about a second and then works for another 30-60 in the
+  /// background, so the refresh that [mutate] already did cannot possibly show
+  /// the result — the draft does not exist yet. Without this the queue stays
+  /// empty until the user thinks to pull down, which reads as the button
+  /// having done nothing.
+  ///
+  /// A push notification also triggers a refresh the moment the draft lands,
+  /// and is faster than any of these. This is the fallback for the phone that
+  /// refused notification permission, and for the case where the cycle finds
+  /// nothing worth writing — where no notification is sent at all, correctly,
+  /// and the app should still stop looking busy.
+  int _draftWatch = 0;
+  Future<void> _watchForDraft(int before) async {
+    final watch = ++_draftWatch;
+    // Spaced out rather than fixed: a cycle is two LLM calls and finishes
+    // anywhere in a wide window, so this checks often early and backs off.
+    for (final seconds in const [12, 12, 15, 15, 20, 25, 30]) {
+      await Future<void>.delayed(Duration(seconds: seconds));
+      // Superseded by a newer run, or signed out in the meantime.
+      if (watch != _draftWatch || phase != AuthPhase.signedIn) return;
+      await refresh(quiet: true);
+      if ((status?.queue.length ?? 0) > before) return;
+    }
   }
 
   /// Run a mutation, surface its error, and re-sync from the server.
@@ -352,7 +388,15 @@ class AppState extends ChangeNotifier {
   /// Session-authenticated, unlike /api/cron/tick which needs the cron secret
   /// the app deliberately does not hold. Returns as soon as the work is
   /// started — the draft appears on a later refresh, 30-60s out.
-  Future<String?> runCycleNow() => mutate(() => _api.post('/api/cycle/run', const {}));
+  Future<String?> runCycleNow() async {
+    final before = status?.queue.length ?? 0;
+    final error = await mutate(() => _api.post('/api/cycle/run', const {}));
+    if (error != null) return error;
+    // Deliberately not awaited: the button returns now, and the queue fills in
+    // by itself when the writer is done.
+    unawaited(_watchForDraft(before));
+    return null;
+  }
 
   // PATCH, not POST: /api/posts/[seq] exports PATCH and answers anything else
   // with a 405. Only /api/posts (compose) is a POST.

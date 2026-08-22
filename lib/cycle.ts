@@ -30,7 +30,10 @@ import {
 import type { CategoryId } from "./categories";
 import { getPool, query } from "./db";
 import { discover } from "./discovery";
+import { hookOf } from "./format";
 import { judgeCandidates, PUBLISH_THRESHOLD } from "./judge";
+import { notify } from "./push";
+import { formatInZone } from "./schedule";
 import { recall, rememberPublish, rememberRejections } from "./memory";
 import { nextDailyRun } from "./schedule";
 import {
@@ -209,6 +212,11 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   if (!judged.ok) {
     console.warn(`[cycle] agent=${agentId} judging failed: ${judged.reason}`);
     await recordCycleRan(agentId);
+    // A mechanical failure, not a quiet day. "below_threshold" and
+    // "no_candidates" are deliberately NOT reported: a silent day is correct
+    // behaviour, and an alert for it would train you to ignore the ones that
+    // are not.
+    await notify(agentId, { kind: "cycle_failed", detail: `judge:${judged.reason}` });
     return { agentId, ran: true, drafted: false, published: false, skippedReason: `judge:${judged.reason}` };
   }
   if (judged.data.servedBy) servedBy.push(judged.data.servedBy);
@@ -362,6 +370,23 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   );
 
   await recordCycleRan(agentId);
+
+  // Announced from HERE rather than from the cron route, so every path that
+  // produces a draft says so: the scheduled tick, "Run a cycle now" from the
+  // phone, and a forced single-agent run. It was wired into the tick alone,
+  // which meant the one case where somebody was definitely holding the phone
+  // and waiting — pressing the button — was the one case that stayed silent.
+  //
+  // The hook, not the post: a notification is a reason to open the app, not a
+  // place to read a draft.
+  if (seq !== undefined) {
+    await notify(agentId, {
+      kind: "draft_ready",
+      seq,
+      hook: hookOf(draft.data.text).slice(0, 120),
+      at: context.scheduledFor ? formatInZone(context.scheduledFor, settings.timezone) : null,
+    });
+  }
 
   console.log(
     `[cycle] agent=${agentId} scored n=${stats.n} min=${stats.min} max=${stats.max} mean=${stats.mean} drafted=${postId} servedBy=${servedBy.join(",") || "n/a"}`,
