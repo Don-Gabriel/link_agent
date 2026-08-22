@@ -19,10 +19,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Must match the package registered in the Firebase console, or push
+        // notifications register successfully and then never arrive.
         applicationId = "com.linkdin.linkdin_mobile"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -31,8 +30,14 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Debug keys, deliberately. This app is installed by cable onto one
+            // phone and is not distributed, so a release keystore would be a
+            // secret to manage for no benefit — and it must never live in the
+            // repository, which is the usual way that goes wrong.
+            //
+            // Publishing to Play Store one day means generating a keystore,
+            // keeping it OUT of git, and referencing it from key.properties.
+            // Until then this keeps `flutter run --release` working.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
