@@ -55,7 +55,9 @@ import {
   parseCategories,
   sameCategorySet,
 } from "../lib/categories";
+import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { pemToBytes } from "../lib/push";
 import { FEEDS } from "../lib/discovery";
 import { isRawScore, outputBudgetFor } from "../lib/judge";
 
@@ -354,6 +356,41 @@ console.log("\nscope line (agents.domain, the app's header, and the persona prom
   check("set comparison catches an addition", !sameCategorySet(["ai-ml"], ["ai-ml", "dev-tooling"]));
   check("set comparison catches a swap", !sameCategorySet(["ai-ml"], ["dev-tooling"]));
   check("two empty sets match", sameCategorySet([], []));
+}
+
+console.log("\nFCM private key formats");
+{
+  // The service-account key is pasted by hand into an environment variable, and
+  // every way of getting it wrong fails with the same unhelpful "Invalid
+  // character" from crypto.subtle — at send time, on a phone, days later. So
+  // what is tolerated is pinned here rather than rediscovered.
+  const BS = String.fromCharCode(92);
+  const NL = String.fromCharCode(10);
+  const key = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  const pem = key.export({ type: "pkcs8", format: "pem" }) as string;
+  // What the downloaded JSON actually holds: real newlines written as the two
+  // characters backslash and n.
+  const escaped = pem.split(NL).join(BS + "n");
+
+  // lib/push.ts un-escapes before parsing; this mirrors that one line.
+  const parse = (value: string) => pemToBytes(value.split(BS + "n").join(NL));
+  const accepts = (value: string) => {
+    try {
+      return parse(value).byteLength > 1000;
+    } catch {
+      return false;
+    }
+  };
+
+  check("the whole block with its escapes, exactly as the JSON shows it", accepts(escaped));
+  check("real line breaks instead of escapes", accepts(pem));
+  check("BEGIN and END lines missing", accepts(escaped.replace(/-----[^-]+-----/g, "")));
+  check("stray spaces around the escapes", accepts(escaped.split(BS + "n").join(" " + BS + "n ")));
+
+  // The one real trap, and the only one worth warning about in the setup notes.
+  check("the JSON's surrounding double quotes are REJECTED",
+    !accepts(JSON.stringify(escaped)),
+    "a quoted value must fail loudly rather than parse into a broken key");
 }
 
 console.log("\nmiddleware public paths");

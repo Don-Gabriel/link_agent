@@ -38,8 +38,15 @@ interface CachedToken {
  */
 const g = globalThis as unknown as { __linkdinPushToken?: CachedToken | null };
 
-/** PEM (PKCS#8) to the raw DER bytes crypto.subtle wants. */
-function pemToBytes(pem: string): ArrayBuffer {
+/**
+ * PEM (PKCS#8) to the raw DER bytes crypto.subtle wants.
+ *
+ * Exported for the selftest. The service-account key is pasted by hand into an
+ * environment variable, and every way of getting that wrong fails with the same
+ * unhelpful "invalid key" from crypto.subtle — so which formats are tolerated
+ * is worth pinning down in a test rather than discovering in production.
+ */
+export function pemToBytes(pem: string): ArrayBuffer {
   const body = pem
     .replace(/-----BEGIN [^-]+-----/, "")
     .replace(/-----END [^-]+-----/, "")
