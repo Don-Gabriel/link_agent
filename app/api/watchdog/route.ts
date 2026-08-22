@@ -21,6 +21,8 @@ import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
 import { getPrimaryAgent } from "../../../lib/agents";
 import { checkCredentials, notify, pushConfigured } from "../../../lib/push";
+import { deadFeeds } from "../../../lib/feedhealth";
+import { apiVersionAge } from "../../../lib/linkedin";
 import { recordWatchdog, schedulerHealth } from "../../../lib/slots";
 
 export const dynamic = "force-dynamic";
@@ -79,9 +81,10 @@ export async function GET(request: Request) {
   const agent = await getPrimaryAgent();
   if (!agent) return NextResponse.json({ ok: true, checked: false, reason: "not_initialized" });
 
-  const [health, account] = await Promise.all([
+  const [health, account, dead] = await Promise.all([
     schedulerHealth(),
     getAccountStatus(agent.agentId),
+    deadFeeds(),
   ]);
 
   const alerts: string[] = [];
@@ -103,10 +106,32 @@ export async function GET(request: Request) {
     await notify(agent.agentId, { kind: "token_expiring", days: account.daysRemaining ?? 0 });
   }
 
+  // Feeds die quietly — one warning per cycle in a log nobody reads — and the
+  // symptom is a reading list that halves over two years with no alert.
+  if (dead.length > 0) {
+    alerts.push("feed_dead");
+    await notify(agent.agentId, { kind: "feed_dead", names: dead.map((f) => f.name) });
+  }
+
+  // The one guaranteed breakage with no natural warning: the pinned API version
+  // is retired on LinkedIn's schedule, and without this the first sign is a
+  // post that failed to send.
+  const version = apiVersionAge();
+  if (version?.stale) {
+    alerts.push("api_version_stale");
+    await notify(agent.agentId, {
+      kind: "api_version_stale",
+      version: version.version,
+      months: version.months,
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     checked: true,
     pushConfigured: pushConfigured(),
+    deadFeeds: dead.map((f) => f.name),
+    apiVersion: version ? { version: version.version, months: version.months } : null,
     scheduler: { healthy: health.healthy, minutesSince: health.minutesSince },
     linkedin: { connected: account.connected, daysRemaining: account.daysRemaining ?? null },
     alerts,

@@ -21,6 +21,7 @@
 import type { CategoryId } from "./categories";
 import { ALL_CATEGORY_IDS } from "./categories";
 import { decodeEntities } from "./entities";
+import { recordFeedResult } from "./feedhealth";
 
 export interface Candidate {
   title: string;
@@ -348,6 +349,25 @@ export const FEEDS: Feed[] = [
 
   // ------------------------------------------------------ hardware & embedded
   {
+    // The same Hackaday feed that music-tech-hardware carries, listed again
+    // here because it is a general electronics blog and was only ever reachable
+    // from a MUSIC category — so an agent watching hardware-embedded and not
+    // music-tech-hardware could not see it at all, while that category ran on
+    // two sources.
+    //
+    // Added rather than moved, which is the rule this file states: moving it
+    // would silently stop an agent that watches only music-tech-hardware from
+    // seeing Hackaday, with no error anywhere. The cost is one duplicate fetch
+    // in the rare case where both categories are active, and discover() already
+    // dedupes by URL, so nothing is judged twice.
+    name: "hackaday-embedded",
+    url: "https://hackaday.com/blog/feed/",
+    category: "hardware-embedded",
+    limit: 5,
+    wideLimit: 8,
+    verified: true,
+  },
+  {
     name: "adafruit",
     url: "https://blog.adafruit.com/feed/",
     category: "hardware-embedded",
@@ -450,9 +470,13 @@ export async function discover(options: DiscoverOptions = {}): Promise<Candidate
 
   if (activeSet.has("emerging-tech")) {
     try {
-      results.push(...(await fromHackerNews(wide)));
+      const hits = await fromHackerNews(wide);
+      results.push(...hits);
+      await recordFeedResult("hackernews", { ok: true, items: hits.length });
     } catch (err) {
-      console.warn("[discovery] hackernews failed:", String((err as Error)?.message ?? err));
+      const message = String((err as Error)?.message ?? err);
+      console.warn("[discovery] hackernews failed:", message);
+      await recordFeedResult("hackernews", { ok: false, error: message });
     }
   }
 
@@ -466,9 +490,17 @@ export async function discover(options: DiscoverOptions = {}): Promise<Candidate
       const url = wide && feed.wideUrl ? feed.wideUrl : feed.url;
       const limit = wide ? feed.wideLimit : feed.limit;
       try {
-        results.push(...parseFeed(await fetchText(url), feed.name, feed.category, limit));
+        const items = parseFeed(await fetchText(url), feed.name, feed.category, limit);
+        results.push(...items);
+        // Zero parsed items counts as a failure, not a quiet day: parseFeed does
+        // not filter by date, so even a dormant blog returns its old entries.
+        // Zero means the format changed or the response was not a feed at all —
+        // which is what a redesigned site's 200-with-an-HTML-error-page looks like.
+        await recordFeedResult(feed.name, { ok: true, items: items.length });
       } catch (err) {
-        console.warn(`[discovery] ${feed.name} failed:`, String((err as Error)?.message ?? err));
+        const message = String((err as Error)?.message ?? err);
+        console.warn(`[discovery] ${feed.name} failed:`, message);
+        await recordFeedResult(feed.name, { ok: false, error: message });
       }
     }),
   );

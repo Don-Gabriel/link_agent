@@ -205,6 +205,8 @@ export type PushEvent =
   // Only ever sent on request. Exists because the last link in the chain —
   // server to Google to a specific handset — cannot be proved any other way,
   // and the first real alert is a bad time to discover it was never wired up.
+  | { kind: "feed_dead"; names: string[] }
+  | { kind: "api_version_stale"; version: string; months: number }
   | { kind: "test" };
 
 interface Rendered {
@@ -263,6 +265,28 @@ function render(event: PushEvent): Rendered {
         tab: "status",
         urgent: true,
       };
+    case "feed_dead": {
+      const [first, ...rest] = event.names;
+      return {
+        title: rest.length > 0 ? `${event.names.length} feeds have stopped working` : "A feed has stopped working",
+        body:
+          rest.length > 0
+            ? `${event.names.join(", ")} — discovery is running on fewer sources than you think.`
+            : `${first} has returned nothing for days. Discovery is running on fewer sources than you think.`,
+        tab: "status",
+        // Not urgent: nothing is broken and nothing is waiting on you. It is a
+        // slow leak in the quality of what the agent reads, and it deserves to
+        // be noticed rather than to interrupt.
+        urgent: false,
+      };
+    }
+    case "api_version_stale":
+      return {
+        title: "LinkedIn's API version needs bumping",
+        body: `Version ${event.version} is ${event.months} months old and LinkedIn retires them at about twelve. Set LINKEDIN_API_VERSION before it stops publishing.`,
+        tab: "status",
+        urgent: false,
+      };
     case "test":
       return {
         title: "Notifications are working",
@@ -292,6 +316,12 @@ const COOLDOWN_MINUTES: Record<PushEvent["kind"], number> = {
   cycle_failed: 180,
   token_expiring: 1440, // once a day is plenty for a 60-day clock
   scheduler_stalled: 360,
+  // Weekly. A dead feed stays dead until someone edits lib/discovery.ts, and
+  // an alert repeating before then is pure nagging about a known problem.
+  feed_dead: 10080,
+  // Weekly too. The fix is one environment variable and it is not urgent for
+  // months, so this is a standing reminder rather than an alarm.
+  api_version_stale: 10080,
   // Asked for explicitly, so throttling it would only ever be confusing.
   test: 0,
 };

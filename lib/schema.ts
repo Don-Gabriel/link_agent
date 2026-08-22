@@ -303,6 +303,28 @@ CREATE TABLE IF NOT EXISTS media_assets (
 );
 
 /*
+ * One row per feed, recording whether it still works.
+ *
+ * Feeds die quietly. A blog moves host, an RSS path changes, a site adds
+ * Cloudflare — and discovery logs one warning per cycle and carries on with the
+ * other twenty-six, which is the correct behaviour and also why nobody ever
+ * notices. Over a couple of years that is how a reading list of 27 sources
+ * becomes a reading list of 12 without a single alert.
+ *
+ * Keyed by feed NAME rather than URL so a feed whose URL is corrected keeps its
+ * history instead of appearing to be a brand new source that has always worked.
+ */
+CREATE TABLE IF NOT EXISTS feed_health (
+  name            TEXT PRIMARY KEY,
+  last_ok_at      TIMESTAMPTZ,
+  last_failed_at  TIMESTAMPTZ,
+  /* Reset to zero by any successful fetch. */
+  fails_in_a_row  INT NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+/*
  * Devices that may receive push notifications, and what has been sent.
  *
  * The token is the primary key rather than an id: FCM issues one per app

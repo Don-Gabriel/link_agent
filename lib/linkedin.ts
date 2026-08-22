@@ -36,8 +36,38 @@ const UPLOAD_TIMEOUT_MS = 60_000;
 export const SCOPES = ["openid", "profile", "email", "w_member_social"] as const;
 
 /** LinkedIn sunsets versioned APIs ~12 months out; override without a redeploy. */
-function apiVersion(): string {
+export function apiVersion(): string {
   return process.env.LINKEDIN_API_VERSION ?? "202607";
+}
+
+/** Warn once the pinned version is this old. Sunset is ~12 months. */
+const VERSION_WARN_MONTHS = 10;
+
+/**
+ * How old the pinned API version is, in months, and whether that is a problem.
+ *
+ * This is the one guaranteed breakage with no natural warning. The version is a
+ * YYYYMM string frozen in an environment variable, LinkedIn retires versions
+ * about a year after release, and the day it happens every publish starts
+ * failing with a version error — an alert that arrives strictly AFTER a post
+ * did not go out.
+ *
+ * Ten months gives two months to bump one variable, which is the entire fix.
+ * Returns null if the pin is unparseable, which is not worth an alarm: a
+ * malformed version fails loudly on the very next request anyway.
+ */
+export function apiVersionAge(): { version: string; months: number; stale: boolean } | null {
+  const version = apiVersion();
+  const match = /^(\d{4})(\d{2})$/.exec(version);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+
+  const now = new Date();
+  const months =
+    (now.getUTCFullYear() - year) * 12 + (now.getUTCMonth() + 1 - month);
+  return { version, months, stale: months >= VERSION_WARN_MONTHS };
 }
 
 function versionedHeaders(token: string): Record<string, string> {

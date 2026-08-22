@@ -254,6 +254,29 @@ Either way, the `Health check` readout on the Status tab is how you would find
 out: it shows how long since the watchdog last ran. Minutes is normal. Hours or
 days means the workflows are off, whatever the cause.
 
+## 6. Feeds die quietly — HANDLED
+
+Every fetch records its outcome in `feed_health`. A feed that fails six times in
+a row AND has not succeeded for three days is reported once a week. Both
+conditions are needed: consecutive failures alone would fire during any host
+outage, and "no success lately" alone would flag a feed nobody is fetching
+because its category is switched off.
+
+A 200 response that parses to zero items counts as a failure. `parseFeed` does
+not filter by date, so even a dormant blog returns its old entries — zero really
+does mean the format changed, or that it was not a feed at all, which is what a
+redesigned site returns as an HTML error page with a 200 status.
+
+## 7. LinkedIn retires the API version — HANDLED
+
+`LINKEDIN_API_VERSION` is pinned (currently `202607`) and LinkedIn sunsets
+versions about twelve months after release. At ten months old the watchdog
+starts reminding you weekly, which leaves two months to act. The fix is bumping
+that one variable in Vercel.
+
+Without this the first sign would have been a post that failed to send — an
+alert that arrives strictly after the damage.
+
 ---
 
 # Security

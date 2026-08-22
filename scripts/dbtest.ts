@@ -32,6 +32,7 @@ import { getTodayCalls } from "../lib/llm";
 import { recall } from "../lib/memory";
 import { forgetDevice, notify, pushConfigured, registerDevice } from "../lib/push";
 import { checkLoginAllowed, clearLoginFailures, recordLoginFailure, MAX_ATTEMPTS } from "../lib/ratelimit";
+import { DEAD_AFTER_FAILURES, deadFeeds, recordFeedResult } from "../lib/feedhealth";
 import { RETENTION, sweepIfDue } from "../lib/retention";
 import {
   claimSlotRun,
@@ -294,6 +295,53 @@ async function main() {
     await runs("forgetDevice removes it", () => forgetDevice(token));
     check("the device is gone",
       (await query("SELECT 1 FROM device_tokens WHERE token = $1", [token])).length === 0);
+  }
+
+  console.log("\nfeed health");
+  {
+    const feed = `dbtest-feed-${randomUUID()}`;
+
+    await runs("a successful fetch is recorded", () => recordFeedResult(feed, { ok: true, items: 5 }));
+    await runs("a failure is recorded", () => recordFeedResult(feed, { ok: false, error: "http 500" }));
+    await runs("the upsert increments rather than duplicating", () =>
+      recordFeedResult(feed, { ok: false, error: "http 500" }),
+    );
+    const row = await query<{ fails_in_a_row: number }>(
+      "SELECT fails_in_a_row FROM feed_health WHERE name = $1",
+      [feed],
+    );
+    check("failures accumulate", row[0]?.fails_in_a_row === 2, JSON.stringify(row));
+
+    // Two failures is a bad afternoon, not a dead feed. Alerting on that would
+    // train the alert away within a month.
+    check("a couple of failures is not yet dead",
+      !(await deadFeeds()).some((f) => f.name === feed));
+
+    // Fetched fine, parsed nothing — a redesigned site answering 200 with an
+    // HTML error page. Exactly as useless as a timeout, and more likely.
+    await runs("zero parsed items counts as a failure", () =>
+      recordFeedResult(feed, { ok: true, items: 0 }),
+    );
+    check("the empty response incremented too",
+      (await query<{ fails_in_a_row: number }>(
+        "SELECT fails_in_a_row FROM feed_health WHERE name = $1", [feed],
+      ))[0]?.fails_in_a_row === 3);
+
+    // Past the threshold AND with the last success pushed back, which is what
+    // separates a dead feed from one nobody has fetched lately.
+    await query(
+      `UPDATE feed_health SET fails_in_a_row = $2, last_ok_at = now() - interval '30 days'
+        WHERE name = $1`,
+      [feed, DEAD_AFTER_FAILURES],
+    );
+    check("sustained failure IS reported", (await deadFeeds()).some((f) => f.name === feed));
+
+    // A recent success must clear it however bad the run of failures was.
+    await runs("one success resets the counter", () => recordFeedResult(feed, { ok: true, items: 3 }));
+    check("a recovered feed is no longer dead",
+      !(await deadFeeds()).some((f) => f.name === feed));
+
+    await query("DELETE FROM feed_health WHERE name = $1", [feed]);
   }
 
   console.log("\nretention sweep");

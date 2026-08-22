@@ -59,6 +59,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { pemToBytes } from "../lib/push";
 import { FEEDS } from "../lib/discovery";
+import { apiVersionAge } from "../lib/linkedin";
 import { isRawScore, outputBudgetFor } from "../lib/judge";
 
 let failures = 0;
@@ -290,6 +291,21 @@ console.log("\ncategories");
     check(`${id} has at least one feed`, feedCategories.has(id));
   }
 
+  // Feed names are the PRIMARY KEY of feed_health. Two feeds sharing a name
+  // would share one health row, so a working source could clear the failure
+  // count of a dead one and the alert would never fire.
+  const names = FEEDS.map((f) => f.name);
+  check("every feed name is unique",
+    new Set(names).size === names.length,
+    names.filter((n, i) => names.indexOf(n) !== i).join(", "));
+
+  // Sharing a URL is allowed and deliberate — Hackaday is listed under both
+  // music-tech-hardware and hardware-embedded, because moving it would silently
+  // take it away from an agent watching only the first. discover() dedupes by
+  // URL, so nothing reaches the judge twice.
+  check("a shared URL still has distinct names",
+    FEEDS.filter((f) => f.url === "https://hackaday.com/blog/feed/").length === 2);
+
   // And no feed may point at a category that no longer exists, which would make
   // it unreachable in the other direction.
   check("every feed points at a real category",
@@ -391,6 +407,45 @@ console.log("\nFCM private key formats");
   check("the JSON's surrounding double quotes are REJECTED",
     !accepts(JSON.stringify(escaped)),
     "a quoted value must fail loudly rather than parse into a broken key");
+}
+
+console.log("\nLinkedIn API version ageing");
+{
+  // LinkedIn retires versioned APIs about twelve months out. Without a warning
+  // the first sign is a post that failed to send, which is strictly too late —
+  // the fix is one environment variable and takes a minute.
+  const withVersion = (v: string) => {
+    const previous = process.env.LINKEDIN_API_VERSION;
+    process.env.LINKEDIN_API_VERSION = v;
+    try {
+      return apiVersionAge();
+    } finally {
+      if (previous === undefined) delete process.env.LINKEDIN_API_VERSION;
+      else process.env.LINKEDIN_API_VERSION = previous;
+    }
+  };
+
+  const now = new Date();
+  const ago = (months: number) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, 1));
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  };
+
+  check("this month is zero months old", withVersion(ago(0))?.months === 0, ago(0));
+  check("a year ago is twelve months old", withVersion(ago(12))?.months === 12, ago(12));
+  // Crossing a year boundary is where naive month arithmetic goes wrong.
+  check("thirteen months ago spans the year end", withVersion(ago(13))?.months === 13, ago(13));
+
+  check("fresh is not stale", withVersion(ago(2))?.stale === false);
+  check("nine months is not yet stale", withVersion(ago(9))?.stale === false);
+  check("ten months is stale", withVersion(ago(10))?.stale === true);
+  check("a year past release is certainly stale", withVersion(ago(14))?.stale === true);
+
+  // Unparseable pins are ignored rather than alarmed about: a malformed version
+  // fails loudly on the very next request anyway.
+  check("nonsense is ignored", withVersion("not-a-version") === null);
+  check("an impossible month is ignored", withVersion("202699") === null);
+  check("a short pin is ignored", withVersion("2026") === null);
 }
 
 console.log("\nmiddleware public paths");
