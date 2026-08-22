@@ -121,6 +121,37 @@ async function mintAccessToken(): Promise<string | null> {
   return data.access_token;
 }
 
+/**
+ * Do the stored credentials actually work?
+ *
+ * Distinct from pushConfigured(), which only says the three variables exist. A
+ * private key pasted with the JSON's quotes still round-trips through env vars
+ * perfectly and fails at crypto.subtle — and because notify() is deliberately
+ * silent, the first sign would be a notification that never arrived on a day
+ * something was wrong. This exchanges a real token and sends nothing.
+ */
+export async function checkCredentials(): Promise<{ ok: boolean; detail: string }> {
+  if (!pushConfigured()) {
+    return { ok: false, detail: "FCM_PROJECT_ID, FCM_CLIENT_EMAIL or FCM_PRIVATE_KEY is not set" };
+  }
+  try {
+    // Deliberately bypasses the cache: the point is to prove the KEY works now,
+    // not that a token minted an hour ago is still valid.
+    const token = await mintAccessToken();
+    return token
+      ? { ok: true, detail: "credentials accepted by Google" }
+      : { ok: false, detail: "Google refused the credentials — see the logs for the exchange error" };
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    // The signature of a mis-pasted key, called out by name because it is the
+    // one mistake the setup notes warn about.
+    const hint = /invalid character|asn|decode/i.test(message)
+      ? " — FCM_PRIVATE_KEY looks malformed; the likeliest cause is copying it with the JSON's surrounding double quotes"
+      : "";
+    return { ok: false, detail: message.slice(0, 160) + hint };
+  }
+}
+
 async function accessToken(): Promise<string | null> {
   const cached = g.__linkdinPushToken;
   if (cached && cached.expiresAt > Date.now()) return cached.value;

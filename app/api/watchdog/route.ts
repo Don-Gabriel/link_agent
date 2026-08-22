@@ -20,7 +20,7 @@
 import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
 import { getPrimaryAgent } from "../../../lib/agents";
-import { notify, pushConfigured } from "../../../lib/push";
+import { checkCredentials, notify, pushConfigured } from "../../../lib/push";
 import { schedulerHealth } from "../../../lib/slots";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +40,15 @@ function authorized(request: Request): boolean {
 
 export async function GET(request: Request) {
   if (!authorized(request)) return new NextResponse("Not Found", { status: 404 });
+
+  // ?deep=1 additionally proves the push credentials WORK rather than merely
+  // exist, by exchanging a real access token and sending nothing. Off by
+  // default: the scheduled run happens every half hour and does not need to
+  // talk to Google to answer "is the scheduler alive".
+  if (new URL(request.url).searchParams.get("deep") === "1") {
+    const credentials = await checkCredentials();
+    return NextResponse.json({ ok: credentials.ok, deep: true, push: credentials });
+  }
 
   const agent = await getPrimaryAgent();
   if (!agent) return NextResponse.json({ ok: true, checked: false, reason: "not_initialized" });
