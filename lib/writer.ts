@@ -18,7 +18,7 @@
  * signature catchphrase from becoming a tic.
  */
 import type { CategoryId } from "./categories";
-import { critique, repairInstruction, summarize } from "./critique";
+import { critique, repairInstruction, severity, summarize } from "./critique";
 import { voiceBlock, type VoiceSample } from "./voice";
 import { CATEGORIES } from "./categories";
 import type { ScoredCandidate } from "./judge";
@@ -63,10 +63,13 @@ function isDraft(v: unknown): v is DraftPost {
 }
 
 function buildSystem(style: StyleConfig): string {
+  // EXACTLY, not "up to". The setting reads "N tags" in the UI and the author
+  // means N — asking for a range let the model return two when ten were set,
+  // and nothing downstream could tell that apart from a deliberate choice.
   const tagRule =
     style.hashtagCount === 0
       ? "hashtags: return an empty array. This author does not use them."
-      : `hashtags: 0-${style.hashtagCount} single-word alphanumeric tags. ${style.hashtagCount} is the maximum and zero is perfectly acceptable.`;
+      : `hashtags: EXACTLY ${style.hashtagCount} single-word alphanumeric tags — not fewer, not more. They must each genuinely fit this post and must not repeat or near-repeat one another.`;
 
   return `You write LinkedIn posts as a specific person, posting about things they actually find interesting. Follow their voice exactly.
 
@@ -209,7 +212,10 @@ export async function writePost(
       // The draft is well-formed JSON. Whether it obeys the AUTHOR'S rules is a
       // separate question the model is unreliable about, so check it in code
       // and spend one call repairing what it actually got wrong.
-      const repaired = await repairIfNeeded(draft, style, persona);
+      const repaired = await repairIfNeeded(draft, style, persona, {
+        samples: args.samples,
+        editNotes: args.editNotes,
+      });
       callsUsed += repaired.callsUsed;
       draft = repaired.draft;
 
@@ -246,17 +252,17 @@ async function repairIfNeeded(
   draft: DraftPost,
   style: StyleConfig,
   persona: PersonaRecord,
+  voice: VoiceOpt = {},
 ): Promise<{ draft: DraftPost; callsUsed: number }> {
-  const violations = critique(draft.text, style, { usedQuote: draft.used_quote });
+  const check = { usedQuote: draft.used_quote, hashtags: draft.hashtags ?? [] };
+  const violations = critique(draft.text, style, check);
   if (violations.length === 0) return { draft, callsUsed: 0 };
 
   console.warn(`[writer] draft broke ${violations.length} rule(s): ${summarize(violations)} — repairing`);
 
   const res = await complete({
     system: `${buildSystem(style)}\n\n${repairInstruction(violations)}`,
-    user: [personaBlock(persona), "", "YOUR DRAFT:", draft.text, "", "Return the corrected JSON."].join(
-      "\n",
-    ),
+    user: withVoice(persona, voice, ["YOUR DRAFT:", draft.text, "", "Return the corrected JSON."]),
     jsonMode: true,
     maxOutputTokens: 1536,
   });
@@ -272,10 +278,16 @@ async function repairIfNeeded(
     return { draft, callsUsed: 1 };
   }
 
-  const remaining = critique(fixed.text, style, { usedQuote: fixed.used_quote });
-  if (remaining.length >= violations.length) {
-    // The repair did not help. Keeping the original avoids trading a draft with
-    // two problems for a different draft with three.
+  const fixedTags = fixed.hashtags ?? draft.hashtags ?? [];
+  const remaining = critique(fixed.text, style, {
+    usedQuote: fixed.used_quote,
+    hashtags: fixedTags,
+  });
+  // Compared by severity, not by violation count. Both drafts being "one
+  // violation: too short" says nothing about which is closer to the range, and
+  // counting alone discarded every repair that improved the length without
+  // completely fixing it — which, on a narrow word range, is most of them.
+  if (severity(fixed.text, style, remaining) >= severity(draft.text, style, violations)) {
     console.warn(
       `[writer] repair did not improve the draft (${summarize(remaining)}) — keeping the original`,
     );
@@ -288,9 +300,10 @@ async function repairIfNeeded(
     console.log("[writer] repair cleared every violation");
   }
   // Carry the original's metadata: the repair is an edit of the TEXT, and its
-  // continuity claim has not been validated against the archive.
+  // continuity claim has not been validated against the archive. The TAGS do
+  // come across — fixing the tag count is one of the things it was asked to do.
   return {
-    draft: { ...draft, text: fixed.text, used_quote: fixed.used_quote },
+    draft: { ...draft, text: fixed.text, used_quote: fixed.used_quote, hashtags: fixedTags },
     callsUsed: 1,
   };
 }
@@ -303,9 +316,12 @@ async function repairIfNeeded(
  * Omits the block entirely when there is nothing to show, rather than leaving a
  * labelled empty section — which reads to a model as "this person has no voice".
  */
+/** The author's voice references, as every prompt-building function takes them. */
+type VoiceOpt = { samples?: VoiceSample[]; editNotes?: string | null };
+
 function withVoice(
   persona: PersonaRecord,
-  voice: { samples?: VoiceSample[]; editNotes?: string | null },
+  voice: VoiceOpt,
   task: string[],
 ): string {
   const refs = voiceBlock(voice.samples ?? [], voice.editNotes);
@@ -336,7 +352,7 @@ export async function rewriteDraft(
    * them a rewrite obeys the style toggles and ignores the half of the Voice
    * screen that actually demonstrates a voice.
    */
-  voice: { samples?: VoiceSample[]; editNotes?: string | null } = {},
+  voice: VoiceOpt = {},
 ): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const angles = [
     "Open from a different entry point than the current draft — if it opens with the result, open with the problem, and vice versa.",
@@ -355,7 +371,7 @@ OVERRIDE FOR THIS TASK: you are producing an ALTERNATIVE version of an existing 
 Respond with JSON exactly: {"text": "...", "rationale": "one line on how this version differs", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": ["Tag"], "used_quote": true or false}
 ${style.hashtagCount === 0
   ? "- hashtags: return an empty array. This author does not use them."
-  : `- hashtags: choose 0-${style.hashtagCount} single-word alphanumeric tags that fit THIS version. They are appended automatically, so do not put them in the text.`}`;
+  : `- hashtags: EXACTLY ${style.hashtagCount} single-word alphanumeric tags that fit THIS version — not fewer, not more. They are appended automatically, so do not put them in the text.`}`;
 
   const res = await complete({
     system,
@@ -366,11 +382,16 @@ ${style.hashtagCount === 0
   if (!res.ok) return { ok: false, reason: res.reason };
   const parsed = parseJson(res.text, isDraft);
   if (!parsed) return { ok: false, reason: "rewrite_json_invalid" };
+  // Held to the author's settings exactly as the cycle's writer is. This ran no
+  // check at all before, so "Rewrite with AI" was the one path that could hand
+  // back a 400-word post against a 300-word ceiling, or two tags against ten,
+  // and nothing anywhere noticed.
+  const checked = await repairIfNeeded(parsed, style, persona, voice);
   return {
     ok: true,
     data: {
-      text: parsed.text.trim(),
-      hashtags: parsed.hashtags ?? [],
+      text: checked.draft.text.trim(),
+      hashtags: checked.draft.hashtags ?? [],
       servedBy: res.model,
     },
   };
@@ -386,7 +407,7 @@ export async function polishCustomPost(
   persona: PersonaRecord,
   draft: string,
   style: StyleConfig = DEFAULT_STYLE,
-  voice: { samples?: VoiceSample[]; editNotes?: string | null } = {},
+  voice: VoiceOpt = {},
 ): Promise<{ ok: true; data: { text: string; hashtags: string[]; servedBy?: string } } | { ok: false; reason: string }> {
   const system = `${buildSystem(style)}
 
@@ -399,7 +420,7 @@ OVERRIDE FOR THIS TASK: you are editing the author's OWN draft, not choosing a s
 Respond with JSON exactly: {"text": "...", "rationale": "one line on what you changed", "fingerprint": "keywords — one-line summary", "continuity": null, "hashtags": ["Tag"], "used_quote": true or false}
 ${style.hashtagCount === 0
   ? "- hashtags: return an empty array. This author does not use them."
-  : `- hashtags: choose 0-${style.hashtagCount} single-word alphanumeric tags that fit THIS version. They are appended automatically, so do not put them in the text.`}`;
+  : `- hashtags: EXACTLY ${style.hashtagCount} single-word alphanumeric tags that fit THIS version — not fewer, not more. They are appended automatically, so do not put them in the text.`}`;
 
   const res = await complete({
     system,
@@ -413,8 +434,13 @@ ${style.hashtagCount === 0
   if (!res.ok) return { ok: false, reason: res.reason };
   const parsed = parseJson(res.text, isDraft);
   if (!parsed) return { ok: false, reason: "polish_json_invalid" };
+  const checked = await repairIfNeeded(parsed, style, persona, voice);
   return {
     ok: true,
-    data: { text: parsed.text, hashtags: parsed.hashtags ?? [], servedBy: res.model },
+    data: {
+      text: checked.draft.text,
+      hashtags: checked.draft.hashtags ?? [],
+      servedBy: res.model,
+    },
   };
 }

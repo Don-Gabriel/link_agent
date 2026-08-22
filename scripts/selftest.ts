@@ -43,7 +43,7 @@ import {
   signatureBudget,
   styleBlock,
 } from "../lib/style";
-import { critique, firstSentence, repairInstruction, summarize } from "../lib/critique";
+import { countWords, critique, firstSentence, repairInstruction, severity, summarize } from "../lib/critique";
 import { parseCorpus, pickSamples, voiceBlock } from "../lib/voice";
 import {
   ALL_CATEGORY_IDS,
@@ -435,6 +435,56 @@ console.log("\ndraft critique (the rules nothing used to verify)");
     !critique(`${clean} 🎛️ 🎚️`, sparing).some((v) => v.rule === "emoji_excess"));
   check("catches a third emoji under sparing",
     critique(`${clean} 🎛️ 🎚️ 🎹`, sparing).some((v) => v.rule === "emoji_excess"));
+
+  // ---- hashtag count is a target, not a ceiling.
+  //
+  // "10 tags" in the UI means ten. The prompt used to ask for "0-N" and
+  // lib/format.ts only trimmed the top, so setting ten and getting three was
+  // indistinguishable from the model deciding three was right.
+  const tenTags = { ...DEFAULT_STYLE, hashtagCount: 10 };
+  check("no hashtags supplied means the rule is not checked",
+    !critique(clean, tenTags).some((v) => v.rule === "hashtag_count"),
+    "an absent list is 'not checked', not 'zero tags'");
+  check("catches too few hashtags",
+    critique(clean, tenTags, { hashtags: ["A", "B"] }).some((v) => v.rule === "hashtag_count"));
+  check("catches too many hashtags",
+    critique(clean, { ...DEFAULT_STYLE, hashtagCount: 2 }, { hashtags: ["A", "B", "C"] })
+      .some((v) => v.rule === "hashtag_count"));
+  check("exactly the requested count passes",
+    !critique(clean, { ...DEFAULT_STYLE, hashtagCount: 2 }, { hashtags: ["A", "B"] })
+      .some((v) => v.rule === "hashtag_count"));
+  check("zero means zero",
+    critique(clean, { ...DEFAULT_STYLE, hashtagCount: 0 }, { hashtags: ["A"] })
+      .some((v) => v.rule === "hashtag_count"));
+  check("zero and none supplied passes",
+    !critique(clean, { ...DEFAULT_STYLE, hashtagCount: 0 }, { hashtags: [] })
+      .some((v) => v.rule === "hashtag_count"));
+  check("the repair instruction says how many to add",
+    critique(clean, tenTags, { hashtags: ["A", "B"] })
+      .find((v) => v.rule === "hashtag_count")!.detail.includes("Add 8 more"));
+
+  // ---- severity: what makes one draft better than another.
+  //
+  // This is what decides whether a repair is kept. Comparing violation COUNTS
+  // alone rated "30 words short" and "2 words short" identically, so every
+  // repair that improved the length without completely fixing it was thrown
+  // away — which, on a narrow word range, is nearly all of them.
+  {
+    const band = { ...DEFAULT_STYLE, minWords: 280, maxWords: 300 };
+    const near = body(275);
+    const far = body(200);
+    const inside = body(290);
+    check("a draft inside the range scores zero",
+      severity(inside, band, critique(inside, band)) === 0,
+      String(countWords(inside)) + " words");
+    check("closer to the range scores better",
+      severity(near, band, critique(near, band)) < severity(far, band, critique(far, band)));
+    check("any violation outranks any distance",
+      severity(inside, band, critique(inside, band)) < severity(far, band, critique(far, band)));
+    // Otherwise one absurd draft could outscore a draft with an extra violation.
+    check("distance cannot overflow into the violation count",
+      severity(body(1), band, critique(body(1), band)) < 2000);
+  }
 
   // LinkedIn renders no markdown; these characters publish literally on screen.
   check("catches markdown bold",

@@ -303,7 +303,10 @@ export function styleBlock(style: StyleConfig): string {
     HOOK_RULES[style.hook],
     CTA_RULES[style.cta],
     REGISTER_RULES[style.register],
-    `LENGTH: ${style.minWords}-${style.maxWords} words.`,
+    // A target and a warning, not a bare range. A range reads as guidance and
+    // models drift out of a narrow one constantly; naming the midpoint and
+    // saying the count is checked afterwards lands inside it far more often.
+    `LENGTH: ${style.minWords}-${style.maxWords} words — aim for about ${Math.round((style.minWords + style.maxWords) / 2)}. The count is checked programmatically after you reply, and a draft outside the range is sent straight back to you.`,
     "NO markdown of any kind. LinkedIn renders none of it — asterisks, backticks and brackets appear literally on screen.",
     "The FIRST LINE is the whole hook: everything past ~210 characters is hidden behind \"see more\".",
     "Be specific enough to be wrong. Name the actual technology, the actual tradeoff, the actual number. Vagueness is the failure mode that makes these posts worthless.",

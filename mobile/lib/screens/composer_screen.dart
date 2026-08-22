@@ -35,6 +35,14 @@ import '../widgets/post_card.dart';
 /// Mirrors MAX_BODY_CHARS in lib/format.ts.
 const int kMaxBodyChars = 2400;
 
+/// Words, counted the same way the server counts them.
+///
+/// Must stay in step with countWords() in lib/critique.ts — that is the count
+/// the writer is repaired against, and a composer that disagreed with it would
+/// send the author chasing a number the backend was not enforcing.
+int countWords(String text) =>
+    text.trim().isEmpty ? 0 : text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+
 class ComposerScreen extends StatefulWidget {
   const ComposerScreen({super.key});
 
@@ -355,6 +363,15 @@ class _ComposerScreenState extends State<ComposerScreen> {
     final tooShort = length < 20;
     final tooLong = length > kMaxBodyChars;
     final hookLength = _text.text.split('\n').first.length;
+
+    // The panel above states the rule in WORDS. Every counter under the box
+    // used to be in characters, so the one number the author had actually
+    // configured was the one number the screen never showed — a post could sit
+    // at a fifth of the required length with nothing on screen disagreeing.
+    final words = countWords(_text.text);
+    final style = state.style;
+    final wordsShort = words > 0 && words < style.minWords;
+    final wordsLong = words > style.maxWords;
     final canSend = !_busy && !tooShort && !tooLong;
     // Compared against the FULL voice, not style.summary. That summary names
     // the structure, the emoji policy and the tag count and nothing else, so
@@ -413,6 +430,17 @@ class _ComposerScreenState extends State<ComposerScreen> {
                 spacing: S.x2,
                 runSpacing: S.x2,
                 children: [
+                  // Words first: it is the rule the author set, and the one the
+                  // writer is held to. Characters matter only near LinkedIn's
+                  // own ceiling, which ordinary posts never approach.
+                  Badge2(
+                    '$words / ${style.minWords}-${style.maxWords} words',
+                    tone: words == 0
+                        ? BadgeTone.neutral
+                        : (wordsShort || wordsLong)
+                            ? BadgeTone.warn
+                            : BadgeTone.good,
+                  ),
                   Badge2('$length / $kMaxBodyChars', tone: tooLong ? BadgeTone.alarm : BadgeTone.neutral),
                   if (length > 0)
                     Badge2(

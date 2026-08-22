@@ -52,7 +52,14 @@ export function firstSentence(text: string): string {
 export function critique(
   text: string,
   style: StyleConfig,
-  options: { usedQuote?: boolean } = {},
+  options: {
+    usedQuote?: boolean;
+    /**
+     * The tags the model returned. OMITTED means "not checked" — the caller
+     * has no tag list to judge, which is different from a post with none.
+     */
+    hashtags?: string[];
+  } = {},
 ): Violation[] {
   const out: Violation[] = [];
   const body = text.trim();
@@ -172,6 +179,28 @@ export function critique(
     });
   }
 
+  // ---- hashtag count
+  //
+  // The setting reads "N tags" and means exactly N. It used to be enforced as a
+  // ceiling in one direction only: the prompt asked for "0-N" and lib/format.ts
+  // trimmed anything above N, so setting ten and receiving three looked like
+  // the setting being ignored, and nothing anywhere noticed.
+  if (options.hashtags !== undefined) {
+    const tags = options.hashtags.length;
+    if (tags !== style.hashtagCount) {
+      out.push({
+        rule: "hashtag_count",
+        detail:
+          style.hashtagCount === 0
+            ? `Returned ${tags} hashtag(s). This author uses none — return an empty array.`
+            : `Returned ${tags} hashtag${tags === 1 ? "" : "s"} and the author's setting is exactly ${style.hashtagCount}. ` +
+              (tags < style.hashtagCount
+                ? `Add ${style.hashtagCount - tags} more that genuinely fit this post — single words, no duplicates, no near-duplicates of each other.`
+                : `Drop the ${tags - style.hashtagCount} least relevant.`),
+      });
+    }
+  }
+
   // ---- the signature
   if (!style.signature && options.usedQuote) {
     out.push({
@@ -182,6 +211,29 @@ export function critique(
   }
 
   return out;
+}
+
+/**
+ * How bad a draft is, as one comparable number.
+ *
+ * Counting violations alone is too coarse to choose between two drafts. A post
+ * 30 words short and a post 2 words short both have exactly one violation, so a
+ * repair that moved from the first to the second scored no better than the
+ * original and was discarded — which is why a narrow word range almost never
+ * landed inside it. Distance breaks the tie, in words and in tags.
+ */
+export function severity(text: string, style: StyleConfig, violations: Violation[]): number {
+  const words = countWords(text);
+  const outOfRange =
+    words < style.minWords
+      ? style.minWords - words
+      : words > style.maxWords
+        ? words - style.maxWords
+        : 0;
+  const tagGap = violations.find((v) => v.rule === "hashtag_count") ? 1 : 0;
+  // Violations dominate; distance only separates drafts that break the same
+  // number of rules. Capped so one wild draft cannot outrank an extra violation.
+  return violations.length * 1000 + Math.min(999, outOfRange) + tagGap;
 }
 
 /**
