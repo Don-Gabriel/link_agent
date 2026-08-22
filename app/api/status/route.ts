@@ -30,6 +30,7 @@ import {
   MISSED_AFTER_MINUTES,
   schedulerHealth,
   slotTimeline,
+  watchdogHealth,
 } from "../../../lib/slots";
 import { MAX_HASHTAGS, PRESETS } from "../../../lib/style";
 
@@ -112,6 +113,7 @@ export async function GET() {
       sent,
       timeline,
       scheduler,
+      watchdog,
     ] = await Promise.all([
       // Migrating a pre-slots agent used to be AWAITED before this batch, which
       // cost a whole extra round trip on every single request to a database
@@ -159,6 +161,7 @@ export async function GET() {
       sendsToday(agent.agentId, agent.timezone),
       slotTimeline(agent.agentId, 7),
       schedulerHealth(),
+      watchdogHealth(),
     ]);
 
     // Split the single posts fetch back into its two windows.
@@ -229,6 +232,12 @@ export async function GET() {
       // Whether the cron is alive at all. Without this, a stopped scheduler and
       // a day when nothing cleared the bar look identical from the app.
       scheduler,
+      // And whether the thing that watches the cron is alive. It runs on GitHub
+      // Actions, which disables scheduled workflows in a repository with no
+      // commits for 60 days — so the safety net can be switched off by a quiet
+      // couple of months with nothing anywhere saying so. A stale timestamp
+      // here is the only visible symptom.
+      watchdog,
       slotLimits: {
         maxSlots: MAX_SLOTS,
         minLeadMinutes: MIN_LEAD_MINUTES,

@@ -181,3 +181,88 @@ using a disposable Postgres container for the database job.
 pure logic and never opens a connection, so invalid SQL that is valid
 TypeScript passes it. That is exactly how `listDueSlots` shipped with an
 ambiguous column and the scheduler never ran once, with every test green.
+
+---
+
+# Keeping it alive
+
+Five things can stop this app months from now. Four are handled; the fifth needs
+you to know about it.
+
+## 1. The LinkedIn token expires every 60 days — HANDLED
+
+It cannot renew itself. The watchdog pushes a notification at 7 days remaining
+and again once it has expired. Reconnect from the Status tab.
+
+## 2. The cron stops — HANDLED
+
+`schedulerHealth()` marks the scheduler stale after 16 minutes without a tick,
+the Schedule tab shouts, and the watchdog pushes.
+
+## 3. The database fills up — HANDLED
+
+`lib/retention.ts` sweeps the tables that grow without bound, once a day, from
+the cron tick. `rejections` is the one that mattered: twenty to forty rows per
+cycle, several cycles a day, forever.
+
+Kept deliberately: `posts` (the archive IS the product, and the writer reads it
+for voice) and `distributions` (publish idempotency — deleting a row could let a
+post send twice).
+
+## 4. Backups — HANDLED
+
+Nightly, encrypted, 90 days. See the restore steps above.
+
+## 5. GitHub disables the scheduled workflows — YOU NEED TO KNOW THIS
+
+**GitHub turns off scheduled workflows in any repository with no commits for 60
+days.** Backup and Watchdog both run on a schedule. So two quiet months and the
+safety net switches itself off — silently, with only an email from GitHub.
+
+There is no way to fix this from inside the repo; any workaround is a scheduled
+job, and scheduled jobs are exactly what gets disabled.
+
+**How you would notice:** the Status tab has a `Health check` readout showing
+how long since the watchdog last ran. Under 90 minutes is normal. If it says
+hours or days, the workflows are off — go to the Actions tab and re-enable them,
+which takes one click.
+
+**How to prevent it:** push any commit within any 60-day window. Even a typo fix
+in a comment resets the clock.
+
+---
+
+# Security
+
+## What is protected
+
+| | |
+|---|---|
+| Every `/api` route | fail-closed session gate in `middleware.ts`; a new route is protected by default |
+| Login | HMAC session cookie, httpOnly + secure + sameSite; 8 failures per 15 min per client, counted in Postgres so concurrent instances cannot dodge it |
+| LinkedIn token | AES-256-GCM at rest, key never in the database |
+| Cron and watchdog | `X-Cron-Secret`, timing-safe compare, 404 on mismatch so they do not advertise that they exist |
+| SQL | every statement parameterised; the only interpolated identifiers are literals in `lib/retention.ts` |
+| Uploads | type allowlist (JPG/PNG/GIF) and a 4MB cap |
+| Browser | HSTS, nosniff, frame-ancestors none, referrer policy, permissions policy |
+
+## If you lose the phone, or think the password leaked
+
+**Change `APP_SECRET` in Vercel and redeploy.** Every session everywhere dies
+instantly, because the cookie is a signature over that secret and nothing else.
+Change `APP_PASSWORD` too if the password itself is the worry.
+
+This is the revocation mechanism. There is no "sign out everywhere" button:
+sessions are verified in Edge middleware, which cannot reach Postgres, so
+there is nowhere to keep a revocation list. Rotating the secret does the same
+job in about thirty seconds.
+
+## Known and accepted
+
+- **One password, no second factor.** Proportionate for one user behind a URL
+  nobody has. If this ever gets a second user, it needs real accounts.
+- **Sessions last 30 days.** A stolen unlocked phone is a real session until you
+  rotate `APP_SECRET`.
+- **`google-services.json` is committed.** Not a credential — Firebase documents
+  it as public, it ships inside every APK, and the key is scoped to the package.
+  The service-account key is NOT in the repository.

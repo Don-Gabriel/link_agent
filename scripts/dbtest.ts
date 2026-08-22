@@ -32,6 +32,7 @@ import { getTodayCalls } from "../lib/llm";
 import { recall } from "../lib/memory";
 import { forgetDevice, notify, pushConfigured, registerDevice } from "../lib/push";
 import { checkLoginAllowed, clearLoginFailures, recordLoginFailure, MAX_ATTEMPTS } from "../lib/ratelimit";
+import { RETENTION, sweepIfDue } from "../lib/retention";
 import {
   claimSlotRun,
   createSlot,
@@ -293,6 +294,44 @@ async function main() {
     await runs("forgetDevice removes it", () => forgetDevice(token));
     check("the device is gone",
       (await query("SELECT 1 FROM device_tokens WHERE token = $1", [token])).length === 0);
+  }
+
+  console.log("\nretention sweep");
+  {
+    // Every one of these names a table and a COLUMN, and the column differs per
+    // table — slot_runs keys on run_date, llm_calls on day. A wrong guess is
+    // valid TypeScript and invalid SQL, which is the entire reason this file
+    // exists, so each statement is executed rather than reasoned about.
+    for (const { table, column, days } of RETENTION) {
+      await runs(`${table}.${column} is a real column and the sweep runs`, () =>
+        query(
+          `WITH removed AS (
+             DELETE FROM ${table} WHERE ${column} < now() - ($1 || ' days')::interval RETURNING 1
+           )
+           SELECT count(*)::int AS n FROM removed`,
+          [String(days)],
+        ),
+      );
+    }
+
+    // The marker lives in system_status, not under an agent, so the cleanup at
+    // the end of this file does not touch it — and a second run against the
+    // same database within the throttle window would find it already claimed.
+    // CI gets a fresh Postgres and would never have noticed; a laptop reusing
+    // one would fail on the second run and look like a real regression.
+    await runs("clear any marker left by an earlier run", () =>
+      query("DELETE FROM system_status WHERE key = 'last_sweep'"),
+    );
+
+    const first = await runs("sweepIfDue claims the marker and runs", () => sweepIfDue());
+    check("the first sweep ran", first?.ran === true, JSON.stringify(first));
+    // The throttle is load-bearing: the tick fires every few minutes and this
+    // must not delete-scan four tables each time.
+    const second = await runs("sweepIfDue is throttled", () => sweepIfDue());
+    check("the second sweep did not run", second?.ran === false, JSON.stringify(second));
+
+    // Left as this run found it, so the next one starts from the same place.
+    await query("DELETE FROM system_status WHERE key = 'last_sweep'").catch(() => []);
   }
 
   // ---- cleanup. Ordered by foreign key, deepest first.

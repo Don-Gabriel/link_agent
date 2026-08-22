@@ -523,6 +523,44 @@ export async function recordTick(): Promise<void> {
   }
 }
 
+/**
+ * The watchdog reporting that IT is alive.
+ *
+ * The watchdog is what notices the scheduler dying. Nothing noticed the
+ * watchdog dying — and it runs on GitHub Actions, which disables scheduled
+ * workflows in a repository with no commits for 60 days. So the safety net
+ * could be switched off by a quiet couple of months and nothing anywhere would
+ * say so. This heartbeat is read by /api/status and shown in the app, which
+ * turns a silent disappearance into a stale timestamp somebody can see.
+ */
+export async function recordWatchdog(): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO system_status (key, value, updated_at)
+       VALUES ('last_watchdog', '{}'::jsonb, now())
+       ON CONFLICT (key) DO UPDATE SET updated_at = now()`,
+    );
+  } catch (err) {
+    console.warn("[slots] could not record the watchdog heartbeat:", err);
+  }
+}
+
+/** When the watchdog last checked in, and whether that was recently enough. */
+export async function watchdogHealth(): Promise<{ lastAt: string | null; minutesSince: number | null }> {
+  try {
+    const rows = await query<{ updated_at: Date }>(
+      "SELECT updated_at FROM system_status WHERE key = 'last_watchdog'",
+    );
+    const last = rows[0]?.updated_at ?? null;
+    return {
+      lastAt: last?.toISOString() ?? null,
+      minutesSince: last ? Math.floor((Date.now() - last.getTime()) / 60_000) : null,
+    };
+  } catch {
+    return { lastAt: null, minutesSince: null };
+  }
+}
+
 export interface SchedulerHealth {
   lastTickAt: string | null;
   minutesSince: number | null;

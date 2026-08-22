@@ -344,7 +344,8 @@ class _Diagnostics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (status.llm.isEmpty) return const SizedBox.shrink();
+    final watchdog = status.watchdogMinutesSince;
+    if (status.llm.isEmpty && watchdog == null) return const SizedBox.shrink();
     return Panel(
       title: 'Model usage today',
       subtitle: 'Quotas are per model, so the cascade stacks them.',
@@ -352,6 +353,17 @@ class _Diagnostics extends StatelessWidget {
         children: [
           for (final usage in status.llm)
             Readout(usage.model, usage.cap > 0 ? '${usage.calls} / ${usage.cap}' : '${usage.calls}'),
+          // The safety net's own pulse. The watchdog is what notices the agent
+          // dying; nothing noticed the watchdog dying, and it runs somewhere
+          // that switches scheduled jobs off after sixty quiet days. A number
+          // that keeps climbing here is the only sign that would ever appear.
+          if (watchdog != null)
+            Readout(
+              'Health check',
+              watchdog < 90
+                  ? '${watchdog}m ago'
+                  : '${watchdog}m ago — the watchdog may have stopped',
+            ),
         ],
       ),
     );

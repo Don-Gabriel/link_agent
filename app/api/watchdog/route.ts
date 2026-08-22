@@ -21,7 +21,7 @@ import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
 import { getPrimaryAgent } from "../../../lib/agents";
 import { checkCredentials, notify, pushConfigured } from "../../../lib/push";
-import { schedulerHealth } from "../../../lib/slots";
+import { recordWatchdog, schedulerHealth } from "../../../lib/slots";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +71,10 @@ export async function GET(request: Request) {
           : "no device accepted it — either none has registered, or the credentials are wrong (try deep=1)",
     });
   }
+
+  // Before the checks, and regardless of what they find. This records that the
+  // WATCHDOG ran — the one thing nothing else in the system can observe.
+  await recordWatchdog();
 
   const agent = await getPrimaryAgent();
   if (!agent) return NextResponse.json({ ok: true, checked: false, reason: "not_initialized" });

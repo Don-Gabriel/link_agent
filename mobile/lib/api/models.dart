@@ -647,6 +647,7 @@ class AppStatus {
     required this.slotLimits,
     required this.categories,
     required this.scheduler,
+    this.watchdogMinutesSince,
   });
 
   /// The same payload with a new agent, everything else untouched.
@@ -678,6 +679,7 @@ class AppStatus {
         slotLimits: slotLimits,
         categories: categories,
         scheduler: scheduler,
+        watchdogMinutesSince: watchdogMinutesSince,
       );
 
   final bool initialized;
@@ -708,6 +710,13 @@ class AppStatus {
 
   /// Whether the cron is alive.
   final SchedulerHealth scheduler;
+
+  /// Minutes since the external watchdog last checked in, or null if it never
+  /// has. It runs on GitHub Actions, which disables scheduled workflows in a
+  /// repository with no commits for 60 days — so the thing that would tell you
+  /// the agent had died can itself be switched off by a quiet couple of months.
+  /// A number that keeps growing here is the only visible symptom.
+  final int? watchdogMinutesSince;
 
   /// Every category the backend knows about, in its own order.
   final List<CategoryInfo> categories;
@@ -764,6 +773,9 @@ class AppStatus {
       slotLimits: SlotLimits.fromJson(_map(j['slotLimits'])),
       categories: _list(config['categories']).map(CategoryInfo.fromJson).toList(),
       scheduler: SchedulerHealth.fromJson(_map(j['scheduler'])),
+        watchdogMinutesSince: _map(j['watchdog'])?['minutesSince'] is num
+            ? (_map(j['watchdog'])!['minutesSince'] as num).toInt()
+            : null,
     );
   }
 }

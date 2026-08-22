@@ -33,6 +33,7 @@ import { after, NextResponse } from "next/server";
 import { runCycleWithLock, runDueSlots } from "../../../../lib/cycle";
 import { publishDuePosts } from "../../../../lib/distribute";
 import { notify } from "../../../../lib/push";
+import { sweepIfDue } from "../../../../lib/retention";
 import { listDueSlots, MISSED_AFTER_MINUTES, recordTick } from "../../../../lib/slots";
 
 /**
@@ -105,6 +106,14 @@ export async function GET(request: Request) {
         await announce(sent);
       } catch (err) {
         console.error("[tick] send pass failed:", err);
+      }
+
+      // ---- 3. HOUSEKEEPING. Self-throttled to once a day, and last because
+      // deleting old rejections must never delay a post that is due.
+      try {
+        await sweepIfDue();
+      } catch (err) {
+        console.error("[tick] sweep failed:", err);
       }
 
       // ---- 2. GENERATE. Serialized inside runDueSlots — cycles share a
