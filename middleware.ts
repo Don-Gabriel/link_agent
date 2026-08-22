@@ -13,6 +13,10 @@ const PUBLIC_PATHS = new Set([
   "/api/health", // liveness/keep-alive: no data, always 200
   "/api/auth", // the login endpoint itself
   "/api/cron/tick", // authenticated by the X-Cron-Secret header instead
+  // Same X-Cron-Secret, same reason: it is called by a machine that has no
+  // session and never will. Both answer 404 rather than 401 on a bad secret,
+  // so neither confirms it exists to anyone without it.
+  "/api/watchdog",
 ]);
 
 export async function middleware(request: NextRequest) {

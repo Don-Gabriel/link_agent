@@ -55,6 +55,7 @@ import {
   parseCategories,
   sameCategorySet,
 } from "../lib/categories";
+import { readFileSync } from "node:fs";
 import { FEEDS } from "../lib/discovery";
 import { isRawScore, outputBudgetFor } from "../lib/judge";
 
@@ -353,6 +354,33 @@ console.log("\nscope line (agents.domain, the app's header, and the persona prom
   check("set comparison catches an addition", !sameCategorySet(["ai-ml"], ["ai-ml", "dev-tooling"]));
   check("set comparison catches a swap", !sameCategorySet(["ai-ml"], ["dev-tooling"]));
   check("two empty sets match", sameCategorySet([], []));
+}
+
+console.log("\nmiddleware public paths");
+{
+  // Every route authenticated by X-Cron-Secret rather than by a session MUST be
+  // listed as public, or the middleware answers 401 before the handler ever
+  // checks the secret. /api/watchdog shipped missing from that set, and its
+  // first real run came back {"error":"unauthorized"} from a machine holding
+  // the correct secret — a failure the whole endpoint exists to prevent.
+  const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
+  const start = middleware.indexOf("PUBLIC_PATHS");
+  const publicBlock = middleware.slice(start, middleware.indexOf("]);", start));
+
+  // Each route is confirmed to USE the secret by reading its own source, so
+  // this cannot pass by listing a route that does not actually authenticate.
+  for (const route of ["/api/cron/tick", "/api/watchdog"]) {
+    const source = readFileSync(new URL(`../app${route}/route.ts`, import.meta.url), "utf8");
+    check(`${route} authenticates with CRON_SECRET`, source.includes("CRON_SECRET"));
+    check(`${route} is exempt from the session gate`,
+      publicBlock.includes(`"${route}"`),
+      "the middleware would 401 it before the handler runs");
+  }
+
+  check("the login route is public", publicBlock.includes('"/api/auth"'));
+  check("health is public", publicBlock.includes('"/api/health"'));
+  // The one that must never be public: it can publish to a real profile.
+  check("posting is NOT public", !publicBlock.includes('"/api/posts"'));
 }
 
 console.log("\nvoice samples (few-shot examples)");
