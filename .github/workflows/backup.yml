@@ -1,0 +1,77 @@
+# A nightly encrypted dump of the database, kept as a build artifact.
+#
+# The parts that cannot be recreated are the published archive, the writing
+# samples and the edit notes — the agent's whole learned voice. Everything else
+# in the app can be rebuilt from code; those cannot be rebuilt from anything.
+#
+# Encrypted BEFORE it leaves the runner, with a passphrase this workflow never
+# prints. The dump contains the LinkedIn token, and although that column is
+# already encrypted with TOKEN_ENCRYPTION_KEY (which is NOT in the dump), an
+# artifact is still not the place for a bare copy of the database.
+#
+# Free: private repos get 2,000 Actions minutes and 500 MB of artifact storage
+# a month. A dump of this app is a few megabytes and this job takes about a
+# minute, so a full 90-day history stays comfortably inside the free tier.
+name: Backup
+
+on:
+  schedule:
+    # 19:40 UTC — a quiet hour for Asia/Kolkata, and deliberately not on the
+    # hour, when GitHub's scheduler is most congested and most likely to delay.
+    - cron: "40 19 * * *"
+  workflow_dispatch:
+
+jobs:
+  dump:
+    name: encrypted pg_dump
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the secrets are present
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is not set"; exit 1; }
+          test -n "$BACKUP_PASSPHRASE" || { echo "::error::BACKUP_PASSPHRASE secret is not set"; exit 1; }
+
+      - name: Dump and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y-%m-%d)"
+
+          # pg_dump runs inside a pinned postgres image rather than using the
+          # runner's client. A pg_dump OLDER than the server refuses to run, and
+          # the runner's version is whatever Ubuntu ships this month — which is
+          # a build that breaks by itself the day the database is upgraded.
+          # Newer-client-than-server is the supported direction, so this tracks
+          # the newest release rather than the one the database happens to be on.
+          docker run --rm postgres:18 \
+            pg_dump --no-owner --no-privileges --format=custom "$DATABASE_URL" \
+            > "backup-$stamp.dump"
+
+          test -s "backup-$stamp.dump" || { echo "::error::the dump is empty"; exit 1; }
+
+          ls -lh "backup-$stamp.dump"
+
+          # Symmetric AES-256. --batch and --passphrase-fd keep the passphrase
+          # off the process list, where every other process on the box can read it.
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --symmetric \
+            --cipher-algo AES256 --passphrase-fd 0 \
+            --output "backup-$stamp.dump.gpg" "backup-$stamp.dump"
+
+          # The plaintext must not survive to the upload step.
+          shred -u "backup-$stamp.dump" 2>/dev/null || rm -f "backup-$stamp.dump"
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ env.STAMP }}
+          path: backup-${{ env.STAMP }}.dump.gpg
+          # The maximum GitHub allows, and the maximum the free tier costs
+          # nothing for at this size.
+          retention-days: 90
+          if-no-files-found: error

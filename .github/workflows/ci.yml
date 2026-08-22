@@ -1,0 +1,91 @@
+# Runs the checks that used to run only when someone remembered.
+#
+# The database job is the point of this file. scripts/selftest.ts is pure logic
+# and never opens a connection, so invalid SQL that is valid TypeScript passed
+# every check — which is how the scheduler shipped completely broken. The
+# `database` job below runs every query against a real Postgres.
+#
+# Free on this repo: GitHub gives private repos 2,000 Actions minutes a month
+# and this whole file is a few minutes per push.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # So it can be run by hand after changing a secret, without an empty commit.
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: types, logic, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Logic tests
+        run: npm test
+      - name: Production build
+        # Builds into .next-verify so it can never clobber a real .next.
+        run: npm run build:check
+
+  database:
+    name: real SQL against real Postgres
+    runs-on: ubuntu-latest
+
+    # A throwaway Postgres for this job only. Nothing here touches the live
+    # database, and it is destroyed with the runner.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: linkdin_dbtest
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/linkdin_dbtest
+        run: npm run test:db
+
+  mobile:
+    name: flutter analyze and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze lib test
+      - name: Widget and transport tests
+        run: flutter test

@@ -118,3 +118,66 @@ If you ever move the Neon project to a different region, change this to match.
   row does not exist yet. The first tick clears it. Not a fault.
 - `LINKEDIN_LIVE=true` means real posts on a real profile. Leave it `false` for
   a day if you want to watch the cadence before it goes live.
+
+---
+
+# Backups and restore
+
+A GitHub Action (`.github/workflows/backup.yml`) dumps the database nightly at
+19:40 UTC, encrypts it with AES-256, and keeps it as a build artifact for 90
+days. It needs two repository secrets — `DATABASE_URL` and `BACKUP_PASSPHRASE`.
+
+The parts worth protecting are the published archive, the writing samples and
+the edit notes: the agent's learned voice. Everything else can be rebuilt from
+this repository.
+
+## Restoring
+
+1. Open the repo on GitHub → **Actions** → **Backup** → pick a run → download
+   the `db-backup-YYYY-MM-DD` artifact and unzip it.
+2. Decrypt it with the passphrase you stored as `BACKUP_PASSPHRASE`:
+
+   ```
+   gpg --decrypt --output restored.dump backup-YYYY-MM-DD.dump.gpg
+   ```
+
+3. Inspect before you touch anything real:
+
+   ```
+   pg_restore --list restored.dump
+   ```
+
+4. Restore into a NEW empty database first, never over the live one:
+
+   ```
+   pg_restore --no-owner --no-privileges --dbname "$NEW_DATABASE_URL" restored.dump
+   ```
+
+Point `DATABASE_URL` at the restored database only once you have looked at it.
+
+---
+
+# Running the tests
+
+```
+npm test          # pure logic, no database, ~1s
+npm run test:db   # every query against a real Postgres
+npm run build:check
+cd mobile && flutter analyze lib test && flutter test
+```
+
+`npm run test:db` needs a **throwaway** database — it creates and deletes
+agents. Never point it at the live one. Locally:
+
+```
+createdb linkdin_dbtest
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/linkdin_dbtest npm run test:db
+```
+
+CI runs all of these on every push to `main` (`.github/workflows/ci.yml`),
+using a disposable Postgres container for the database job.
+
+**Why this suite exists separately from `npm test`:** `scripts/selftest.ts` is
+pure logic and never opens a connection, so invalid SQL that is valid
+TypeScript passes it. That is exactly how `listDueSlots` shipped with an
+ambiguous column and the scheduler never ran once, with every test green.

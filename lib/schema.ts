@@ -302,6 +302,22 @@ CREATE TABLE IF NOT EXISTS media_assets (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+/*
+ * Failed login attempts, for rate limiting.
+ *
+ * In a table rather than in memory because the gate runs on serverless
+ * instances that do not share memory: a per-process counter is reset by every
+ * cold start and bypassed entirely by concurrent requests landing on different
+ * instances, which is exactly the shape a guessing attack has.
+ */
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id         BIGSERIAL PRIMARY KEY,
+  /* Truncated client address. Kept only long enough to rate limit. */
+  client     TEXT NOT NULL,
+  at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS login_attempts_client_at ON login_attempts (client, at DESC);
+
 /* Short-lived CSRF state for the OAuth round trip; swept on use and by age. */
 CREATE TABLE IF NOT EXISTS oauth_states (
   state       TEXT PRIMARY KEY,

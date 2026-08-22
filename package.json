@@ -8,6 +8,7 @@
     "build:check": "node scripts/build-check.mjs",
     "start": "next start",
     "test": "tsx scripts/selftest.ts",
+    "test:db": "tsx scripts/dbtest.ts",
     "check:feeds": "node scripts/check-feeds.mjs",
     "keygen": "node -e \"console.log('TOKEN_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64')); console.log('APP_SECRET=' + require('crypto').randomBytes(32).toString('hex')); console.log('CRON_SECRET=' + require('crypto').randomBytes(24).toString('hex'))\""
   },
