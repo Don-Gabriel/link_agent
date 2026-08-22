@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "433603846248",
+    "project_id": "linkdin-43813",
+    "storage_bucket": "linkdin-43813.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:433603846248:android:2879f00cbf229386d71bdd",
+        "android_client_info": {
+          "package_name": "com.linkdin.linkdin_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2mAhxqJQwRcuMr31rs0tQpVZKyr8Swqk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
