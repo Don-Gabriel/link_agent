@@ -213,22 +213,46 @@ post send twice).
 
 Nightly, encrypted, 90 days. See the restore steps above.
 
-## 5. GitHub disables the scheduled workflows — YOU NEED TO KNOW THIS
+## 5. GitHub Actions minutes run out — HANDLED, but watch it
 
-**GitHub turns off scheduled workflows in any repository with no commits for 60
-days.** Backup and Watchdog both run on a schedule. So two quiet months and the
-safety net switches itself off — silently, with only an email from GitHub.
+A **private** repo on the free plan gets **2,000 Actions minutes a month**, and
+every job is rounded UP to a whole minute. Exhausting them does not degrade
+gracefully: Actions stop entirely until the next billing cycle, which silently
+takes the nightly backup and the watchdog with it — the two things that exist to
+notice failure.
 
-There is no way to fix this from inside the repo; any workaround is a scheduled
-job, and scheduled jobs are exactly what gets disabled.
+The watchdog was originally every 30 minutes. That is 48 runs a day of a
+fifteen-second curl, each billed as a full minute: **1,440 minutes a month, 72%
+of the allowance, spent watching**. It now runs every three hours — 240 minutes
+a month, and still detects a dead scheduler within three hours.
 
-**How you would notice:** the Status tab has a `Health check` readout showing
-how long since the watchdog last ran. Under 90 minutes is normal. If it says
-hours or days, the workflows are off — go to the Actions tab and re-enable them,
-which takes one click.
+The Flutter checks are split into their own workflow so they only run when
+`mobile/**` changes. A backend commit does not pay for a Flutter toolchain, and
+a documentation change pays for nothing at all.
 
-**How to prevent it:** push any commit within any 60-day window. Even a typo fix
-in a comment resets the clock.
+Current budget, roughly:
+
+| | minutes/month |
+|---|---|
+| Watchdog, every 3h | 240 |
+| Backup, nightly | 30 |
+| CI, an active month | ~150 |
+| **Total** | **~420 of 2,000** |
+
+Check it occasionally at **Settings → Billing → Plans and usage**. If it ever
+climbs, the watchdog cadence is the dial to turn.
+
+### A note if you ever make this repository public
+
+Scheduled workflows are **automatically disabled after 60 days with no
+repository activity — in public repositories only.** It does not apply while
+this repo is private, which is why nothing here works around it. Going public
+trades unlimited Actions minutes for that rule, and you would then need a commit
+every 60 days or the schedules stop.
+
+Either way, the `Health check` readout on the Status tab is how you would find
+out: it shows how long since the watchdog last ran. Minutes is normal. Hours or
+days means the workflows are off, whatever the cause.
 
 ---
 

@@ -1,0 +1,49 @@
+# The Flutter checks, split out of ci.yml so they only run when the app changes.
+#
+# This is the expensive job — it provisions a Flutter toolchain and takes around
+# three minutes, against roughly one for the backend jobs. Running it on every
+# backend commit was paying for a toolchain the change could not possibly have
+# affected.
+#
+# The minutes are not free here. A private repo on the GitHub free plan gets
+# 2,000 Actions minutes a month and every job is rounded UP to a whole minute.
+# Exhausting them does not degrade gracefully: Actions stop entirely until the
+# next billing cycle, which silently takes the nightly backup and the watchdog
+# with them — the two things that exist to notice failure.
+name: CI (mobile)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/ci-mobile.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile:
+    name: flutter analyze and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Caches the SDK between runs. Without it this job spends most of its
+          # time downloading a toolchain that has not changed.
+          cache: true
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze lib test
+      - name: Widget and transport tests
+        run: flutter test

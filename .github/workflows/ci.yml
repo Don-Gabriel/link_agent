@@ -9,9 +9,17 @@
 # and this whole file is a few minutes per push.
 name: CI
 
+# Split from the Flutter checks so a backend change does not pay for a Flutter
+# toolchain it did not touch, and a documentation change pays for nothing. See
+# the note in ci-mobile.yml about why the minutes matter.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "mobile/**"
+      - "**.md"
+      - ".github/workflows/watchdog.yml"
+      - ".github/workflows/backup.yml"
   pull_request:
   # So it can be run by hand after changing a secret, without an empty commit.
   workflow_dispatch:
@@ -75,20 +83,4 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/linkdin_dbtest
         run: npm run test:db
 
-  mobile:
-    name: flutter analyze and test
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - name: Analyze
-        run: flutter analyze lib test
-      - name: Widget and transport tests
-        run: flutter test
+
