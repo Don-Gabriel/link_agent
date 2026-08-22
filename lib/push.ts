@@ -201,7 +201,11 @@ export type PushEvent =
   | { kind: "publish_failed"; seq: number; detail: string }
   | { kind: "cycle_failed"; detail: string }
   | { kind: "token_expiring"; days: number }
-  | { kind: "scheduler_stalled"; minutes: number };
+  | { kind: "scheduler_stalled"; minutes: number }
+  // Only ever sent on request. Exists because the last link in the chain —
+  // server to Google to a specific handset — cannot be proved any other way,
+  // and the first real alert is a bad time to discover it was never wired up.
+  | { kind: "test" };
 
 interface Rendered {
   title: string;
@@ -259,6 +263,16 @@ function render(event: PushEvent): Rendered {
         tab: "status",
         urgent: true,
       };
+    case "test":
+      return {
+        title: "Notifications are working",
+        body: "This is the only message the agent will ever send that means nothing.",
+        tab: "status",
+        // Sent on the alerts channel deliberately: this is the channel the
+        // messages that matter use, so a test that arrives proves the one you
+        // actually need will arrive too.
+        urgent: true,
+      };
   }
 }
 
@@ -278,6 +292,8 @@ const COOLDOWN_MINUTES: Record<PushEvent["kind"], number> = {
   cycle_failed: 180,
   token_expiring: 1440, // once a day is plenty for a 60-day clock
   scheduler_stalled: 360,
+  // Asked for explicitly, so throttling it would only ever be confusing.
+  test: 0,
 };
 
 async function withinCooldown(agentId: string, kind: PushEvent["kind"]): Promise<boolean> {

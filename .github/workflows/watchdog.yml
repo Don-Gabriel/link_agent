@@ -21,7 +21,11 @@ on:
   workflow_dispatch:
     inputs:
       deep:
-        description: "Also verify the push credentials really mint a token (sends nothing)"
+        description: "Verify the push credentials really mint a token (sends nothing)"
+        type: boolean
+        default: false
+      test:
+        description: "Send a real test notification to every registered phone"
         type: boolean
         default: false
 
@@ -46,6 +50,7 @@ jobs:
           # scheduler alive" and has no business calling Google to do it.
           path="/api/watchdog"
           if [ "${{ inputs.deep }}" = "true" ]; then path="$path?deep=1"; fi
+          if [ "${{ inputs.test }}" = "true" ]; then path="$path?test=1"; fi
 
           body="$(curl -sS --max-time 45 --retry 3 --retry-delay 10 --retry-all-errors \
             -H "X-Cron-Secret: $CRON_SECRET" \
@@ -69,7 +74,9 @@ jobs:
           # history of "when did this start" is readable without a database.
           # Two shapes. The deep check reports credentials; the normal run
           # reports alerts. Neither may be mistaken for the other.
-          if printf %s "$json" | grep -qF '"deep":true'; then
+          if printf %s "$json" | grep -qF '"test":true'; then
+            printf %s "$json" | grep -qF '"ok":true'               && echo "test notification sent - check the phone"               || { echo "::error::the test notification was not delivered - see the JSON above"; exit 1; }
+          elif printf %s "$json" | grep -qF '"deep":true'; then
             printf %s "$json" | grep -qF '"ok":true' \
               && echo "push credentials verified" \
               || { echo "::error::push credentials are NOT working - see the JSON above"; exit 1; }

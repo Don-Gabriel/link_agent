@@ -45,9 +45,31 @@ export async function GET(request: Request) {
   // exist, by exchanging a real access token and sending nothing. Off by
   // default: the scheduled run happens every half hour and does not need to
   // talk to Google to answer "is the scheduler alive".
-  if (new URL(request.url).searchParams.get("deep") === "1") {
+  const params = new URL(request.url).searchParams;
+
+  if (params.get("deep") === "1") {
     const credentials = await checkCredentials();
     return NextResponse.json({ ok: credentials.ok, deep: true, push: credentials });
+  }
+
+  // ?test=1 sends a real notification to every registered device. The only way
+  // to prove the last link — this server, to Google, to a specific handset —
+  // and the first genuine alert is the wrong moment to find out it was never
+  // connected. Reports the device count, so "nothing arrived" can be told apart
+  // from "nothing was sent because no device has ever registered".
+  if (params.get("test") === "1") {
+    const target = await getPrimaryAgent();
+    if (!target) return NextResponse.json({ ok: false, reason: "not_initialized" });
+    const delivered = await notify(target.agentId, { kind: "test" });
+    return NextResponse.json({
+      ok: delivered > 0,
+      test: true,
+      delivered,
+      detail:
+        delivered > 0
+          ? `sent to ${delivered} device(s)`
+          : "no device accepted it — either none has registered, or the credentials are wrong (try deep=1)",
+    });
   }
 
   const agent = await getPrimaryAgent();
