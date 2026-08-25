@@ -64,7 +64,7 @@ Future<void> clearForItsTime(BuildContext context, Post post) async {
   final error = await state.clear(post.seq);
   messenger.showSnackBar(
     SnackBar(
-      content: Text(error ?? 'Cleared — goes out at ${at == null ? "its time" : hhmm(at)}.'),
+      content: Text(error ?? 'Cleared — goes out ${at == null ? "at its time" : whenLabel(at)}.'),
       action: error != null
           ? null
           : SnackBarAction(label: 'Undo', onPressed: () => state.unclear(post.seq)),
@@ -86,7 +86,7 @@ Future<void> sendNow(BuildContext context, Post post) async {
         !live
             ? 'Live mode is off, so nothing will actually reach LinkedIn.'
             : scheduled != null
-                ? 'This posts to your profile immediately, instead of at ${hhmm(scheduled)}. '
+                ? 'This posts to your profile immediately, instead of ${whenLabel(scheduled)}. '
                     'It cannot be unpublished from here.'
                 : 'This posts to your profile now. It cannot be unpublished from here.',
         style: T.small,
@@ -127,12 +127,10 @@ Future<void> pickSendTime(BuildContext context, Post post) async {
 
   final messenger = ScaffoldMessenger.of(context);
   final error = await state.reschedule(post.seq, when);
-  final tomorrow = when.day != now.day;
   messenger.showSnackBar(
     SnackBar(
       content: Text(error ??
-          'Sends at ${hhmm(when)}${tomorrow ? ' tomorrow' : ''}. '
-              'Clear it before then or it stays put.'),
+          'Sends ${whenLabel(when)}. Clear it before then or it stays put.'),
     ),
   );
 }

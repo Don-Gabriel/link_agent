@@ -36,9 +36,22 @@ const _fallbackCategoryLabels = {
   'compute-silicon': 'Compute & silicon',
 };
 
+/// When a quiet watchdog actually means something is wrong.
+///
+/// This was 90 minutes, against a watchdog that runs every THREE HOURS
+/// (`.github/workflows/watchdog.yml`, `cron: "0 */3 * * *"`). A perfectly
+/// healthy agent therefore spent half of every cycle showing a red alarm
+/// saying the watchdog may have stopped — which is worse than no check at all,
+/// because an alarm that cries wolf on schedule is one you learn to ignore.
+///
+/// Four hours: the 180-minute cadence, plus the 15-30 minutes GitHub's cron
+/// routinely runs late (the workflow's own comments call this out), plus
+/// margin. A genuinely dead watchdog still surfaces within about an hour.
+const int kWatchdogStaleMinutes = 240;
+
 /// The shared shape of every settings page: a plain title, a scrolling body,
 /// and nothing else competing with it.
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
     required this.title,
@@ -51,10 +64,28 @@ class SettingsPage extends StatelessWidget {
   final List<Widget> children;
 
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Every page in here is a READOUT of status fetched somewhere else, and
+    // some of it is time-sensitive — "last health check, 162 minutes ago" was
+    // being rendered from a payload hours old, on an agent that had checked in
+    // four minutes earlier. Quiet, so it does not flash a spinner over a screen
+    // that already has content to show.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppState>().refresh(quiet: true);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(title: Text(widget.title)),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: state.refresh,
@@ -63,11 +94,11 @@ class SettingsPage extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x7),
             children: [
-              if (blurb != null) ...[
-                Text(blurb!, style: T.small),
+              if (widget.blurb != null) ...[
+                Text(widget.blurb!, style: T.small),
                 const SizedBox(height: S.x5),
               ],
-              ...children,
+              ...widget.children,
             ],
           ),
         ),
@@ -452,14 +483,14 @@ class DiagnosticsScreen extends StatelessWidget {
         if (watchdog != null)
           Readout(
             'Last health check',
-            watchdog < 90 ? '$watchdog min ago' : '$watchdog min ago',
-            tone: watchdog < 90 ? Tone.out : Tone.broken,
+            '$watchdog min ago',
+            tone: watchdog < kWatchdogStaleMinutes ? Tone.out : Tone.broken,
           ),
-        if (watchdog != null && watchdog >= 90) ...[
+        if (watchdog != null && watchdog >= kWatchdogStaleMinutes) ...[
           const SizedBox(height: S.x2),
           Text(
-            'Nothing has pinged the health check in over an hour and a half — the '
-            'watchdog itself may have stopped.',
+            'Nothing has pinged the health check in over four hours — the watchdog '
+            'itself may have stopped. Check the schedule on the watchdog workflow.',
             style: T.micro.copyWith(color: C.flare),
           ),
         ],

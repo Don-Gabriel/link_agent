@@ -11,6 +11,11 @@
 /// separated by rhythm and a [SectionRule]; [ObjectCard] is reserved for the
 /// three things that are genuinely objects: a draft awaiting a decision, a
 /// posting slot, and a sheet.
+///
+/// And an ObjectCard is a FILL, not an outline. Separation comes from the
+/// raised ground and the space around it; a border on top of that is the same
+/// statement made twice, and a page of outlined rectangles is what reads as
+/// cramped no matter how much padding is inside them.
 library;
 
 import 'package:flutter/material.dart';
@@ -86,7 +91,7 @@ class SectionRule extends StatelessWidget {
   }
 }
 
-/// The only bordered surface in the app. Reserved for something you act on.
+/// A raised surface. Reserved for something you act on — a draft, a slot.
 class ObjectCard extends StatelessWidget {
   const ObjectCard({
     super.key,
@@ -110,11 +115,20 @@ class ObjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final edge = tone == null
-        ? C.rule
-        : emphasis
-            ? tone!.ink
-            : tone!.ink.withValues(alpha: 0.45);
+    // A raised fill ALREADY separates this from the page. Drawing a border on
+    // top of it was saying the same thing twice, and a screen of outlined boxes
+    // is what makes an interface feel packed rather than calm.
+    //
+    // So: no border in the ordinary case. A tone gets a whisper of an edge, and
+    // only [emphasis] — the one object on the screen with a deadline — gets an
+    // edge you actually notice. Everything else is separated by the fill and by
+    // the space around it.
+    final Border? edge = tone == null
+        ? null
+        : Border.all(
+            color: tone!.ink.withValues(alpha: emphasis ? 0.55 : 0.18),
+            width: 1,
+          );
 
     return AnimatedContainer(
       duration: motionAllowed(context) ? kStateChange : Duration.zero,
@@ -122,8 +136,8 @@ class ObjectCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: C.ink2,
-        border: Border.all(color: edge, width: emphasis ? 1.5 : 1),
+        color: emphasis ? C.ink3 : C.ink2,
+        border: edge,
         borderRadius: BorderRadius.circular(R.md),
       ),
       child: child,
@@ -177,9 +191,12 @@ class Slug extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(icon == null ? S.x2 : 6, 3, S.x2, 4),
       decoration: BoxDecoration(
         color: tone == Tone.quiet ? C.ink3 : tone.wash,
-        border: Border.all(
-          color: tone == Tone.quiet ? C.rule : colour.withValues(alpha: 0.5),
-        ),
+        // Coloured markers keep a faint edge because the wash behind them is
+        // subtle; a neutral one is carried by its fill alone. Outlining every
+        // small thing on screen is a large part of what reads as busy.
+        border: tone == Tone.quiet
+            ? null
+            : Border.all(color: colour.withValues(alpha: 0.28)),
         borderRadius: BorderRadius.circular(R.sm),
       ),
       child: Row(
@@ -499,7 +516,7 @@ class PickChip extends StatelessWidget {
 }
 
 /// A title, an explanation, and a switch.
-class SwitchRow extends StatelessWidget {
+class SwitchRow extends StatefulWidget {
   const SwitchRow({
     super.key,
     required this.title,
@@ -514,9 +531,40 @@ class SwitchRow extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
 
   @override
+  State<SwitchRow> createState() => _SwitchRowState();
+}
+
+class _SwitchRowState extends State<SwitchRow> {
+  /// What this switch shows while the server catches up.
+  ///
+  /// THE FIX for toggles that felt broken. Every one of these calls the API,
+  /// and the API sets a global `loading` flag that disabled the switch — so the
+  /// thumb did not move until a round trip to Vercel came back, which on a
+  /// phone is hundreds of milliseconds of a control that visibly ignored you.
+  ///
+  /// The thumb moves NOW and the request follows. If the server disagrees or
+  /// fails, [didUpdateWidget] drops the guess and the switch snaps back to the
+  /// truth — which is the correct behaviour for an optimistic control, and is
+  /// visible rather than silent because the failure also raises a snackbar.
+  bool? _optimistic;
+
+  @override
+  void didUpdateWidget(SwitchRow old) {
+    super.didUpdateWidget(old);
+    // The moment real state agrees with the guess — or contradicts it — the
+    // guess has done its job.
+    if (_optimistic != null && widget.value != old.value) {
+      setState(() => _optimistic = null);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final shown = _optimistic ?? widget.value;
+    final onChanged = widget.onChanged;
+
     return Semantics(
-      toggled: value,
+      toggled: shown,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
         child: Row(
@@ -526,14 +574,26 @@ class SwitchRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: T.bodyStrong),
+                  Text(widget.title, style: T.bodyStrong),
                   const SizedBox(height: 2),
-                  Text(blurb, style: T.micro),
+                  Text(widget.blurb, style: T.micro),
                 ],
               ),
             ),
             const SizedBox(width: S.x3),
-            Switch(value: value, onChanged: onChanged),
+            Switch(
+              value: shown,
+              // Deliberately still live while a request is in flight. Disabling
+              // it was the bug; guarding against a second tap of the SAME value
+              // is all that was actually needed.
+              onChanged: onChanged == null
+                  ? null
+                  : (v) {
+                      if (v == shown) return;
+                      setState(() => _optimistic = v);
+                      onChanged(v);
+                    },
+            ),
           ],
         ),
       ),

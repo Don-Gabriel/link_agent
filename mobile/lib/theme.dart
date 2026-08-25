@@ -50,26 +50,38 @@ abstract final class C {
   /// replaces (#6A7383, 3.9:1), which failed AA at the sizes it was used at.
   static const paperFaint = Color(0xFF8A857B);
 
-  /// ON THE DESK. Still yours to change. 8.2:1.
-  static const filament = Color(0xFFFF8A3D);
+  // The three accents are DESATURATED on purpose.
+  //
+  // The first cut used #FF8A3D, #45C8DC and #FF4D5E — fully saturated, and on a
+  // near-black ground they read as status LEDs rather than as ink. On a screen
+  // you open at 07:00 to read one careful paragraph, that is the wrong
+  // temperature: it makes an ordinary morning feel like an incident.
+  //
+  // These are the same three hues pulled back toward paper. Every one still
+  // clears AA comfortably — the contrast barely moved, because contrast comes
+  // from lightness and the saturation was never doing that work.
 
-  /// OUT IN THE WORLD. Published, cleared, healthy, settled. 9.7:1.
+  /// ON THE DESK. Still yours to change. 9.4:1.
+  static const filament = Color(0xFFE8A76B);
+
+  /// OUT IN THE WORLD. Published, cleared, healthy, settled. 8.5:1.
   ///
   /// One colour, not two. The old system had `live` and `good` as separate
   /// accents and a reader could never tell them apart, because to a reader they
   /// said the same thing: settled, nothing to do.
-  static const daylight = Color(0xFF45C8DC);
+  static const daylight = Color(0xFF7FB3C4);
 
-  /// BROKEN. Missed, failed, expired, disconnected. 5.9:1.
-  static const flare = Color(0xFFFF4D5E);
+  /// BROKEN. Missed, failed, expired, disconnected. 6.1:1.
+  static const flare = Color(0xFFD9736E);
 
   // ---- washes. Precomputed solids rather than alpha, so a fill does not
-  // shift when it lands on a different ground.
-  static const filamentWash = Color(0xFF2A1B0F);
-  static const daylightWash = Color(0xFF0E2A30);
-  static const flareWash = Color(0xFF2C1214);
+  // shift when it lands on a different ground. Each is its accent at 12% over
+  // [ink], resolved once here.
+  static const filamentWash = Color(0xFF281F16);
+  static const daylightWash = Color(0xFF1B2121);
+  static const flareWash = Color(0xFF261917);
 
-  /// Ink that reads on top of [filament] — for a filled primary button.
+  /// Ink that reads on top of [filament] — for a filled primary button. 9.2:1.
   static const onFilament = Color(0xFF1A0E04);
 
   /// Something needs you, but nothing is broken: an expiring token, a dry run,
@@ -93,17 +105,21 @@ abstract final class S {
   static const x7 = 48.0;
 }
 
-/// Corner radius. Tighter than a consumer app on purpose: 16 reads friendly,
-/// 8 reads instrument.
+/// Corner radius.
+///
+/// Raised from 4/8/14. The tighter set read as an instrument, which was the
+/// intent, but combined with a visible border on every surface it also read as
+/// tight — a screen of small hard-cornered boxes. Softer corners with fewer
+/// borders is the same seriousness without the clench.
 abstract final class R {
   /// Chips, inputs, small controls.
-  static const sm = 4.0;
+  static const sm = 7.0;
 
   /// Objects you act on — a draft, a slot.
-  static const md = 8.0;
+  static const md = 12.0;
 
   /// Sheets.
-  static const lg = 14.0;
+  static const lg = 18.0;
 }
 
 /// Three faces, three jobs, no overlap.
