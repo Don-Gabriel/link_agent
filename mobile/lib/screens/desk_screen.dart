@@ -103,7 +103,7 @@ class DeskScreen extends StatelessWidget {
         ),
         for (final post in rest) ...[
           DraftCard(post: post, busy: state.loading, actions: commandsFor(context, post)),
-          const SizedBox(height: S.x3),
+          const SizedBox(height: S.x4),
         ],
         const SizedBox(height: S.x4),
       ],
@@ -120,7 +120,7 @@ class DeskScreen extends StatelessWidget {
             busy: state.loading,
             actions: commandsFor(context, post, actionable: post.status != 'unknown'),
           ),
-          const SizedBox(height: S.x3),
+          const SizedBox(height: S.x4),
         ],
         const SizedBox(height: S.x4),
       ],

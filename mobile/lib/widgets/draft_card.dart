@@ -43,16 +43,46 @@ String relativeTime(DateTime when) {
 String hhmm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+/// A send time WITH its day, whenever the day is not today.
+///
+/// The bug this fixes: every send time on screen was a bare `HH:MM`. Pick 12:05
+/// in the evening — when 12:05 has already gone — and the post correctly moves
+/// to tomorrow, but the card then reads "Sends at 12:05, in 16h 5m", which
+/// looks like the clock and the countdown are describing different events. The
+/// countdown was right; the label was hiding the only thing that reconciled it.
+///
+/// Says nothing extra for today, because most posts go out today and "today"
+/// on every card is noise.
+String whenLabel(DateTime t) {
+  final now = DateTime.now();
+  final days = DateTime(t.year, t.month, t.day)
+      .difference(DateTime(now.year, now.month, now.day))
+      .inDays;
+  return switch (days) {
+    0 => hhmm(t),
+    1 => 'tomorrow ${hhmm(t)}',
+    -1 => 'yesterday ${hhmm(t)}',
+    _ => '${_weekday(t.weekday)} ${hhmm(t)}',
+  };
+}
+
+const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+String _weekday(int w) => _weekdays[(w - 1) % 7];
+
 /// How often a countdown showing [remaining] actually needs to repaint.
 ///
-/// These readouts are rendered in MINUTES, so a one-second timer asks Flutter
-/// to rebuild sixty times for every frame that could look different — once per
-/// scheduled post on screen. Under two minutes the resolution genuinely
-/// matters, because that is where the urgent styling flips; past that, twenty
-/// seconds keeps every minute boundary fresh to within a third of a minute and
-/// costs a twentieth as much.
+/// Tied to what the display actually SHOWS, which is the bug this fixes. The
+/// old rule repainted every twenty seconds above two minutes — but the hero clock
+/// renders `mm:ss` for anything under an hour, so between two and sixty minutes
+/// the seconds digit sat visibly frozen for twenty seconds and then jumped.
+/// That is precisely what "the timer is not working" looks like.
+///
+/// So: a second while seconds are on screen, twenty otherwise. Above an hour
+/// the finest thing said is minutes, and a one-second timer there would ask
+/// Flutter to rebuild sixty times for every frame that could differ — once per
+/// scheduled post on screen.
 Duration countdownTick(Duration remaining) =>
-    remaining.abs().inMinutes < 2 ? const Duration(seconds: 1) : const Duration(seconds: 20);
+    remaining.abs().inHours < 1 ? const Duration(seconds: 1) : const Duration(seconds: 20);
 
 /// "in 12 min", "in 3h 40m", "2 min ago" — coarse on purpose above an hour.
 String countdownWords(Duration d) {
@@ -291,7 +321,7 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
       _ when post.isMissed => (
           Tone.broken,
           Icons.event_busy,
-          'Missed its ${hhmm(at)} slot — not sent late.',
+          'Missed its ${whenLabel(at)} slot — not sent late.',
         ),
       _ when post.isHeld => (
           Tone.desk,
@@ -301,17 +331,17 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
       _ when post.isCleared => (
           Tone.out,
           Icons.check_circle_outline,
-          'Cleared — sends at ${hhmm(at)}, ${countdownWords(remaining)}.',
+          'Cleared — sends ${whenLabel(at)}, ${countdownWords(remaining)}.',
         ),
       _ when remaining.isNegative => (
           Tone.desk,
           Icons.error_outline,
-          'Due at ${hhmm(at)} and not cleared. It will not send until you clear it.',
+          'Due ${whenLabel(at)} and not cleared. It will not send until you clear it.',
         ),
       _ => (
           Tone.desk,
           Icons.schedule,
-          'Sends at ${hhmm(at)}, ${countdownWords(remaining)}. Clear it before then.',
+          'Sends ${whenLabel(at)}, ${countdownWords(remaining)}. Clear it before then.',
         ),
     };
 
@@ -428,7 +458,7 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
           // clock. Up there it sat forty pixels from the countdown in the same
           // weight and the same colour, and two numbers of different kinds that
           // close together read as one thing measured twice.
-          Text('$caption · sends at ${hhmm(at)}'.toUpperCase(), style: T.slug),
+          Text('$caption · sends ${whenLabel(at)}'.toUpperCase(), style: T.slug),
         ],
       ),
     );

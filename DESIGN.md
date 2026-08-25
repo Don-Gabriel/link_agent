@@ -73,9 +73,19 @@ is a colour that teaches people to stop reading colour.
 
 | Token | Hex | Contrast | Means |
 |---|---|---|---|
-| `filament` | `#FF8A3D` | 8.2:1 | **On the desk.** Still yours. Drafts, countdowns, the fold, review windows, anything you can still change your mind about. |
-| `daylight` | `#45C8DC` | 9.7:1 | **Out in the world.** Published, cleared, connected, healthy. Settled and cold. |
-| `flare` | `#FF4D5E` | 5.9:1 | **Broken.** Missed, failed, expired, disconnected. Needs a human. |
+| `filament` | `#E8A76B` | 9.4:1 | **On the desk.** Still yours. Drafts, countdowns, the fold, review windows, anything you can still change your mind about. |
+| `daylight` | `#7FB3C4` | 8.5:1 | **Out in the world.** Published, cleared, connected, healthy. Settled and cold. |
+| `flare` | `#D9736E` | 6.1:1 | **Broken.** Missed, failed, expired, disconnected. Needs a human. |
+
+These are **desaturated on purpose**, and that was a correction. The first cut
+used `#FF8A3D`, `#45C8DC` and `#FF4D5E` — fully saturated, and against a
+near-black ground they read as status LEDs rather than as ink. On a screen you
+open at 07:00 to read one careful paragraph, that is the wrong temperature: it
+makes an ordinary morning look like an incident.
+
+Pulling each hue back toward paper cost nothing in legibility — every value
+still clears AA comfortably, because contrast comes from lightness and the
+saturation was never doing that work.
 
 A fourth state — a slot that read its candidates and chose silence — gets
 **no colour at all**, only `paperFaint`. Correct behaviour must never look like
@@ -149,8 +159,14 @@ broken.
 ## 4. Space, shape, motion
 
 - **Rhythm** 4 / 8 / 12 / 16 / 24 / 32 / 48. Nothing between.
-- **Radius** 4 (chips, inputs) · 8 (objects) · 14 (sheets). Tighter than before:
-  a 16px radius reads consumer, an 8px radius reads instrument.
+- **Radius** 7 (chips, inputs) · 12 (objects) · 18 (sheets). Raised from 4/8/14:
+  the tighter set read as an instrument, which was the intent, but combined
+  with a visible border on every surface it also read as *tight*.
+- **A card is a FILL, not an outline.** Separation comes from the raised ground
+  and the space around it. Drawing a border on top of a fill states the same
+  thing twice, and a page of outlined rectangles is what reads as cramped no
+  matter how much padding sits inside them. Only the one object with a deadline
+  gets an edge you actually notice.
 - **Touch** 48px minimum, 8px minimum between adjacent targets.
 - **Motion** one duration — 180ms, ease-out — for every state change. 320ms for
   route transitions. Reduced motion is honoured by not building the timeline,

@@ -263,7 +263,7 @@ void main() {
       expect(find.text('Publish'), findsNothing);
       // And the countdown must be on screen — a review window you cannot see
       // the end of is not a review window.
-      expect(find.textContaining('Sends at $hhmm'), findsOneWidget);
+      expect(find.textContaining('Sends $hhmm'), findsOneWidget);
     });
 
     // A draft with no time is a perfectly normal thing you will publish when
@@ -302,7 +302,7 @@ void main() {
       );
 
       expect(find.text('Send at a set time'), findsNothing);
-      expect(find.textContaining('Sends at'), findsOneWidget);
+      expect(find.textContaining('Sends '), findsOneWidget);
     });
 
     testWidgets('a cleared post says so and stops offering Clear', (tester) async {
