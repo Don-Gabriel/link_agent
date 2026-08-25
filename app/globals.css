@@ -1,35 +1,50 @@
 /*
- * Design tokens first — every value below is referenced, never inlined at a
- * call site. Changing the accent or the rhythm is a one-line edit here.
+ * Ink & Filament — the web half of the design system. See /DESIGN.md.
  *
- * The register is a control room: dark, dense, quiet, with colour reserved for
- * state that matters. Nothing decorative competes with the post text, because
- * reading the draft carefully IS the job this screen exists to support.
+ * The same tokens the Flutter app carries in lib/theme.dart, so the two
+ * surfaces are one product rather than two that happen to share an API. Every
+ * value below is referenced, never inlined at a call site.
+ *
+ * THE LAYOUT RULE, which is what changed:
+ *
+ *     Copy sits on the page. A box means an object you act on.
+ *
+ * The stylesheet this replaces gave every region an identical bordered panel,
+ * so nothing had hierarchy and the post — the one thing on screen worth
+ * reading — was a third of the box it sat in, competing with badges, five score
+ * meters and a rationale. Sections are separated by rhythm and a ruled heading
+ * now; a border means a draft, a slot, or a sheet.
  */
 
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+
 :root {
-  /* --- surface ramp, coolest to warmest */
-  --bg: #0b0d10;
-  --surface: #12151a;
-  --surface-2: #171b22;
-  --surface-3: #1e232c;
-  --border: #262c37;
-  --border-strong: #333b49;
+  /* --- ground. Warm-neutral ink, not blue-black: blue-black is what every
+     dark dashboard reaches for, and it turns the accents into status LEDs. */
+  --ink: #0e0d0b;
+  --ink-2: #161512;
+  --ink-3: #1e1c18;
+  --rule: #2a2721;
+  --rule-strong: #3b372f;
 
-  /* --- ink */
-  --text: #e6e9ee;
-  --text-dim: #98a1b0;
-  --text-faint: #6b7484;
+  /* --- ink on the page. Every value clears 4.5:1 on --ink. */
+  --paper: #f2efe9; /* 16.9:1 */
+  --paper-dim: #b3ada2; /* 8.7:1 */
+  --paper-faint: #8a857b; /* 5.3:1 — replaces #6b7484, which failed AA at 12px */
 
-  /* --- state. Used for meaning only, never decoration. */
-  --accent: #6ea8fe;
-  --accent-dim: #2a4a7f;
-  --good: #4ec98d;
-  --warn: #e0b341;
-  --bad: #e8695f;
-  --live: #b57bee;
+  /* --- the three accents. Colour answers ONE question: which clock is this on?
+     A slot that judged its candidates and chose silence gets no colour at all;
+     correct behaviour must never look like an alarm. */
+  --filament: #ff8a3d; /* on the desk — still yours to change */
+  --daylight: #45c8dc; /* out in the world — published, cleared, healthy */
+  --flare: #ff4d5e; /* broken — missed, failed, expired */
 
-  /* --- rhythm */
+  --filament-wash: #2a1b0f;
+  --daylight-wash: #0e2a30;
+  --flare-wash: #2c1214;
+  --on-filament: #1a0e04;
+
+  /* --- rhythm. Nothing between these values. */
   --s1: 0.25rem;
   --s2: 0.5rem;
   --s3: 0.75rem;
@@ -38,22 +53,30 @@
   --s6: 2rem;
   --s7: 3rem;
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-lg: 16px;
+  /* Tighter than the old 6/10/16: a large radius reads consumer, a small one
+     reads instrument. */
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 14px;
 
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  /* Three faces, three jobs, no overlap. Condensed for structure because a
+     column is narrow and a newsroom deck always was; the sans for anything read
+     as language; the mono for anything that is a figure. */
+  --cond: "Barlow Condensed", "Archivo Narrow", "Roboto Condensed", ui-sans-serif, sans-serif;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
 
-  --fs-xs: 0.75rem;
+  --fs-micro: 0.75rem;
   --fs-sm: 0.8125rem;
   --fs-base: 0.9375rem;
-  --fs-lg: 1.125rem;
-  --fs-xl: 1.5rem;
-  --fs-2xl: 2rem;
+  --fs-copy: 1.0625rem; /* the post. The most readable thing on screen. */
+  --fs-lg: 1.375rem;
+  --fs-xl: 2rem;
+  --fs-clock: 2.75rem;
 
-  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 24%);
-  --max-width: 1240px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 50%), 0 12px 32px rgb(0 0 0 / 28%);
+  --max-width: 1220px;
+  --measure: 68ch; /* the reading measure. Copy never runs wider. */
 }
 
 * {
@@ -67,25 +90,34 @@ body {
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans);
   font-size: var(--fs-base);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Numbers that sit in columns must not jitter as they change. */
-.tabular {
+/* Numbers that sit in columns, or change in place, must not jitter. A countdown
+   whose digits change width reflows while you read it. */
+.tabular,
+.counter,
+.meter + span {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
 a {
-  color: var(--accent);
+  color: var(--daylight);
   text-decoration: none;
 }
 a:hover {
   text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--filament);
+  outline-offset: 2px;
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -93,362 +125,555 @@ a:hover {
 .shell {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: var(--s5) var(--s4) var(--s7);
+  padding: var(--s6) var(--s4) var(--s7);
 }
 
+/* The masthead: who this is, what state it is in. A rule under it rather than a
+   box around it. */
 .masthead {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: var(--s4);
   padding-bottom: var(--s4);
   margin-bottom: var(--s5);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
 }
 
 .masthead h1 {
   margin: 0;
-  font-size: var(--fs-lg);
-  font-weight: 600;
+  font-family: var(--cond);
+  font-size: var(--fs-xl);
+  font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 1.05;
 }
 
 .masthead .sub {
   margin: var(--s1) 0 0;
   font-size: var(--fs-sm);
-  color: var(--text-faint);
+  color: var(--paper-faint);
 }
 
+/* Desk on the left, the things you set once on the right. The desk is wider
+   because reading the draft carefully IS the job. */
 .columns {
   display: grid;
-  gap: var(--s5);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
 }
 
-@media (min-width: 1024px) {
+@media (max-width: 900px) {
   .columns {
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-    align-items: start;
-  }
-  .sidebar {
-    position: sticky;
-    top: var(--s4);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s5);
   }
 }
 
 .stack {
   display: flex;
   flex-direction: column;
-  gap: var(--s5);
+  gap: var(--s6);
+  min-width: 0;
+}
+
+.sidebar {
+  gap: var(--s6);
 }
 
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
-  flex-wrap: wrap;
 }
 
 .spread {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s3);
 }
 
-/* ------------------------------------------------------------------- panel */
-
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--s4);
+.spacer {
+  flex: 1;
 }
 
-.panel > h2 {
-  margin: 0 0 var(--s3);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
-}
+/* --------------------------------------------------------------- sections */
 
 /*
- * Panel header carrying a control on the right. The heading sits inside this
- * wrapper rather than directly under .panel, so it needs the rule above
- * repeated — without it the h2 falls back to the browser's 1.5em default and
- * this one panel shouts while every other one whispers.
+ * `.panel` is no longer a box. It is a SECTION: a ruled heading, then content
+ * on the page ground. Kept under the old name so the markup did not have to be
+ * rewritten to get the new hierarchy.
  */
+.panel {
+  display: block;
+  min-width: 0;
+}
+
+.panel > h2,
+.panel > h3,
 .panel-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: var(--s3);
-  margin-bottom: var(--s2);
-}
-
-.panel-head h2 {
-  margin: 0;
-  font-size: var(--fs-xs);
+  margin: 0 0 var(--s3);
+  font-family: var(--cond);
+  font-size: 0.8125rem;
   font-weight: 600;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
+  color: var(--paper-dim);
 }
 
-.empty {
-  color: var(--text-faint);
-  font-size: var(--fs-sm);
-  padding: var(--s4) 0;
-  text-align: center;
+/* The rule runs from the label to the edge — that is what separates a section
+   without boxing it. */
+.panel > h2::after,
+.panel > h3::after,
+.panel-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
 }
 
-/* ------------------------------------------------------------------ badges */
+.panel > p,
+.panel > .hint {
+  max-width: var(--measure);
+}
 
+.hint {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--paper-faint);
+}
+
+.sub {
+  color: var(--paper-faint);
+}
+
+/* ------------------------------------------------------------------ marks */
+
+/*
+ * A state word. Colour marks the ABNORMAL case only: `running`, `live` and
+ * `approval mode` are the ordinary state of a healthy agent, and three chips
+ * lit in three colours on an ordinary day is three colours saying nothing.
+ */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  padding: 2px var(--s2);
-  border-radius: 999px;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
+  padding: 3px var(--s2) 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--ink-3);
+  font-family: var(--cond);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
   white-space: nowrap;
 }
 
-.badge.good {
-  color: var(--good);
-  border-color: color-mix(in srgb, var(--good) 40%, transparent);
-  background: color-mix(in srgb, var(--good) 10%, transparent);
-}
-.badge.warn {
-  color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-}
-.badge.bad {
-  color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
-  background: color-mix(in srgb, var(--bad) 10%, transparent);
-}
+.badge.good,
 .badge.live {
-  color: var(--live);
-  border-color: color-mix(in srgb, var(--live) 40%, transparent);
-  background: color-mix(in srgb, var(--live) 12%, transparent);
+  background: var(--daylight-wash);
+  border-color: color-mix(in srgb, var(--daylight) 50%, transparent);
+  color: var(--daylight);
+}
+
+.badge.warn {
+  background: var(--filament-wash);
+  border-color: color-mix(in srgb, var(--filament) 50%, transparent);
+  color: var(--filament);
+}
+
+.badge.bad {
+  background: var(--flare-wash);
+  border-color: color-mix(in srgb, var(--flare) 50%, transparent);
+  color: var(--flare);
 }
 
 .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: currentcolor;
 }
 
-/* ------------------------------------------------------------------ notice */
-
+/* A condition of the page, not a card: a bar on the left rather than a border
+   all the way round, so it does not read as one more thing to act on. */
 .notice {
   display: flex;
-  gap: var(--s3);
   align-items: flex-start;
-  padding: var(--s3) var(--s4);
-  border-radius: var(--radius);
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
+  gap: var(--s3);
+  padding: var(--s3);
+  margin-bottom: var(--s3);
+  border-left: 2px solid var(--filament);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--filament-wash);
   font-size: var(--fs-sm);
+  color: var(--filament);
 }
 
-.notice.warn {
-  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-  background: color-mix(in srgb, var(--warn) 8%, var(--surface-2));
-}
 .notice.bad {
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
-  background: color-mix(in srgb, var(--bad) 8%, var(--surface-2));
+  border-left-color: var(--flare);
+  background: var(--flare-wash);
+  color: var(--flare);
+}
+
+.notice.good {
+  border-left-color: var(--daylight);
+  background: var(--daylight-wash);
+  color: var(--daylight);
+}
+
+.notice p {
+  margin: 0;
+  color: var(--paper-dim);
 }
 
 .notice strong {
   display: block;
   margin-bottom: 2px;
-  color: var(--text);
+  color: inherit;
+  font-weight: 600;
 }
 
-.notice p {
+.error-text {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--flare);
+}
+
+.empty {
   margin: 0;
-  color: var(--text-dim);
+  padding: var(--s6) 0;
+  max-width: var(--measure);
+  font-size: var(--fs-sm);
+  color: var(--paper-faint);
 }
 
-/* ----------------------------------------------------------------- buttons */
+/* ------------------------------------------------------------------- post */
+
+/*
+ * The one place the layout rule bends: a draft IS a box, because it is a thing
+ * you act on. Inside it the copy sits on the surface with nothing around it.
+ */
+.post {
+  padding: var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--ink-2);
+}
+
+.post + .post {
+  margin-top: var(--s3);
+}
+
+/* The slug line: where this came from and what state it is in, above a
+   hairline, the way a slug line sits above copy. */
+.post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s4);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  color: var(--paper-faint);
+}
+
+.post-text {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-copy);
+  line-height: 1.62;
+  color: var(--paper);
+  white-space: pre-wrap;
+}
+
+.post-text + .post-text {
+  margin-top: 0;
+}
+
+/* Not hidden — the text above the fold is the whole post as far as most readers
+   are concerned, so what follows is simply quieter. */
+.below-fold {
+  color: var(--paper-dim);
+}
+
+/*
+ * THE SIGNATURE. LinkedIn cuts a post at 210 characters and hides the rest
+ * behind "see more"; drawing that boundary is the single most useful thing this
+ * screen does that LinkedIn's own composer does not. So it is drawn as a cut —
+ * dashed, in the warm accent, because the fold is a thing you can still act on
+ * — with the count of what is hidden set in the gutter.
+ */
+.fold {
+  position: relative;
+  height: 1px;
+  /* Chrome's UA stylesheet gives `hr` overflow:hidden, which clipped the label
+     below to the rule's own 1px box and rendered it as a smear. */
+  overflow: visible;
+  margin: var(--s4) 0;
+  border: 0;
+  background: repeating-linear-gradient(
+    to right,
+    color-mix(in srgb, var(--filament) 42%, transparent) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+/* The label comes from the markup so it can carry the count of what is hidden;
+   a static ::before could only ever say "see more". */
+.fold::before {
+  content: attr(data-below);
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  padding-right: var(--s3);
+  background: var(--ink-2);
+  line-height: 1;
+  white-space: nowrap;
+  font-family: var(--cond);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--filament);
+}
+
+.rationale {
+  margin: var(--s4) 0 0;
+  padding-left: var(--s3);
+  max-width: var(--measure);
+  border-left: 2px solid var(--rule-strong);
+  font-size: var(--fs-sm);
+  color: var(--paper-dim);
+}
+
+/* The judge's criteria. Thin, quiet, and never competing with the copy. */
+.scores {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s3);
+  max-width: 30rem;
+}
+
+.judgement {
+  margin-top: var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--rule);
+}
+
+.judgement > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--cond);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
+}
+
+.judgement > summary::-webkit-details-marker {
+  display: none;
+}
+
+.judgement > summary::before {
+  content: "▸";
+  font-family: var(--sans);
+  transition: transform 180ms ease;
+}
+
+.judgement[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.judgement > summary .total {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--paper-dim);
+}
+
+.judgement .rationale {
+  margin-top: var(--s3);
+}
+
+.score {
+  display: grid;
+  grid-template-columns: 8rem 1fr 2rem;
+  align-items: center;
+  gap: var(--s3);
+  font-size: var(--fs-micro);
+  color: var(--paper-faint);
+}
+
+.meter {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ink-3);
+  overflow: hidden;
+}
+
+.meter > i {
+  display: block;
+  height: 100%;
+  background: var(--daylight);
+}
+
+.post-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding-top: var(--s4);
+  margin-top: var(--s4);
+  border-top: 1px solid var(--rule);
+}
+
+/* ---------------------------------------------------------------- controls */
 
 button {
-  font: inherit;
-  font-size: var(--fs-sm);
-  cursor: pointer;
+  min-height: 40px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--rule-strong);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: var(--surface-3);
-  color: var(--text);
-  padding: var(--s2) var(--s3);
-  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  background: transparent;
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
 button:hover:not(:disabled) {
-  background: var(--border);
-  border-color: var(--text-faint);
+  background: var(--ink-3);
+  border-color: var(--paper-faint);
 }
 
 button:disabled {
-  opacity: 0.45;
+  color: var(--paper-faint);
+  border-color: var(--rule);
   cursor: not-allowed;
 }
 
 button.primary {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--filament);
+  border-color: var(--filament);
+  color: var(--on-filament);
+  font-weight: 600;
 }
+
 button.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 45%, var(--accent-dim));
+  background: color-mix(in srgb, var(--filament) 88%, white);
+  border-color: color-mix(in srgb, var(--filament) 88%, white);
+}
+
+button.primary:disabled {
+  background: var(--ink-3);
+  border-color: var(--rule);
+  color: var(--paper-faint);
+}
+
+button.danger {
+  color: var(--flare);
+  border-color: color-mix(in srgb, var(--flare) 45%, transparent);
 }
 
 button.danger:hover:not(:disabled) {
-  border-color: var(--bad);
-  color: var(--bad);
+  background: var(--flare-wash);
+  border-color: var(--flare);
 }
 
 button.ghost {
-  background: transparent;
   border-color: transparent;
-  color: var(--text-dim);
-  padding: var(--s1) var(--s2);
-}
-button.ghost:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--surface-3);
+  color: var(--paper-dim);
 }
 
-button:focus-visible,
+button.ghost:hover:not(:disabled) {
+  background: var(--ink-3);
+  border-color: var(--rule);
+  color: var(--paper);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: var(--s3);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  background: var(--ink-3);
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--paper-faint);
+}
+
+textarea {
+  min-height: 11rem;
+  resize: vertical;
+  font-size: var(--fs-copy);
+  line-height: 1.62;
+}
+
+textarea.compact {
+  min-height: 5.5rem;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* ------------------------------------------------------------------ inputs */
-
-input[type="text"],
-input[type="time"],
-input[type="password"],
-input[type="number"],
-select,
-textarea {
-  font: inherit;
-  font-size: var(--fs-sm);
-  width: 100%;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: var(--s2) var(--s3);
-}
-
-textarea {
-  resize: vertical;
-  min-height: 9rem;
-  line-height: 1.6;
-  font-size: var(--fs-base);
-}
-
-/*
- * List textareas (banned phrases, custom rules). These hold a handful of short
- * lines, and at the composer's 9rem minimum three of them stack into a panel
- * taller than the viewport.
- */
-textarea.compact {
-  min-height: 4.5rem;
-  font-size: var(--fs-sm);
+  outline: none;
+  border-color: var(--filament);
+  box-shadow: 0 0 0 1px var(--filament);
 }
 
 label.field {
   display: block;
-  margin-bottom: var(--s3);
+  margin-bottom: var(--s4);
+  min-width: 0;
 }
 
 label.field > span {
   display: block;
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  margin-bottom: var(--s1);
+  margin-bottom: var(--s2);
+  font-family: var(--cond);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--paper-faint);
 }
 
-/* Toggle rows read as a sentence, so the control sits after the label. */
-.toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s3);
-  padding: var(--s3) 0;
-  border-top: 1px solid var(--border);
-}
-
-.toggle:first-of-type {
-  border-top: none;
-}
-
-.toggle .label {
-  flex: 1;
-}
-
-.toggle .label b {
-  display: block;
-  font-weight: 500;
-  font-size: var(--fs-sm);
-}
-
-.toggle .label span {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-}
-
-.switch {
-  flex: none;
-  width: 40px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-3);
-  position: relative;
-  padding: 0;
-}
-
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  transition: transform 140ms ease, background 140ms ease;
-}
-
-.switch[data-on="true"] {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
-
-.switch[data-on="true"]::after {
-  transform: translateX(18px);
-  background: #fff;
-}
-
-/* ------------------------------------------------------------------- chips */
-
+/* A row of choices, visible without opening a menu — on the voice editor,
+   comparing them IS the task. */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -456,132 +681,111 @@ label.field > span {
 }
 
 .chip {
-  padding: var(--s1) var(--s3);
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  color: var(--text-dim);
-  font-size: var(--fs-xs);
-}
-
-.chip[data-on="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--text);
-}
-
-/* -------------------------------------------------------------- post cards */
-
-.post {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  padding: var(--s4);
-}
-
-.post + .post {
-  margin-top: var(--s3);
-}
-
-.post-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2);
-  margin-bottom: var(--s3);
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-}
-
-/* Post text is the one place where the reading experience is the product. */
-.post-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  min-height: 40px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+  color: var(--paper-dim);
+  font-family: var(--sans);
   font-size: var(--fs-base);
-  line-height: 1.62;
-  margin: 0;
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
-.fold {
-  border: 0;
-  border-top: 1px dashed var(--border-strong);
-  margin: var(--s3) 0;
-  position: relative;
+.chip:hover {
+  border-color: var(--paper-faint);
+  color: var(--paper);
 }
 
-.fold::after {
-  content: "see more";
-  position: absolute;
-  top: -0.65em;
-  left: 0;
-  padding-right: var(--s2);
-  background: var(--surface-2);
-  color: var(--text-faint);
-  font-size: var(--fs-xs);
-}
-
-.rationale {
-  margin: var(--s3) 0 0;
-  padding-left: var(--s3);
-  border-left: 2px solid var(--border-strong);
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-}
-
-.post-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  margin-top: var(--s4);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--border);
-}
-
-.post-actions .spacer {
-  flex: 1;
-}
-
-/* ------------------------------------------------------------------ scores */
-
-.scores {
-  display: grid;
-  gap: var(--s1);
-  margin-top: var(--s3);
-}
-
-.score {
-  display: grid;
-  grid-template-columns: 8.5rem 1fr 2.2rem;
-  align-items: center;
-  gap: var(--s2);
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-}
-
-.meter {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-
-.meter > i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: inherit;
-}
-
-/* ---------------------------------------------------------------- composer */
-
-.counter {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-}
-
-.counter[data-over="true"] {
-  color: var(--bad);
+.chip[data-on="true"],
+.chip[aria-pressed="true"] {
+  background: var(--filament-wash);
+  border-color: var(--filament);
+  color: var(--paper);
   font-weight: 600;
+}
+
+/* Title, explanation, switch. */
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.toggle .label {
+  min-width: 0;
+}
+
+.toggle .label strong {
+  display: block;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--paper);
+}
+
+.toggle .label span {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-micro);
+  color: var(--paper-faint);
+}
+
+.switch {
+  flex: none;
+  width: 44px;
+  min-height: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  background: var(--ink-3);
+  position: relative;
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper-faint);
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+
+.switch[data-on="true"] {
+  background: var(--filament-wash);
+  border-color: var(--filament);
+}
+
+.switch[data-on="true"]::after {
+  transform: translateX(18px);
+  background: var(--filament);
+}
+
+/* ---------------------------------------------------------------- compose */
+
+.dropzone {
+  padding: var(--s5);
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--paper-faint);
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.dropzone[data-over="true"] {
+  border-color: var(--filament);
+  background: var(--filament-wash);
+  color: var(--filament);
 }
 
 .thumbs {
@@ -593,12 +797,11 @@ label.field > span {
 
 .thumb {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 84px;
+  height: 84px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-3);
+  border: 1px solid var(--rule);
 }
 
 .thumb img {
@@ -612,123 +815,85 @@ label.field > span {
   position: absolute;
   top: 2px;
   right: 2px;
-  padding: 0;
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 70%);
-  border-color: transparent;
-  font-size: var(--fs-xs);
-}
-
-.dropzone {
-  border: 1px dashed var(--border-strong);
+  min-height: 24px;
+  height: 24px;
+  padding: 0 var(--s2);
   border-radius: var(--radius-sm);
-  padding: var(--s3);
-  text-align: center;
-  color: var(--text-faint);
-  font-size: var(--fs-sm);
-  cursor: pointer;
+  background: var(--ink);
+  border-color: transparent;
+  color: var(--flare);
+  font-size: var(--fs-micro);
 }
 
-.dropzone[data-active="true"] {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-/* ------------------------------------------------------------------- gate */
-
-.gate {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--s4);
-}
-
-.gate .panel {
-  width: min(26rem, 100%);
-}
-
-.gate h1 {
-  margin: 0 0 var(--s1);
-  font-size: var(--fs-xl);
-}
-
-.gate p {
-  margin: 0 0 var(--s4);
-  color: var(--text-faint);
-  font-size: var(--fs-sm);
-}
-
-/* ----------------------------------------------------------------- setup */
-
-.setup {
-  max-width: 34rem;
-  margin: var(--s7) auto;
-}
-
-.error-text {
-  color: var(--bad);
-  font-size: var(--fs-sm);
-  margin: var(--s2) 0 0;
-}
-
-.hint {
-  color: var(--text-faint);
-  font-size: var(--fs-xs);
-  margin: var(--s1) 0 0;
-}
-
-/* Secondary text under a heading. Scoped copy of .masthead .sub for panels. */
-.sub {
-  margin: var(--s1) 0 0;
-  color: var(--text-faint);
-}
-
-/*
- * Style preview. Inset and tinted so it reads as a sample rather than as a
- * real queued draft — mistaking the two would be an easy way to think you had
- * published something you had not.
- */
 .preview {
   margin-top: var(--s4);
-  padding: var(--s3);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  padding: var(--s4);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--ink-2);
 }
 
-.preview .post-text {
-  margin-top: var(--s2);
-  font-size: var(--fs-sm);
+.counter {
+  font-size: var(--fs-micro);
+  color: var(--paper-faint);
 }
+
+/* ------------------------------------------------------------------ lists */
 
 .list-compact {
-  list-style: none;
+  display: grid;
+  gap: var(--s2);
   margin: 0;
   padding: 0;
+  list-style: none;
   font-size: var(--fs-sm);
+  color: var(--paper-dim);
 }
 
 .list-compact li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
   padding: var(--s2) 0;
-  border-top: 1px solid var(--border);
-  color: var(--text-dim);
+  border-bottom: 1px solid var(--rule);
 }
 
-.list-compact li:first-child {
-  border-top: none;
+.list-compact li:last-child {
+  border-bottom: 0;
 }
 
-.list-compact .why {
-  display: block;
-  color: var(--text-faint);
-  font-size: var(--fs-xs);
+/* ------------------------------------------------------- gate and setup */
+
+.gate,
+.setup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--s5);
 }
+
+.gate .panel,
+.setup .panel,
+.gate form,
+.setup form {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.setup form {
+  max-width: 34rem;
+}
+
+/* ------------------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

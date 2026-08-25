@@ -82,14 +82,27 @@ flutter:
   assets:
     - assets/fonts/OFL.txt
 
-  # IBM Plex, bundled rather than fetched. One superfamily so the mono and the
-  # sans share metrics: times and body text sit on the same rhythm.
+  # Three faces, three jobs — see DESIGN.md §3. All bundled rather than
+  # fetched: a CDN font is a silent single point of failure, and a family that
+  # does not resolve falls back without an error.
   #
   # Plex Sans is the VARIABLE cut — google/fonts no longer publishes static
   # instances of it. Flutter does not map TextStyle.fontWeight onto a variable
   # axis, so weight comes from fontVariations in theme.dart rather than from
   # extra `weight:` entries here, which would silently do nothing.
+  #
+  # Barlow Condensed is deliberately the STATIC cut for the opposite reason: a
+  # fontVariations list makes a TextStyle non-const, and these styles sit in
+  # const widget trees across every screen.
   fonts:
+    - family: BarlowCondensed
+      fonts:
+        - asset: assets/fonts/BarlowCondensed-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/BarlowCondensed-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/BarlowCondensed-Bold.ttf
+          weight: 700
     - family: PlexSans
       fonts:
         - asset: assets/fonts/IBMPlexSans.ttf

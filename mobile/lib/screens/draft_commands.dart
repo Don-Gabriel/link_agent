@@ -1,0 +1,236 @@
+/// Everything you can do to a post, in one place.
+///
+/// The Desk and the Archive both render posts and both need the same verbs, so
+/// the confirmations, the wording and the undo live here rather than being
+/// written twice and drifting apart.
+///
+/// Two rules run through all of it:
+///
+///   * Anything irreversible on LinkedIn's side asks first — including in dry
+///     run, so the habit is identical when live mode is on.
+///   * Anything reversible does NOT ask, and offers undo instead. Clearing a
+///     draft is one tap away from being un-cleared until its time comes, so a
+///     dialog in front of it would be a tax on the action you take most.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../api/models.dart';
+import '../state/app_state.dart';
+import '../theme.dart';
+import '../widgets/draft_card.dart';
+import 'composer_screen.dart';
+
+/// Build the action set for [post].
+///
+/// [actionable] is false for an ambiguous send — one LinkedIn never confirmed —
+/// which must not be republished blind.
+DraftActions commandsFor(BuildContext context, Post post, {bool actionable = true}) {
+  if (!actionable) return const DraftActions();
+
+  if (post.isPublished) {
+    // The one thing still worth doing with a post that has gone out. Answers
+    // with text and saves nothing, then opens the composer with it loaded.
+    return DraftActions(onFollowUp: () => followUp(context, post.seq));
+  }
+
+  return DraftActions(
+    // On a scheduled post the primary action clears it for its own time. On an
+    // unscheduled one there is no time to clear it for, so sending is the only
+    // thing approving can mean.
+    onClear: post.isScheduled && !post.isCleared ? () => clearForItsTime(context, post) : null,
+    onSendNow: () => sendNow(context, post),
+    // Offered on every unpublished draft, whether or not it came from a slot.
+    // A post from the agent arrives with its slot's time; one from "run a cycle
+    // now" or the composer arrives with none, and this is how it gets one.
+    onSchedule: () => pickSendTime(context, post),
+    onUnschedule: post.isScheduled ? () => removeSendTime(context, post) : null,
+    onDiscard: () => discard(context, post),
+    onEdit: () => context.read<AppState>().startEditing(post),
+  );
+}
+
+/// "I have read it. Let it go at its time."
+///
+/// NOT publishing, and the difference is the point of the whole schedule.
+/// Nothing reaches LinkedIn now, so it does not need the irreversibility
+/// warning that [sendNow] does — it is one tap from reversible until the time
+/// comes, and the snackbar says so.
+Future<void> clearForItsTime(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final messenger = ScaffoldMessenger.of(context);
+  final at = post.scheduledFor;
+  final error = await state.clear(post.seq);
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(error ?? 'Cleared — goes out at ${at == null ? "its time" : hhmm(at)}.'),
+      action: error != null
+          ? null
+          : SnackBarAction(label: 'Undo', onPressed: () => state.unclear(post.seq)),
+    ),
+  );
+}
+
+/// Publishing is irreversible on LinkedIn's side, so it always asks.
+Future<void> sendNow(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final live = state.status?.liveMode ?? false;
+  final scheduled = post.scheduledFor;
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(live ? 'Send now?' : 'Send now (dry run)?'),
+      content: Text(
+        !live
+            ? 'Live mode is off, so nothing will actually reach LinkedIn.'
+            : scheduled != null
+                ? 'This posts to your profile immediately, instead of at ${hhmm(scheduled)}. '
+                    'It cannot be unpublished from here.'
+                : 'This posts to your profile now. It cannot be unpublished from here.',
+        style: T.small,
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send now')),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  final error = await state.sendNow(post.seq);
+  messenger.showSnackBar(SnackBar(content: Text(error ?? 'Published ${post.id}.')));
+}
+
+/// Give this one post a send time.
+///
+/// A plain time picker, not a date picker: "publish this at 21:00" is how the
+/// decision is actually made. A time that has already passed today means
+/// tomorrow, because nobody picking 07:00 at midnight means seven hours ago.
+Future<void> pickSendTime(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final existing = post.scheduledFor;
+  final picked = await showTimePicker(
+    context: context,
+    initialTime: existing != null
+        ? TimeOfDay(hour: existing.hour, minute: existing.minute)
+        : TimeOfDay.now(),
+    helpText: 'SEND THIS POST AT',
+  );
+  if (picked == null || !context.mounted) return;
+
+  final now = DateTime.now();
+  var when = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+  if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
+
+  final messenger = ScaffoldMessenger.of(context);
+  final error = await state.reschedule(post.seq, when);
+  final tomorrow = when.day != now.day;
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(error ??
+          'Sends at ${hhmm(when)}${tomorrow ? ' tomorrow' : ''}. '
+              'Clear it before then or it stays put.'),
+    ),
+  );
+}
+
+Future<void> removeSendTime(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final messenger = ScaffoldMessenger.of(context);
+  final error = await state.reschedule(post.seq, null);
+  messenger.showSnackBar(
+    SnackBar(content: Text(error ?? 'Send time removed. It waits for you now.')),
+  );
+}
+
+Future<void> discard(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Discard this draft?'),
+      content: const Text(
+        'It leaves the queue, and the story will not be written about again.',
+        style: T.small,
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: C.flare, foregroundColor: C.paper),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Discard'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  final error = await state.discard(post.seq);
+  messenger.showSnackBar(SnackBar(content: Text(error ?? 'Discarded ${post.id}.')));
+}
+
+/// Ask for a follow-up, then hand it to the composer.
+///
+/// This is the slowest thing in the app and it is worth saying so. The writer
+/// call is paced four seconds behind any other model call, then usually spends
+/// a SECOND call repairing the draft to the author's word range — half a minute
+/// is normal and a minute is not alarming.
+///
+/// The notice stays up until the work finishes rather than expiring after a few
+/// seconds. A message that disappears while the request is still running reads
+/// as the tap having been lost, which is exactly what this looked like before.
+Future<void> followUp(BuildContext context, int seq) async {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(
+    const SnackBar(
+      content: Row(
+        children: [
+          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: S.x3),
+          Expanded(child: Text('Writing a follow-up — this takes up to a minute.')),
+        ],
+      ),
+      // Effectively "until dismissed": hidden explicitly below. The server
+      // gives up at 120s, so nothing can outlive this.
+      duration: Duration(minutes: 3),
+    ),
+  );
+  final error = await context.read<AppState>().followUp(seq);
+  messenger.hideCurrentSnackBar();
+  if (error != null) {
+    messenger.showSnackBar(SnackBar(content: Text(error)));
+  }
+  // On success the state bump opens the composer with the follow-up loaded;
+  // see the compose request watcher in the shell.
+}
+
+/// Why a post is sitting outside the draft list, in the reader's terms.
+String explainStranded(String status) => switch (status) {
+      'approved' => 'Approved but never sent — the publish failed. Try again, or discard it.',
+      'failed' => 'The last send was rejected. Fix the text and try again.',
+      'unknown' => 'LinkedIn never confirmed this send. Check your profile, then resolve it '
+          'from the web dashboard before touching it here.',
+      _ => '',
+    };
+
+/// Ask the agent to run a whole cycle right now, off the timetable.
+Future<void> runCycleNow(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final error = await context.read<AppState>().runCycleNow();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(error ??
+          'Started. A draft appears in 30–60 seconds if anything clears the bar.'),
+    ),
+  );
+}
+
+/// Open the composer for a brand new post.
+void writeSomething(BuildContext context) {
+  context.read<AppState>().stopEditing();
+  openComposer(context);
+}

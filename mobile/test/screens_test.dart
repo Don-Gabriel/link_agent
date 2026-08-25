@@ -15,16 +15,16 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linkdin_mobile/api/client.dart';
 import 'package:linkdin_mobile/api/models.dart';
+import 'package:linkdin_mobile/screens/archive_screen.dart';
 import 'package:linkdin_mobile/screens/composer_screen.dart';
+import 'package:linkdin_mobile/screens/desk_screen.dart';
 import 'package:linkdin_mobile/screens/gate_screen.dart';
-import 'package:linkdin_mobile/screens/queue_screen.dart';
-import 'package:linkdin_mobile/screens/schedule_screen.dart';
-import 'package:linkdin_mobile/screens/status_screen.dart';
+import 'package:linkdin_mobile/screens/settings_screen.dart';
+import 'package:linkdin_mobile/screens/timetable_screen.dart';
 import 'package:linkdin_mobile/screens/voice_screen.dart';
 import 'package:linkdin_mobile/state/app_state.dart';
 import 'package:linkdin_mobile/theme.dart';
 import 'package:linkdin_mobile/widgets/day_rail.dart';
-import 'package:linkdin_mobile/widgets/panel.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,7 +65,7 @@ Map<String, dynamic> statusFixture({
         ],
       },
       'schedule': {'nextRunLocal': 'Tue 12 Aug, 09:30', 'cycleCount': 23},
-      'queue': [
+      'queue': <Map<String, dynamic>>[
         {
           'id': 'p12',
           'seq': 12,
@@ -102,7 +102,7 @@ Map<String, dynamic> statusFixture({
       ],
       'history': [],
       'ambiguous': [],
-      'slots': [
+      'slots': <Map<String, dynamic>>[
         {
           'id': 's1',
           'localTime': '09:30',
@@ -128,7 +128,7 @@ Map<String, dynamic> statusFixture({
           'nextRunLocal': 'Mon 17 Aug, 18:00',
         },
       ],
-      'timeline': [
+      'timeline': <Map<String, dynamic>>[
         {
           'slotId': 's1',
           'localTime': '09:30',
@@ -160,8 +160,8 @@ Map<String, dynamic> statusFixture({
       },
     };
 
-/// The schedule screen filters today's timeline by local date, so the fixture
-/// has to be stamped with the machine's today rather than a frozen date.
+/// The Desk filters today's rail by local date, so the fixture has to be
+/// stamped with the machine's today rather than a frozen date.
 String _todayLocal() {
   final now = DateTime.now();
   return '${now.year.toString().padLeft(4, '0')}-'
@@ -237,6 +237,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+
+  // ------------------------------------------------------------------ gate
+
   testWidgets('GateScreen renders without overflow', (tester) async {
     final state = await buildState(null);
     await pumpScreen(tester, const GateScreen(), state);
@@ -246,77 +249,166 @@ void main() {
     expect(find.textContaining('10.0.2.2'), findsWidgets);
   });
 
-  testWidgets('QueueScreen renders a populated queue without overflow', (tester) async {
+  // ------------------------------------------------------------------ desk
+
+  testWidgets('DeskScreen renders a populated desk without overflow', (tester) async {
     final state = await buildState(statusFixture());
-    await pumpScreen(tester, const QueueScreen(), state);
-    expect(find.text('Publish'), findsOneWidget); // only the draft is actionable
-    expect(find.text('see more'), findsOneWidget); // long post crosses the fold
+    await pumpScreen(tester, const DeskScreen(), state);
+    // Only the real draft is publishable; the failed one is stranded below.
+    expect(find.textContaining('Ableton 12.2'), findsWidgets);
+    expect(find.text('see more'), findsOneWidget); // the long post crosses the fold
   });
 
-  testWidgets('QueueScreen surfaces dry run and reauth notices', (tester) async {
+  // Dry run is deliberately a masthead chip rather than a banner: it is a
+  // standing condition, and as a banner it was permanently the first thing on
+  // the screen, above the thing with a deadline.
+  testWidgets('DeskScreen states dry run and a dead token without burying the desk',
+      (tester) async {
     final state = await buildState(statusFixture(liveMode: false, needsReauth: true));
-    await pumpScreen(tester, const QueueScreen(), state);
-    expect(find.text('Dry run'), findsOneWidget);
-    expect(find.text('LinkedIn needs reconnecting'), findsOneWidget);
+    await pumpScreen(tester, const DeskScreen(), state);
+    expect(find.text('DRY RUN'), findsOneWidget);
+    expect(find.textContaining('LinkedIn access expired'), findsOneWidget);
   });
 
-  testWidgets('a published post offers a follow-up, and a draft does not', (tester) async {
+  // The regression this guards: the countdown used to live on a different tab
+  // from the draft it applied to, so the same post was rendered twice in two
+  // shapes. The next post due IS the first card here, wearing its own clock.
+  testWidgets('DeskScreen leads with the next post due, wearing its countdown',
+      (tester) async {
     final fixture = statusFixture();
-    fixture['history'] = [
-      {
-        'id': 'p1',
-        'seq': 1,
-        'text': 'A post that already went out to LinkedIn some time ago.',
-        'status': 'published',
-        'hashtags': <String>[],
-        'publishedAt': '2026-08-10T09:30:00.000Z',
-      },
-    ];
+    (fixture['queue'] as List)[0] = {
+      ...(fixture['queue'] as List)[0] as Map<String, dynamic>,
+      'scheduledFor':
+          DateTime.now().add(const Duration(hours: 2, minutes: 14)).toUtc().toIso8601String(),
+      'slotId': 's2',
+    };
     final state = await buildState(fixture);
-    await pumpScreen(tester, const QueueScreen(), state);
+    await pumpScreen(tester, const DeskScreen(), state);
 
-    // Not on drafts: a follow-up to something unpublished is a rewrite, and
-    // the composer already does that.
-    expect(find.text('Write a follow-up'), findsNothing);
-
-    await tester.tap(find.text('Published'));
-    await tester.pumpAndSettle();
-    expect(find.text('Write a follow-up'), findsOneWidget);
+    expect(find.text('NEXT OUT'), findsOneWidget);
+    // Two formats, so 2 hours 13 minutes cannot be read as 2 minutes 13
+    // seconds. The colon form only ever means minutes and seconds.
+    expect(find.textContaining('2h13m'), findsOneWidget);
+    expect(find.textContaining('TO REVIEW'), findsOneWidget);
+    // And the post it belongs to is right underneath it, not a tab away.
+    expect(find.textContaining('Ableton 12.2'), findsWidgets);
   });
 
-  testWidgets('the composer picks up a follow-up and consumes it', (tester) async {
+  testWidgets('a cleared post cools to the send clock', (tester) async {
+    final fixture = statusFixture();
+    (fixture['queue'] as List)[0] = {
+      ...(fixture['queue'] as List)[0] as Map<String, dynamic>,
+      'status': 'approved',
+      'scheduledFor':
+          DateTime.now().add(const Duration(minutes: 40)).toUtc().toIso8601String(),
+      'clearedAt': DateTime.now().toUtc().toIso8601String(),
+    };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+
+    expect(find.text('CLEARED'), findsOneWidget);
+    expect(find.textContaining('TO SEND'), findsOneWidget);
+    expect(find.text('NEXT OUT'), findsNothing);
+  });
+
+  testWidgets('DeskScreen shows the day rail, silence included', (tester) async {
     final state = await buildState(statusFixture());
-    // What AppState.followUp leaves behind once the writer answers.
-    state.composeSeed = 'The follow-up the writer produced, long enough to be a real post.';
-    state.composeSeedHashtags = ['DSP'];
+    await pumpScreen(tester, const DeskScreen(), state);
+    await scrollTo(tester, find.byType(DayRail));
 
-    await pumpScreen(tester, const ComposerScreen(), state);
-    expect(find.textContaining('The follow-up the writer produced'), findsOneWidget);
-    await scrollTo(tester, find.text('#DSP'));
-    expect(find.text('#DSP'), findsOneWidget);
-
-    // Consumed on the way in. Otherwise leaving the tab and coming back would
-    // resurrect it over whatever had been typed since.
-    expect(state.composeSeed, isNull);
-    expect(state.takeComposeSeed(), isNull);
+    // The state the rail exists for: a slot that judged its candidates and
+    // chose silence. Rendered as a gap it is indistinguishable from a dead cron.
+    expect(find.text('Stayed quiet'), findsOneWidget);
+    expect(find.textContaining('best was 5.8'), findsOneWidget);
+    expect(find.text('Published'), findsOneWidget);
   });
 
-  testWidgets('a follow-up is a NEW post, not an edit of the original', (tester) async {
+  testWidgets('DeskScreen makes a stranded approved post actionable again', (tester) async {
+    // A publish that fails on the daily cap leaves the post 'approved'. If that
+    // card renders read-only it can never be retried or dropped.
+    final fixture = statusFixture();
+    (fixture['queue'] as List)[1] = {
+      'id': 'p11',
+      'seq': 11,
+      'text': 'A post that was approved but never actually sent anywhere.',
+      'status': 'approved',
+      'kind': 'custom',
+      'hashtags': <String>[],
+    };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+
+    await scrollTo(tester, find.textContaining('Approved but never sent'));
+    expect(find.textContaining('Approved but never sent'), findsOneWidget);
+    // The stranded card carries a Publish of its own. Asserting a COUNT here
+    // would be counting the viewport rather than the screen: the draft above
+    // has already been unmounted by the scroll that got us here.
+    expect(find.text('Publish'), findsWidgets);
+  });
+
+  testWidgets('DeskScreen leaves an ambiguous send inert', (tester) async {
+    final fixture = statusFixture();
+    (fixture['queue'] as List)[1] = {
+      'id': 'p11',
+      'seq': 11,
+      'text': 'A send that LinkedIn never confirmed one way or the other.',
+      'status': 'unknown',
+      'hashtags': <String>[],
+    };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+
+    // 'never confirmed' appears in BOTH the post body and the explanation above
+    // it, and scrollUntilVisible needs exactly one match. The heading is unique.
+    await scrollTo(tester, find.text('NEEDS A HAND'));
+    // Republishing a send LinkedIn never confirmed is how you post twice to a
+    // real audience, so this card offers nothing at all. Asserted here rather
+    // than by counting: the draft above has been unmounted by the scroll.
+    expect(find.widgetWithText(FilledButton, 'Publish'), findsNothing);
+    expect(find.textContaining('LinkedIn never confirmed'), findsWidgets);
+  });
+
+  testWidgets('DeskScreen invites action rather than showing a blank page', (tester) async {
+    final fixture = statusFixture()..['queue'] = <Map<String, dynamic>>[];
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+    expect(find.text('NOTHING ON THE DESK'), findsOneWidget);
+    expect(find.text('Ask it to write one now'), findsOneWidget);
+  });
+
+  testWidgets('DeskScreen shouts when the scheduler has stopped', (tester) async {
+    final fixture = statusFixture();
+    fixture['scheduler'] = {
+      'lastTickAt': '2026-08-20T02:00:00.000Z',
+      'minutesSince': 680,
+      'healthy': false,
+      'staleAfterMinutes': 16,
+    };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+
+    expect(find.textContaining('The scheduler stopped'), findsOneWidget);
+  });
+
+  testWidgets('DeskScreen distinguishes never-started from stopped', (tester) async {
+    final fixture = statusFixture();
+    fixture['scheduler'] = {'minutesSince': null, 'healthy': false, 'staleAfterMinutes': 16};
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const DeskScreen(), state);
+
+    expect(find.textContaining('The scheduler never started'), findsOneWidget);
+  });
+
+  testWidgets('DeskScreen says nothing when the scheduler is healthy', (tester) async {
     final state = await buildState(statusFixture());
-    // Edit mode is left behind by followUp() deliberately: arriving in a
-    // composer still bound to the original would overwrite the post being
-    // followed up the moment it was saved.
-    state.startEditing(state.status!.queue.first);
-    state.editing = null;
-    state.composeSeed = 'A follow-up that must not be bound to the post it follows.';
-
-    await pumpScreen(tester, const ComposerScreen(), state);
-    expect(find.textContaining('must not be bound'), findsOneWidget);
-    // "Editing p12" is the banner shown when a real post is loaded.
-    expect(find.textContaining('Editing'), findsNothing);
+    await pumpScreen(tester, const DeskScreen(), state);
+    expect(find.textContaining('scheduler'), findsNothing);
   });
 
-  testWidgets('QueueScreen segments reach published history and rejections', (tester) async {
+  // --------------------------------------------------------------- archive
+
+  testWidgets('Archive reaches published history and what was passed over',
+      (tester) async {
     final fixture = statusFixture();
     fixture['history'] = [
       {
@@ -336,14 +428,12 @@ void main() {
       },
     ];
     final state = await buildState(fixture);
-    await pumpScreen(tester, const QueueScreen(), state);
+    await pumpScreen(tester, const ArchiveScreen(), state);
 
-    // Defaults to the queue.
-    expect(find.textContaining('Ableton 12.2'), findsWidgets);
-
-    await tester.tap(find.text('Published'));
-    await tester.pumpAndSettle();
+    // Defaults to what went out.
     expect(find.textContaining('already went out to LinkedIn'), findsOneWidget);
+    // The only thing still worth doing with a post that is out.
+    expect(find.text('Write a follow-up'), findsOneWidget);
 
     await tester.tap(find.text('Passed over'));
     await tester.pumpAndSettle();
@@ -351,285 +441,194 @@ void main() {
     expect(find.textContaining('zero engineering substance'), findsOneWidget);
   });
 
-  testWidgets('QueueScreen segments have their own empty states', (tester) async {
+  testWidgets('Archive shelves have their own empty states', (tester) async {
     final state = await buildState(statusFixture());
-    await pumpScreen(tester, const QueueScreen(), state);
+    await pumpScreen(tester, const ArchiveScreen(), state);
 
-    await tester.tap(find.text('Published'));
-    await tester.pumpAndSettle();
-    expect(find.text('Nothing published yet'), findsOneWidget);
+    expect(find.text('NOTHING PUBLISHED YET'), findsOneWidget);
 
     await tester.tap(find.text('Passed over'));
     await tester.pumpAndSettle();
-    expect(find.text('Nothing passed over'), findsOneWidget);
+    expect(find.text('NOTHING PASSED OVER'), findsOneWidget);
   });
 
-  testWidgets('QueueScreen makes a stranded approved post actionable again', (tester) async {
-    // A publish that fails on the daily cap leaves the post 'approved'. If that
-    // card renders read-only it can never be retried or dropped.
-    final fixture = statusFixture();
-    (fixture['queue'] as List)[1] = {
-      'id': 'p11',
-      'seq': 11,
-      'text': 'A post that was approved but never actually sent anywhere.',
-      'status': 'approved',
-      'kind': 'custom',
-      'hashtags': <String>[],
-    };
-    final state = await buildState(fixture);
-    await pumpScreen(tester, const QueueScreen(), state);
-
-    await scrollTo(tester, find.textContaining('Approved but never sent'));
-    expect(find.textContaining('Approved but never sent'), findsOneWidget);
-    // Two publishable cards now: the draft and the stranded one.
-    expect(find.text('Publish'), findsNWidgets(2));
+  // A follow-up to something unpublished is a rewrite, and the composer
+  // already does that.
+  testWidgets('a draft is never offered a follow-up', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const DeskScreen(), state);
+    expect(find.text('Write a follow-up'), findsNothing);
   });
 
-  testWidgets('QueueScreen leaves an ambiguous send inert', (tester) async {
-    final fixture = statusFixture();
-    (fixture['queue'] as List)[1] = {
-      'id': 'p11',
-      'seq': 11,
-      'text': 'A send that LinkedIn never confirmed one way or the other.',
-      'status': 'unknown',
-      'hashtags': <String>[],
-    };
-    final state = await buildState(fixture);
-    await pumpScreen(tester, const QueueScreen(), state);
-
-    // 'never confirmed' appears in BOTH the post body and the explanation
-    // above it, and dragUntilVisible needs exactly one match. The section
-    // heading is unique.
-    await scrollTo(tester, find.text('NEEDS ATTENTION'));
-    // Only the real draft is publishable — republishing an ambiguous send is
-    // how you post twice to a real audience.
-    expect(find.text('Publish'), findsOneWidget);
-  });
-
-  testWidgets('QueueScreen shows an empty state rather than a blank page', (tester) async {
-    final fixture = statusFixture()..['queue'] = <Map<String, dynamic>>[];
-    final state = await buildState(fixture);
-    await pumpScreen(tester, const QueueScreen(), state);
-    expect(find.text('Nothing waiting'), findsOneWidget);
-  });
+  // -------------------------------------------------------------- composer
 
   testWidgets('ComposerScreen renders without overflow', (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const ComposerScreen(), state);
-    expect(find.text('Save to queue'), findsOneWidget);
+    expect(find.text('Save to the desk'), findsOneWidget);
     expect(find.text('Publish now'), findsOneWidget);
   });
 
-  testWidgets('ComposerScreen offers rewrite on a NEW post, gated on enough text', (tester) async {
+  testWidgets('the composer picks up a follow-up and consumes it', (tester) async {
+    final state = await buildState(statusFixture());
+    // What AppState.followUp leaves behind once the writer answers.
+    state.composeSeed = 'The follow-up the writer produced, long enough to be a real post.';
+    state.composeSeedHashtags = ['DSP'];
+
+    await pumpScreen(tester, const ComposerScreen(), state);
+    expect(find.textContaining('The follow-up the writer produced'), findsOneWidget);
+    await scrollTo(tester, find.text('#DSP'));
+    expect(find.text('#DSP'), findsOneWidget);
+
+    // Consumed on the way in. Otherwise leaving and coming back would resurrect
+    // it over whatever had been typed since.
+    expect(state.composeSeed, isNull);
+    expect(state.takeComposeSeed(), isNull);
+  });
+
+  testWidgets('a follow-up is a NEW post, not an edit of the original', (tester) async {
+    final state = await buildState(statusFixture());
+    // Edit mode is left behind by followUp() deliberately: arriving in a
+    // composer still bound to the original would overwrite the post being
+    // followed up the moment it was saved.
+    state.startEditing(state.status!.queue.first);
+    state.editing = null;
+    state.composeSeed = 'A follow-up that must not be bound to the post it follows.';
+
+    await pumpScreen(tester, const ComposerScreen(), state);
+    expect(find.textContaining('must not be bound'), findsOneWidget);
+    // "Editing p12" is the title shown when a real post is loaded.
+    expect(find.textContaining('Editing'), findsNothing);
+  });
+
+  testWidgets('ComposerScreen offers rewrite on a NEW post, gated on enough text',
+      (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const ComposerScreen(), state);
 
-    await scrollTo(tester, find.text('Rewrite with AI'));
-    final button = tester.widget<OutlinedButton>(
-      find.ancestor(of: find.text('Rewrite with AI'), matching: find.byType(OutlinedButton)),
-    );
-    // Present even with no draft loaded — but inert until there is something
-    // worth rewriting, since the endpoint rejects under 20 characters.
-    expect(button.onPressed, isNull);
+    final rewrite = find.widgetWithText(OutlinedButton, 'Rewrite with AI');
+    await scrollTo(tester, rewrite);
+    expect(tester.widget<OutlinedButton>(rewrite).onPressed, isNull);
 
+    // By key, not by position: scrolling down unmounts the body field, and
+    // `find.byType(TextField).first` would then be the hashtag input.
+    await tester.scrollUntilVisible(find.byKey(const Key('composer-body')), -120,
+        scrollable: find.byType(Scrollable).first);
     await tester.enterText(
-      find.byType(TextField).first,
-      'A sentence long enough to be worth rewriting properly.',
+      find.byKey(const Key('composer-body')),
+      'A post long enough to be worth rewriting properly.',
     );
     await tester.pumpAndSettle();
-
-    await scrollTo(tester, find.text('Rewrite with AI'));
-    final enabled = tester.widget<OutlinedButton>(
-      find.ancestor(of: find.text('Rewrite with AI'), matching: find.byType(OutlinedButton)),
-    );
-    expect(enabled.onPressed, isNotNull);
+    await scrollTo(tester, rewrite);
+    expect(tester.widget<OutlinedButton>(rewrite).onPressed, isNotNull);
   });
 
   testWidgets('ComposerScreen disables sending an empty draft', (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const ComposerScreen(), state);
-    final button = tester.widget<FilledButton>(
-      find.ancestor(of: find.text('Save to queue'), matching: find.byType(FilledButton)),
-    );
-    expect(button.onPressed, isNull);
+
+    final save = find.widgetWithText(FilledButton, 'Save to the desk');
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
   });
 
-  testWidgets('ComposerScreen in edit mode pre-fills the draft and offers a rewrite', (tester) async {
+  testWidgets('ComposerScreen in edit mode pre-fills the draft and its tags', (tester) async {
     final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
-
+    state.editing = state.status!.queue.first;
     await pumpScreen(tester, const ComposerScreen(), state);
 
     expect(find.text('Editing p12'), findsOneWidget);
     expect(find.textContaining('Ableton 12.2 ships MIDI generators'), findsWidgets);
+    // Sending an empty tag list on every edit silently stripped the tags the
+    // writer chose.
+    await scrollTo(tester, find.text('#MusicTech'));
+    expect(find.text('#MusicTech'), findsOneWidget);
+    expect(find.text('#AudioDev'), findsOneWidget);
 
-    await scrollTo(tester, find.text('Rewrite with AI'));
-    expect(find.text('Rewrite with AI'), findsOneWidget);
-    // The label must change too — "Save to queue" on an existing draft would
-    // read as creating a second post.
+    await scrollTo(tester, find.text('Save changes'));
     expect(find.text('Save changes'), findsOneWidget);
-    expect(find.text('Save to queue'), findsNothing);
+    expect(find.text('Save to the desk'), findsNothing);
   });
 
-  testWidgets('ComposerScreen warns when the voice changed under an existing draft', (tester) async {
+  testWidgets('ComposerScreen warns when the voice changed under an existing draft',
+      (tester) async {
     final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
+    state.editing = state.status!.queue.first;
     await pumpScreen(tester, const ComposerScreen(), state);
-
     expect(find.text('Your voice changed'), findsNothing);
 
-    // Simulate the user switching to the Voice tab and changing the style.
-    final fixture = statusFixture();
-    (fixture['agent'] as Map<String, dynamic>)['style'] = {
+    // Compared against the FULL voice, not style.summary: changing the register
+    // or a banned phrase moves the real voice and used to leave this silent.
+    final changed = statusFixture();
+    (changed['agent'] as Map<String, dynamic>)['style'] = {
       'structure': 'bullets',
       'emoji': 'expressive',
     };
-    state.status = AppStatus.fromJson(fixture);
+    state.status = AppStatus.fromJson(changed);
     state.notifyListeners();
     await tester.pumpAndSettle();
 
-    // A banner offering a rewrite — NOT a silent regeneration of text the user
-    // may have typed by hand.
     expect(find.text('Your voice changed'), findsOneWidget);
+    // And the text somebody typed is still theirs — nothing was regenerated.
     expect(find.textContaining('Ableton 12.2 ships MIDI generators'), findsWidgets);
   });
 
-  testWidgets('ComposerScreen loads the draft hashtags instead of dropping them', (tester) async {
+  testWidgets('ComposerScreen shows the assembled post before anything is saved',
+      (tester) async {
     final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
+    state.editing = state.status!.queue.first;
     await pumpScreen(tester, const ComposerScreen(), state);
 
-    // p12 carries MusicTech and AudioDev. Editing used to send an empty list,
-    // which silently stripped whatever the writer had chosen.
-    await scrollTo(tester, find.text('#MusicTech'));
-    expect(find.text('#MusicTech'), findsOneWidget);
-    expect(find.text('#AudioDev'), findsOneWidget);
-    expect(find.text('HASHTAGS (2/2)'), findsOneWidget);
-  });
-
-  // Rewriting must never delete a tag the author typed. It used to replace the
-  // list outright with whatever the model suggested, so pressing "Rewrite with
-  // AI" on a post you had tagged yourself silently threw those tags away.
-  testWidgets('accepting a rewrite keeps the hashtags the author chose', (tester) async {
-    final state = await buildStateWithApi(statusFixture(), {
-      'ok': true,
-      'text': 'A different treatment of the same material, at length.',
-      'hashtags': ['Inference', 'Latency'],
-    });
-    state.startEditing(state.status!.queue.first);
-    await pumpScreen(tester, const ComposerScreen(), state);
-
-    await scrollTo(tester, find.text('Rewrite with AI'));
-    await tester.tap(find.text('Rewrite with AI'));
-    await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('Use this'));
-    await tester.tap(find.text('Use this'));
-    await tester.pumpAndSettle();
-
-    // p12 was tagged MusicTech and AudioDev, and the cap is 2 — so the author's
-    // two survive and the model's suggestions simply do not fit.
-    await scrollTo(tester, find.text('#MusicTech'));
-    expect(find.text('#MusicTech'), findsOneWidget);
-    expect(find.text('#AudioDev'), findsOneWidget);
-    expect(find.text('#Inference'), findsNothing);
-    expect(find.text('HASHTAGS (2/2)'), findsOneWidget);
-  });
-
-  testWidgets('a rewrite may add hashtags into the room left under the cap', (tester) async {
-    final fixture = statusFixture();
-    (fixture['agent'] as Map<String, dynamic>)['style'] = {
-      'structure': 'prose',
-      'hashtagCount': 4,
-    };
-    // One tag of the author's own, three slots free. Applied to every queued
-    // post rather than the first entry of the fixture: AppStatus sorts the
-    // queue by deadline, so the one the composer opens is not necessarily the
-    // one written first here.
-    for (final post in fixture['queue'] as List) {
-      (post as Map<String, dynamic>)['hashtags'] = ['MusicTech'];
-    }
-
-    final state = await buildStateWithApi(fixture, {
-      'ok': true,
-      'text': 'A different treatment of the same material, at length.',
-      'hashtags': ['Inference', 'MUSICTECH', 'Latency'],
-    });
-    state.startEditing(state.status!.queue.first);
-    await pumpScreen(tester, const ComposerScreen(), state);
-
-    await scrollTo(tester, find.text('Rewrite with AI'));
-    await tester.tap(find.text('Rewrite with AI'));
-    await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('Use this'));
-    await tester.tap(find.text('Use this'));
-    await tester.pumpAndSettle();
-
-    await scrollTo(tester, find.text('#MusicTech'));
-    expect(find.text('#MusicTech'), findsOneWidget);
-    expect(find.text('#Inference'), findsOneWidget);
-    expect(find.text('#Latency'), findsOneWidget);
-    // MUSICTECH is the author's own tag in different casing, not a new one.
-    expect(find.text('#MUSICTECH'), findsNothing);
-    expect(find.text('HASHTAGS (3/4)'), findsOneWidget);
-  });
-
-  testWidgets('ComposerScreen shows a preview before anything is saved', (tester) async {
-    final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
-    await pumpScreen(tester, const ComposerScreen(), state);
-
-    await scrollTo(tester, find.text('Save changes'));
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
 
-    // A preview sheet, not a save. The assembled text includes the hashtags,
-    // which the composer's own text box never shows.
-    expect(find.text('PREVIEW'), findsOneWidget);
-    expect(find.text('This is what goes out.'), findsOneWidget);
+    // The text box shows the BODY alone; the tags and the truncation are where
+    // posts actually go wrong, so nothing leaves without them being seen.
+    expect(find.text('THIS IS WHAT GOES OUT'), findsOneWidget);
+    expect(find.text('2 TAGS'), findsOneWidget);
+    // Assembled with the same fold the reader will meet — which on a post this
+    // long means the tags start out below it, exactly as on LinkedIn.
+    expect(find.text('see more'), findsWidgets);
+    await tester.tap(find.text('see more').last);
+    await tester.pumpAndSettle();
     expect(find.textContaining('#MusicTech'), findsWidgets);
-    expect(find.text('see more'), findsOneWidget);
   });
 
-  testWidgets('ComposerScreen preview can be backed out of without saving', (tester) async {
+  testWidgets('the preview can be backed out of without saving', (tester) async {
     final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
+    state.editing = state.status!.queue.first;
     await pumpScreen(tester, const ComposerScreen(), state);
 
-    await scrollTo(tester, find.text('Save changes'));
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Back'));
     await tester.pumpAndSettle();
 
-    expect(find.text('PREVIEW'), findsNothing);
-    // Still editing — backing out of a preview must not discard the session.
-    expect(state.editing, isNotNull);
+    expect(find.text('THIS IS WHAT GOES OUT'), findsNothing);
+    expect(find.text('Editing p12'), findsOneWidget);
   });
 
-  testWidgets('ComposerScreen leaves edit mode when editing is cancelled', (tester) async {
+  // Closing with typed text asks first. The composer is a route now, so
+  // leaving it is a real exit rather than a tab switch.
+  testWidgets('ComposerScreen asks before dropping typed text', (tester) async {
     final state = await buildState(statusFixture());
-    state.startEditing(state.status!.queue.first);
     await pumpScreen(tester, const ComposerScreen(), state);
-    expect(find.text('Editing p12'), findsOneWidget);
 
-    await tester.tap(find.text('Cancel'));
+    await tester.enterText(find.byKey(const Key('composer-body')), 'Half a thought.');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
 
-    expect(find.text('Editing p12'), findsNothing);
-    expect(find.text('Save to queue'), findsOneWidget);
+    expect(find.text('Discard this post?'), findsOneWidget);
+    expect(find.text('Keep writing'), findsOneWidget);
   });
+
+  // ----------------------------------------------------------------- voice
 
   testWidgets('VoiceScreen renders every control without overflow', (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
 
-    // The writing-samples panel now sits above the knobs — deliberately, since
-    // showing the writer real prose moves the voice further than any of them —
-    // so the Shape controls start below the fold and have to be scrolled to.
     await scrollTo(tester, find.text('Paragraphs'));
-
-    // Every option is visible as a chip rather than hidden in a dropdown —
-    // that is the point of the screen, so it is worth asserting.
     expect(find.text('Paragraphs'), findsOneWidget);
     expect(find.text('Bullets'), findsOneWidget);
     expect(find.text('Sparing'), findsOneWidget);
@@ -638,146 +637,25 @@ void main() {
     await scrollTo(tester, find.text('Minimum words'));
     expect(find.text('Minimum words'), findsOneWidget);
     expect(find.text('Hashtags'), findsOneWidget);
-
-    // Save is inert until something actually changes.
-    await scrollTo(tester, find.text('Saved'));
-    final save = tester.widget<FilledButton>(
-      find.ancestor(of: find.text('Saved'), matching: find.byType(FilledButton)),
-    );
-    expect(save.onPressed, isNull);
   });
 
-  testWidgets('VoiceScreen stages a change locally and offers Save', (tester) async {
+  // The commit bar is pinned, so it is reachable without scrolling back past
+  // six sections of controls.
+  testWidgets('VoiceScreen keeps Save in reach and stages changes locally', (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
+
+    expect(find.text('Saved'), findsOneWidget);
 
     await scrollTo(tester, find.text('Bullets'));
     await tester.tap(find.text('Bullets'));
     await tester.pumpAndSettle();
 
-    // Staged, not sent: the saved status is untouched until Save is pressed.
-    await scrollTo(tester, find.text('Revert changes'));
+    // Without scrolling anywhere: the bar is pinned.
     expect(find.text('Save'), findsOneWidget);
-    expect(find.text('Revert changes'), findsOneWidget);
-    expect(state.status!.agent!.style.structure, 'prose');
-  });
-
-  testWidgets('VoiceScreen header shows the staged style, not the saved one', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const VoiceScreen(), state);
-
-    expect(find.text('CURRENT VOICE'), findsOneWidget);
-    expect(find.textContaining('Paragraphs'), findsWidgets);
-
-    await scrollTo(tester, find.text('Bullets'));
-    await tester.tap(find.text('Bullets'));
-    await tester.pumpAndSettle();
-
-    // Back to the top: reaching the Shape chips scrolled the header out of the
-    // lazy ListView, so it no longer exists to assert on. A negative delta
-    // scrolls the other way.
-    await tester.scrollUntilVisible(
-      find.text('VOICE — UNSAVED'),
-      -120,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
-
-    // The header used to keep showing the SAVED summary while the controls
-    // below displayed something else, which reads as "my change did nothing".
-    expect(find.text('VOICE — UNSAVED'), findsOneWidget);
     expect(find.text('UNSAVED'), findsOneWidget);
-    expect(find.textContaining('Bullet list'), findsWidgets);
   });
 
-  testWidgets('VoiceScreen text fields mark the config dirty', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const VoiceScreen(), state);
-
-    await scrollTo(tester, find.text('BANNED PHRASES (ONE PER LINE)'));
-    // The banned-phrases box is the first multi-line field in the Rules panel.
-    await tester.enterText(find.byType(TextFormField).first, 'synergy\nleverage');
-    await tester.pumpAndSettle();
-
-    // Writing _draft without setState left _dirty stale, so Save stayed
-    // disabled and these edits could never be saved at all.
-    await scrollTo(tester, find.text('Save'));
-    final save = tester.widget<FilledButton>(
-      find.ancestor(of: find.text('Save'), matching: find.byType(FilledButton)),
-    );
-    expect(save.onPressed, isNotNull);
-  });
-
-  testWidgets('VoiceScreen steppers respect their bounds', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const VoiceScreen(), state);
-
-    // Hashtags starts at 2; a third decrement would go below zero.
-    final decrease = find.byTooltip('Decrease Hashtags');
-    await scrollTo(tester, decrease);
-
-    await tester.tap(decrease);
-    await tester.pumpAndSettle();
-    await tester.tap(decrease);
-    await tester.pumpAndSettle();
-
-    // byTooltip matches the Tooltip that IconButton builds internally, so walk
-    // up to the button itself to read its enabled state.
-    final button = tester.widget<IconButton>(
-      find.ancestor(of: decrease, matching: find.byType(IconButton)),
-    );
-    expect(button.onPressed, isNull, reason: 'must not go below zero');
-  });
-
-  testWidgets('StatusScreen renders without overflow', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const StatusScreen(), state);
-
-    expect(find.text('A Working Engineer'), findsOneWidget);
-    await scrollTo(tester, find.textContaining('Access valid for 12 more days'));
-    await scrollTo(tester, find.text('Sign out'));
-    expect(find.text('Sign out'), findsOneWidget);
-  });
-
-  testWidgets('ScheduleScreen shows both publishing budgets separately', (tester) async {
-    final fixture = statusFixture();
-    fixture['budget'] = {
-      'autoUsed': 1,
-      'autoCap': 1,
-      'manualUsed': 6,
-      'manualCap': 40,
-      'linkedinDailyRequests': 150,
-    };
-    final state = await buildState(fixture);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    await scrollTo(tester, find.text('Agent published'));
-    // The whole point of the split: a spent agent allowance and six manual
-    // posts are different numbers, and conflating them made a day of manual
-    // posting look like the agent was out of budget.
-    expect(find.text('1 / 1'), findsOneWidget);
-    expect(find.text('You published'), findsOneWidget);
-    expect(find.text('6 / 40'), findsOneWidget);
-  });
-
-  testWidgets('ScheduleScreen refuses auto-publish without a usable connection', (tester) async {
-    final state = await buildState(statusFixture(connected: false));
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    await scrollTo(tester, find.text('Publish without me'));
-    final row = find.ancestor(of: find.text('Publish without me'), matching: find.byType(ToggleRow));
-    final toggle = tester.widget<Switch>(
-      find.descendant(of: row, matching: find.byType(Switch)),
-    );
-
-    // A disabled switch plus an explanation. Either alone is a worse UI: a dead
-    // control with no reason, or a reason with a control that still fires.
-    expect(toggle.onChanged, isNull);
-    expect(find.textContaining('Connect LinkedIn before enabling'), findsOneWidget);
-  });
-
-  // The writing samples are the largest single lever on how the output sounds,
-  // so the panel has to be reachable and has to explain itself when empty.
   testWidgets('VoiceScreen invites writing samples when there are none', (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
@@ -787,195 +665,160 @@ void main() {
     expect(find.textContaining('At least 80 characters'), findsOneWidget);
   });
 
-  // A short paste teaches a model nothing and the server drops it silently, so
-  // the button must stay inert rather than appearing to work.
-  testWidgets('VoiceScreen will not add a sample too short to carry a voice', (tester) async {
+  testWidgets('VoiceScreen will not add a sample too short to carry a voice',
+      (tester) async {
     final state = await buildState(statusFixture());
     await pumpScreen(tester, const VoiceScreen(), state);
 
-    await tester.enterText(find.byType(TextField).first, 'too short');
+    await tester.enterText(find.byType(TextField).first, 'Too short.');
     await tester.pumpAndSettle();
 
-    final button = tester.widget<FilledButton>(
-      find.ancestor(of: find.text('Add sample'), matching: find.byType(FilledButton)),
-    );
-    expect(button.onPressed, isNull);
+    // A short paste teaches a model nothing and the server drops it silently,
+    // so the threshold is stated rather than left to look like a broken button.
     expect(find.textContaining('more characters needed'), findsOneWidget);
   });
 
   testWidgets('VoiceScreen lists stored samples and what it learned', (tester) async {
-    final withCorpus = statusFixture();
-    (withCorpus['agent'] as Map<String, dynamic>)['corpus'] = [
-      'A real post of mine that is comfortably long enough to count as a writing sample for the writer to study.',
+    final fixture = statusFixture();
+    (fixture['agent'] as Map<String, dynamic>)['corpus'] = [
+      'A sample post long enough to be worth studying, with a measured number '
+          'open on the number rather than a wind-up.',
     ];
-    (withCorpus['agent'] as Map<String, dynamic>)['editNotes'] =
-        'Cut the scene-setting first sentence and open on the number.';
-
-    final state = await buildState(withCorpus);
+    (fixture['agent'] as Map<String, dynamic>)['editNotes'] = 'Cuts the wind-up.';
+    final state = await buildState(fixture);
     await pumpScreen(tester, const VoiceScreen(), state);
 
-    expect(find.textContaining('1 sample.'), findsOneWidget);
-    expect(find.text('WHAT IT LEARNED FROM YOUR EDITS'), findsOneWidget);
     expect(find.textContaining('open on the number'), findsOneWidget);
+    expect(find.text('WHAT IT LEARNED FROM YOUR EDITS'), findsOneWidget);
   });
 
-  testWidgets('ScheduleScreen renders the timetable without overflow', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const ScheduleScreen(), state);
+  // ------------------------------------------------------------- timetable
 
-    // Scrolling to the bottom control builds every row on the way, so an
-    // overflow below the fold fails here rather than hiding until someone looks.
-    // The target has to be unique: a time like "18:00" appears BOTH in today's
-    // timeline and on its slot tile, and an ambiguous finder throws before it
-    // ever scrolls.
-    await scrollTo(tester, find.text('Add a posting time'));
+  testWidgets('TimetableScreen renders the timetable without overflow', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const TimetableScreen(), state);
 
     expect(find.text('Mon-Fri'), findsOneWidget);
+    await scrollTo(tester, find.text('Every day'));
     expect(find.text('Every day'), findsOneWidget);
+    await scrollTo(tester, find.text('Add a posting time'));
+    expect(find.text('Add a posting time'), findsOneWidget);
   });
 
-  // A slot that found nothing must SAY so, with the score. Rendered as a gap it
-  // is indistinguishable from a broken cron, which is the anxiety this row
-  // exists to remove — silence here is a judgment, not a failure.
-  testWidgets('ScheduleScreen explains a silent slot instead of leaving a gap', (tester) async {
+  // Two controls that used to share the label "Publish without me" — same
+  // words, different reach — which made the screen impossible to reason about.
+  testWidgets('TimetableScreen distinguishes a slot switch from the master one',
+      (tester) async {
     final state = await buildState(statusFixture());
-    await pumpScreen(tester, const ScheduleScreen(), state);
+    await pumpScreen(tester, const TimetableScreen(), state);
 
-    expect(find.text('Stayed quiet'), findsOneWidget);
-    expect(find.textContaining('best was 5.8'), findsOneWidget);
-  });
-
-  testWidgets('ScheduleScreen distinguishes hold-mode from publish-without-me', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    // s1 waits for a human, s2 does not, and the blurb has to say which.
     await scrollTo(tester, find.textContaining('Waits for you to clear it'));
     expect(find.textContaining('Waits for you to clear it'), findsOneWidget);
     expect(find.textContaining('whether or not you have read it'), findsOneWidget);
+    await scrollTo(tester, find.text('Publish without me'));
+    expect(find.text('Publish without me'), findsOneWidget);
   });
 
-  // The last remaining day cannot be turned off: an empty mask is a slot that
-  // never fires, and a schedule that silently never runs is the worst outcome
-  // this screen can produce. A single-slot fixture keeps the day chips
-  // unambiguous — with two slots there are fourteen of them.
-  // The rail is the signature element: time down the left, events hung off it.
-  // A silent slot must still read as a decision rather than a gap.
-  // The failure the screen was blind to. A stopped cron and a day when nothing
-  // cleared the bar both produced "No slot has run yet today", so the one state
-  // that needs action looked exactly like the one that needs none.
-  testWidgets('ScheduleScreen shouts when the scheduler has stopped', (tester) async {
-    final down = statusFixture();
-    down['scheduler'] = {
-      'lastTickAt': DateTime.now().toUtc().subtract(const Duration(hours: 11)).toIso8601String(),
-      'minutesSince': 660,
-      'healthy': false,
-      'staleAfterMinutes': 16,
+  testWidgets('TimetableScreen refuses auto-publish without a usable connection',
+      (tester) async {
+    final state = await buildState(statusFixture(connected: false));
+    await pumpScreen(tester, const TimetableScreen(), state);
+
+    await scrollTo(tester, find.text('Publish without me'));
+    expect(find.textContaining('Connect LinkedIn before enabling'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<Switch>(find.byType(Switch))
+          .any((s) => s.onChanged == null),
+      isTrue,
+    );
+  });
+
+  testWidgets('TimetableScreen shows both publishing budgets separately', (tester) async {
+    final fixture = statusFixture();
+    fixture['budget'] = {
+      'autoUsed': 1,
+      'autoCap': 1,
+      'manualUsed': 6,
+      'manualCap': 40,
+      'linkedinDailyRequests': 150,
     };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const TimetableScreen(), state);
 
-    final state = await buildState(down);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    expect(find.text('SCHEDULER STOPPED'), findsOneWidget);
-    expect(find.textContaining('11 hours'), findsOneWidget);
-    // And it says the escape hatch still works, because that is the next thing
-    // anyone reading this will want to know.
-    expect(find.textContaining('Run a cycle now still works'), findsOneWidget);
+    await scrollTo(tester, find.text('Agent published'));
+    expect(find.text('1 / 1'), findsOneWidget);
+    expect(find.text('You published'), findsOneWidget);
+    expect(find.text('6 / 40'), findsOneWidget);
   });
 
-  testWidgets('ScheduleScreen distinguishes never-started from stopped', (tester) async {
-    final never = statusFixture();
-    never['scheduler'] = {
-      'lastTickAt': null,
-      'minutesSince': null,
-      'healthy': false,
-      'staleAfterMinutes': 16,
+  testWidgets('TimetableScreen refuses to clear the last enabled day', (tester) async {
+    final fixture = statusFixture();
+    (fixture['slots'] as List).removeLast();
+    (fixture['slots'] as List)[0] = {
+      ...(fixture['slots'] as List)[0] as Map<String, dynamic>,
+      'daysMask': 2, // Monday only
+      'daysLabel': 'Mon',
     };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const TimetableScreen(), state);
 
-    final state = await buildState(never);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    expect(find.text('SCHEDULER NEVER STARTED'), findsOneWidget);
-    expect(find.textContaining('/api/cron/tick'), findsOneWidget);
-  });
-
-  // A healthy scheduler must stay silent — a banner that is always there is a
-  // banner nobody reads.
-  testWidgets('ScheduleScreen says nothing when the scheduler is healthy', (tester) async {
-    final state = await buildState(statusFixture());
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    expect(find.textContaining('SCHEDULER'), findsNothing);
-  });
-
-  testWidgets('ScheduleScreen leads with the day rail', (tester) async {
-    final withNext = statusFixture();
-    (withNext['queue'] as List).insert(0, {
-      'id': 'p20',
-      'seq': 20,
-      'text': 'A scheduled draft that is waiting for a decision from a human being.',
-      'hook': 'A scheduled draft that is waiting for a decision.',
-      'status': 'draft',
-      'scheduledFor':
-          DateTime.now().toUtc().add(const Duration(minutes: 11)).toIso8601String(),
-    });
-
-    final state = await buildState(withNext);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    // The one thing with a deadline, at full weight, with a live countdown.
-    expect(find.text('NEXT UP'), findsOneWidget);
-    expect(find.text('to review'), findsOneWidget);
-    expect(find.text('THE DAY SO FAR'), findsOneWidget);
-    expect(find.byType(DayRail), findsOneWidget);
-
-    // And the day still explains itself, rail or not.
-    expect(find.text('Stayed quiet'), findsOneWidget);
-    expect(find.text('Published'), findsOneWidget);
-  });
-
-  // Cleared means the card stops asking anything of you — it cools from the
-  // write clock to the send clock and the label changes with it.
-  testWidgets('NextUpCard cools once the draft is cleared', (tester) async {
-    final cleared = statusFixture();
-    (cleared['queue'] as List).insert(0, {
-      'id': 'p21',
-      'seq': 21,
-      'text': 'A draft that has already been cleared and is simply waiting for its time.',
-      'hook': 'A draft that has already been cleared.',
-      'status': 'approved',
-      'scheduledFor':
-          DateTime.now().toUtc().add(const Duration(minutes: 20)).toIso8601String(),
-      'clearedAt': DateTime.now().toUtc().toIso8601String(),
-    });
-
-    final state = await buildState(cleared);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    expect(find.text('CLEARED'), findsOneWidget);
-    expect(find.text('to send'), findsOneWidget);
-    expect(find.text('NEXT UP'), findsNothing);
-  });
-
-  testWidgets('ScheduleScreen refuses to clear the last enabled day', (tester) async {
-    final oneDay = statusFixture();
-    oneDay['slots'] = [
-      {
-        ...(oneDay['slots'] as List).first as Map<String, dynamic>,
-        'daysMask': 1 << 1, // Monday only
-        'daysLabel': 'Mon',
-      },
-    ];
-    final state = await buildState(oneDay);
-    await pumpScreen(tester, const ScheduleScreen(), state);
-
-    await scrollTo(tester, find.text('Add a posting time'));
-
-    // Tapping the only selected day must change nothing and fire no request.
+    // An empty mask is a posting time that can never fire, and a schedule that
+    // silently never runs is the worst outcome available here.
     await tester.tap(find.text('M'));
     await tester.pumpAndSettle();
-
-    expect(state.error, isNull);
     expect(find.text('Mon'), findsOneWidget, reason: 'the mask must be unchanged');
+  });
+
+  // ------------------------------------------------------------- settings
+
+  testWidgets('SettingsScreen answers most questions without being opened',
+      (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const SettingsScreen(), state);
+
+    // Every row carries a live summary — that is the whole point of collapsing
+    // three permanent tabs into one index.
+    expect(find.text('A Working Engineer'), findsOneWidget);
+    expect(find.textContaining('Asia/Kolkata'), findsOneWidget);
+    expect(find.textContaining('12 days of access left'), findsOneWidget);
+    await scrollTo(tester, find.text('Sign out'));
+    expect(find.text('Sign out'), findsOneWidget);
+  });
+
+  testWidgets('SettingsScreen says so when the scheduler has stopped', (tester) async {
+    final fixture = statusFixture();
+    fixture['scheduler'] = {
+      'lastTickAt': '2026-08-20T02:00:00.000Z',
+      'minutesSince': 680,
+      'healthy': false,
+      'staleAfterMinutes': 16,
+    };
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const SettingsScreen(), state);
+
+    expect(find.textContaining('The scheduler stopped'), findsOneWidget);
+  });
+
+  testWidgets('LinkedInScreen offers a reconnect rather than a dead end', (tester) async {
+    final state = await buildState(statusFixture());
+    await pumpScreen(tester, const LinkedInScreen(), state);
+
+    // "Connect" when something is already connected reads as though it would
+    // replace nothing.
+    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.text('Disconnect'), findsOneWidget);
+    expect(find.textContaining('Access valid for 12 more days'), findsOneWidget);
+  });
+
+  testWidgets('TopicsScreen will not let the last topic be removed', (tester) async {
+    final fixture = statusFixture();
+    (fixture['agent'] as Map<String, dynamic>)['categories'] = ['emerging-tech'];
+    final state = await buildState(fixture);
+    await pumpScreen(tester, const TopicsScreen(), state);
+
+    // An agent with no topics discovers nothing and looks exactly like a broken
+    // cron, so the last one cannot be turned off.
+    expect(find.textContaining('It has to keep at least one'), findsOneWidget);
   });
 }

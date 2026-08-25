@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:linkdin_mobile/api/models.dart';
 import 'package:linkdin_mobile/theme.dart';
-import 'package:linkdin_mobile/widgets/post_card.dart';
+import 'package:linkdin_mobile/widgets/draft_card.dart';
 
 void main() {
   group('StyleConfig', () {
@@ -148,7 +148,7 @@ void main() {
     });
   });
 
-  group('PostCard fold marker', () {
+  group('DraftCard', () {
     Widget wrap(Widget child) => MaterialApp(
           theme: buildTheme(),
           home: Scaffold(body: SingleChildScrollView(child: child)),
@@ -156,7 +156,7 @@ void main() {
 
     testWidgets('a short post shows no fold marker', (tester) async {
       final post = Post.fromJson({'id': 'p1', 'seq': 1, 'text': 'Short one.', 'status': 'draft'});
-      await tester.pumpWidget(wrap(PostCard(post: post)));
+      await tester.pumpWidget(wrap(DraftCard(post: post)));
       expect(find.text('see more'), findsNothing);
     });
 
@@ -167,7 +167,7 @@ void main() {
         'text': 'A' * (kFoldChars + 120),
         'status': 'draft',
       });
-      await tester.pumpWidget(wrap(PostCard(post: post)));
+      await tester.pumpWidget(wrap(DraftCard(post: post)));
       expect(find.text('see more'), findsOneWidget);
     });
 
@@ -183,7 +183,7 @@ void main() {
         'status': 'draft',
       });
 
-      await tester.pumpWidget(wrap(PostCard(post: post)));
+      await tester.pumpWidget(wrap(DraftCard(post: post)));
 
       // Collapsed first: what a reader scrolling their feed sees.
       expect(find.text('see more'), findsOneWidget);
@@ -212,7 +212,7 @@ void main() {
         'status': 'draft',
       });
 
-      await tester.pumpWidget(wrap(PostCard(post: post)));
+      await tester.pumpWidget(wrap(DraftCard(post: post)));
 
       expect(find.text('see more'), findsNothing);
       expect(find.text('see less'), findsNothing);
@@ -221,10 +221,10 @@ void main() {
     testWidgets('draft actions appear only when handlers are given', (tester) async {
       final post = Post.fromJson({'id': 'p3', 'seq': 3, 'text': 'Body text.', 'status': 'draft'});
 
-      await tester.pumpWidget(wrap(PostCard(post: post)));
+      await tester.pumpWidget(wrap(DraftCard(post: post)));
       expect(find.text('Publish'), findsNothing);
 
-      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
+      await tester.pumpWidget(wrap(DraftCard(post: post, actions: DraftActions(onSendNow: () {}))));
       expect(find.text('Publish'), findsOneWidget);
     });
 
@@ -234,7 +234,7 @@ void main() {
     testWidgets('an unscheduled post offers Publish, never Clear', (tester) async {
       final post = Post.fromJson({'id': 'p4', 'seq': 4, 'text': 'Body text.', 'status': 'draft'});
 
-      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
+      await tester.pumpWidget(wrap(DraftCard(post: post, actions: DraftActions(onSendNow: () {}))));
 
       expect(find.text('Publish'), findsOneWidget);
       expect(find.textContaining('Clear'), findsNothing);
@@ -254,12 +254,12 @@ void main() {
       });
 
       await tester.pumpWidget(
-        wrap(PostCard(post: post, onClear: () {}, onSendNow: () {})),
+        wrap(DraftCard(post: post, actions: DraftActions(onClear: () {}, onSendNow: () {}))),
       );
 
       final hhmm =
           '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
-      expect(find.text('Clear for $hhmm'), findsOneWidget);
+      expect(find.text('Clear'), findsOneWidget);
       expect(find.text('Publish'), findsNothing);
       // And the countdown must be on screen — a review window you cannot see
       // the end of is not a review window.
@@ -278,11 +278,11 @@ void main() {
       });
 
       await tester.pumpWidget(
-        wrap(PostCard(post: post, onSendNow: () {}, onSchedule: () {})),
+        wrap(DraftCard(post: post, actions: DraftActions(onSendNow: () {}, onSchedule: () {}))),
       );
 
       expect(find.text('Send at a set time'), findsOneWidget);
-      expect(find.text('optional'), findsOneWidget);
+      expect(find.text('OPTIONAL'), findsOneWidget);
     });
 
     // Once it has a time the countdown replaces the offer — showing both would
@@ -298,7 +298,7 @@ void main() {
       });
 
       await tester.pumpWidget(
-        wrap(PostCard(post: post, onSendNow: () {}, onSchedule: () {}, onUnschedule: () {})),
+        wrap(DraftCard(post: post, actions: DraftActions(onSendNow: () {}, onSchedule: () {}, onUnschedule: () {}))),
       );
 
       expect(find.text('Send at a set time'), findsNothing);
@@ -316,7 +316,7 @@ void main() {
         'clearedAt': DateTime.now().toUtc().toIso8601String(),
       });
 
-      await tester.pumpWidget(wrap(PostCard(post: post, onSendNow: () {})));
+      await tester.pumpWidget(wrap(DraftCard(post: post, actions: DraftActions(onSendNow: () {}))));
 
       expect(find.textContaining('Cleared'), findsOneWidget);
       expect(find.text('Send now'), findsOneWidget);

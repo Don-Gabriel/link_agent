@@ -91,9 +91,19 @@ curl -H "X-Cron-Secret: $CRON_SECRET" https://<your-app>.vercel.app/api/cron/tic
 
 Use [cron-job.org](https://cron-job.org) or a GitHub Actions schedule. Two
 overlapping triggers are harmless — every cycle passes through the same
-advisory lock, and every publish through its own idempotency key. Also worth
-pinging `/api/health` every few minutes if you are on Neon's free tier, which
-autosuspends after ~5 idle minutes.
+advisory lock, and every publish through its own idempotency key.
+
+**Do not add a keep-alive ping.** An earlier version of this file suggested
+hitting `/api/health` every few minutes to stop Neon's free tier autosuspending
+after ~5 idle minutes. Do not: that endpoint runs a query, so pinging it holds
+the compute open around the clock. At Neon's smallest compute that is
+0.25 CU × 730 h = **182 CU-hours a month against a 100 CU-hour allowance** —
+the database is suspended for the last third of every month, and the agent
+stops posting. It buys about a second of cold start and costs the whole budget.
+
+Let it suspend. The tick wakes it, and `connectionTimeoutMillis` in
+[lib/db.ts](lib/db.ts) is already set to 20s precisely so the first request
+after a quiet spell waits for the wake-up instead of failing.
 
 ## Commands
 
