@@ -277,6 +277,34 @@ that one variable in Vercel.
 Without this the first sign would have been a post that failed to send — an
 alert that arrives strictly after the damage.
 
+## 8. Neon's compute allowance runs out — HANDLED BY A SETTING
+
+Neon's free tier gives 100 CU-hours of compute a month. The smallest compute is
+0.25 CU, so the allowance is 400 wall-clock hours of a *running* database —
+against 730 hours in a month. A compute that never suspends therefore uses
+**182 CU-hours**, and the database is dead for the last third of every month.
+
+Two rules keep this comfortable:
+
+**Pin the compute to 0.25 CU, min AND max.** Neon defaults new projects to
+autoscaling `0.25 ↔ 2 CU`. This database is ~30 MB serving small indexed
+queries and never needs more, but the ceiling is real: at 2 CU the same usage
+bills eight times as fast and exhausts the month in about a week. Console →
+Branches → `production` → the Primary compute → Edit → set both ends to
+0.25 CU. Do the same under Settings → Default compute size so new branches
+inherit it.
+
+**Never add a keep-alive ping.** See the warning in the README's cron section.
+Letting the database suspend is the whole reason the budget works.
+
+With both in place the bill is just the tick waking it: a 15-minute cron
+against Neon's 5-minute suspend delay is roughly 6 hours of compute a day,
+about 48 CU-hours a month — comfortably inside the allowance with room for the
+dashboard and the phone.
+
+Watch it on the project dashboard: Compute, "since <date>". Halfway through the
+cycle it should read under 50.
+
 ---
 
 # Security

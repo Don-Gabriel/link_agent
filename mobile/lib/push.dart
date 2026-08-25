@@ -23,9 +23,12 @@ import 'package:provider/provider.dart';
 
 import 'state/app_state.dart';
 
-/// Tab indices, matching the order in home_screen.dart. The server sends a
-/// name rather than a number so the two can be reordered independently.
-const _tabs = {'queue': 0, 'schedule': 1, 'compose': 2, 'voice': 3, 'status': 4};
+/// Destination indices, matching the order in home_screen.dart. The server
+/// sends a NAME rather than a number so the two can be reordered
+/// independently — which is exactly what happened when five tabs became three:
+/// the queue and the timetable are one screen now, and voice and status are
+/// both behind Settings. The server's vocabulary did not have to change.
+const _tabs = {'queue': 0, 'schedule': 0, 'compose': 0, 'voice': 2, 'status': 2};
 
 /// Wire up push for this session.
 ///

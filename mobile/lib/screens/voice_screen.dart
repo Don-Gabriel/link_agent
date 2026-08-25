@@ -1,14 +1,17 @@
 /// The voice editor — every setting from lib/style.ts, on a phone.
 ///
-/// Two decisions shape this screen:
+/// Three decisions shape this screen:
 ///
-/// 1. Segmented chips instead of dropdowns. These option sets are short, and
-///    the user's actual question is "what are my choices" — a dropdown hides
-///    exactly that behind a tap.
+/// 1. Chips instead of dropdowns. These option sets are short, and the real
+///    question is "what are my choices" — a dropdown hides exactly that.
 ///
-/// 2. Edits are staged locally and applied with Save. A dozen controls only
-///    make sense as a combination, and Preview exists so the combination can
-///    be read before it is committed to tomorrow's post.
+/// 2. Edits are staged and applied with Save. A dozen controls only make sense
+///    as a combination, and Preview exists so the combination can be read
+///    before it is committed to tomorrow's post.
+///
+/// 3. Save and Preview live in a bar pinned to the bottom, not at the end of
+///    the scroll. Change a chip at the top of a screen this long and the
+///    control that commits it was six sections away.
 library;
 
 import 'package:flutter/material.dart';
@@ -17,7 +20,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
-import '../widgets/panel.dart';
+import '../widgets/primitives.dart';
 
 class VoiceScreen extends StatefulWidget {
   const VoiceScreen({super.key});
@@ -47,6 +50,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
   }
 
   Future<void> _save() async {
+    final messenger = ScaffoldMessenger.of(context);
     final error = await context.read<AppState>().setStyle(_style);
     if (!mounted) return;
     setState(() {
@@ -54,7 +58,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
       if (error == null) _draft = null; // fall back through to the saved value
     });
     if (error == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice saved.')));
+      messenger.showSnackBar(const SnackBar(content: Text('Voice saved.')));
     }
   }
 
@@ -85,255 +89,239 @@ class _VoiceScreenState extends State<VoiceScreen> {
     final style = _style;
     final sig = style.signature;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
-      children: [
-        Panel(
-          // Show the STAGED style, not the saved one. Showing the saved summary
-          // while the controls below display something else reads as "my change
-          // did nothing" — the header looks like a live readout of the settings
-          // right under it.
-          title: _dirty ? 'Voice — unsaved' : 'Current voice',
-          subtitle: style.summary,
-          trailing: _dirty ? const Badge2('UNSAVED', tone: BadgeTone.warn) : null,
-          child: Wrap(
-            spacing: S.x2,
-            runSpacing: S.x2,
-            children: [
-              for (final preset in state.status?.presets ?? const <StylePreset>[])
-                ActionChip2(
-                  label: preset.label,
-                  tooltip: preset.blurb,
-                  onTap: () => _set(preset.style),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: S.x4),
-
-        // Deliberately above the knobs. Everything below this describes the
-        // voice from the outside; this is the voice itself, and it moves the
-        // output further than any of the settings under it.
-        const _WritingSamplesPanel(),
-        const SizedBox(height: S.x4),
-
-        Panel(
-          title: 'Shape',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Field(
-                label: 'Structure',
-                child: ChoiceRow<String>(
-                  value: style.structure,
-                  options: const {
-                    'prose': 'Paragraphs',
-                    'bullets': 'Bullets',
-                    'short-lines': 'Short lines',
-                    'mixed': 'Lead + bullets',
-                  },
-                  onChanged: (v) => _set(style.copyWith(structure: v)),
-                ),
-              ),
-              Field(
-                label: 'Emoji',
-                child: ChoiceRow<String>(
-                  value: style.emoji,
-                  options: const {'none': 'None', 'sparing': 'Sparing', 'expressive': 'Expressive'},
-                  onChanged: (v) => _set(style.copyWith(emoji: v)),
-                ),
-              ),
-              Field(
-                label: 'Opening line',
-                child: ChoiceRow<String>(
-                  value: style.hook,
-                  options: const {'plain': 'Plain', 'sharp': 'Sharp', 'bold': 'Bold claim'},
-                  onChanged: (v) => _set(style.copyWith(hook: v)),
-                ),
-              ),
-              Field(
-                label: 'Closing',
-                child: ChoiceRow<String>(
-                  value: style.cta,
-                  options: const {'none': 'No CTA', 'soft': 'Soft question', 'direct': 'Direct ask'},
-                  onChanged: (v) => _set(style.copyWith(cta: v)),
-                ),
-              ),
-              Field(
-                label: 'Written for',
-                child: ChoiceRow<String>(
-                  value: style.register,
-                  options: const {
-                    'practitioner': 'Peers',
-                    'peer': 'Professionals',
-                    'accessible': 'Anyone',
-                  },
-                  onChanged: (v) => _set(style.copyWith(register: v)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: S.x4),
-
-        Panel(
-          title: 'Length and tags',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _Stepper(
-                label: 'Minimum words',
-                value: style.minWords,
-                min: 40,
-                max: style.maxWords - 20,
-                step: 10,
-                onChanged: (v) => _set(style.copyWith(minWords: v)),
-              ),
-              _Stepper(
-                label: 'Maximum words',
-                value: style.maxWords,
-                min: style.minWords + 20,
-                max: 500,
-                step: 10,
-                onChanged: (v) => _set(style.copyWith(maxWords: v)),
-              ),
-              _Stepper(
-                label: 'Hashtags',
-                value: style.hashtagCount,
-                min: 0,
-                // From the server, not hardcoded — a stepper that offers more
-                // than the API accepts silently clamps and looks broken.
-                max: state.status?.maxHashtags ?? 15,
-                step: 1,
-                onChanged: (v) => _set(style.copyWith(hashtagCount: v)),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: S.x4),
-
-        Panel(
-          title: 'Signature line',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ToggleRow(
-                title: 'Use a signature line',
-                blurb: 'A rationed catchphrase — at most one short quote, and not in every post.',
-                value: sig != null,
-                onChanged: (on) => _set(
-                  on
-                      ? style.copyWith(
-                          signature: const SignatureConfig(
-                            source: 'Marvel films',
-                            maxWords: 12,
-                            budgetPerFive: 1,
-                            banned: [],
-                          ),
-                        )
-                      : style.copyWith(clearSignature: true),
-                ),
-              ),
-              if (sig != null) ...[
-                const SizedBox(height: S.x3),
-                Field(
-                  label: 'Quotes drawn from',
-                  child: TextFormField(
-                    initialValue: sig.source,
-                    style: const TextStyle(fontSize: 15, color: C.text),
-                    decoration: const InputDecoration(hintText: 'Marvel films'),
-                    // setState, not a bare assignment: _dirty is computed during
-                    // build, so writing _draft without a rebuild leaves Save
-                    // disabled and the edit unsaveable.
-                    onChanged: (v) => _set(style.copyWith(signature: sig.copyWith(source: v))),
-                  ),
-                ),
-                _Stepper(
-                  label: 'At most per 5 posts',
-                  value: sig.budgetPerFive,
-                  min: 1,
-                  max: 5,
-                  step: 1,
-                  onChanged: (v) =>
-                      _set(style.copyWith(signature: sig.copyWith(budgetPerFive: v))),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: S.x4),
-
-        Panel(
-          title: 'Rules',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Field(
-                label: 'Banned phrases (one per line)',
-                child: TextFormField(
-                  initialValue: style.bannedPhrases.join('\n'),
-                  maxLines: 5,
-                  minLines: 3,
-                  style: const TextStyle(fontSize: 14, color: C.text, height: 1.5),
-                  onChanged: (v) => _set(style.copyWith(bannedPhrases: _lines(v))),
-                ),
-              ),
-              Field(
-                label: 'Your own rules (one per line)',
-                child: TextFormField(
-                  initialValue: style.customRules.join('\n'),
-                  maxLines: 5,
-                  minLines: 3,
-                  style: const TextStyle(fontSize: 14, color: C.text, height: 1.5),
-                  decoration: const InputDecoration(
-                    hintText: 'Never mention my employer by name',
-                  ),
-                  onChanged: (v) => _set(style.copyWith(customRules: _lines(v))),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: S.x4),
-
-        Row(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Voice'),
+        actions: [
+          if (_dirty)
+            const Padding(
+              padding: EdgeInsets.only(right: S.x4),
+              child: Center(child: Slug('unsaved', tone: Tone.desk)),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x5),
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _previewing || state.loading ? null : _runPreview,
-                icon: _previewing
-                    ? const SizedBox(
-                        height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.visibility_outlined, size: 18),
-                label: Text(_previewing ? 'Writing…' : 'Preview'),
+            // The staged style, not the saved one. Showing the saved summary
+            // while the controls below display something else reads as "my
+            // change did nothing".
+            Text(style.summary, style: T.body.copyWith(color: C.paperDim)),
+            const SizedBox(height: S.x5),
+            const SectionRule('Start from a preset'),
+            Wrap(
+              spacing: S.x2,
+              runSpacing: S.x2,
+              children: [
+                for (final preset in state.status?.presets ?? const <StylePreset>[])
+                  Tooltip(
+                    message: preset.blurb,
+                    child: PickChip(
+                      label: preset.label,
+                      selected: false,
+                      onTap: () => _set(preset.style),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: S.x6),
+
+            // Deliberately first. Everything below describes the voice from the
+            // outside; a sample IS the voice, and three real posts move a
+            // model's register further than any number of settings.
+            const _WritingSamples(),
+            const SizedBox(height: S.x6),
+
+            const SectionRule('Shape'),
+            Field(
+              label: 'Structure',
+              child: Choice<String>(
+                value: style.structure,
+                options: const {
+                  'prose': 'Paragraphs',
+                  'bullets': 'Bullets',
+                  'short-lines': 'Short lines',
+                  'mixed': 'Lead + bullets',
+                },
+                onChanged: (v) => _set(style.copyWith(structure: v)),
               ),
             ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: FilledButton(
-                onPressed: _dirty && !state.loading ? _save : null,
-                child: Text(_dirty ? 'Save' : 'Saved'),
+            Field(
+              label: 'Emoji',
+              child: Choice<String>(
+                value: style.emoji,
+                options: const {
+                  'none': 'None',
+                  'sparing': 'Sparing',
+                  'expressive': 'Expressive',
+                },
+                onChanged: (v) => _set(style.copyWith(emoji: v)),
               ),
             ),
+            Field(
+              label: 'Opening line',
+              child: Choice<String>(
+                value: style.hook,
+                options: const {'plain': 'Plain', 'sharp': 'Sharp', 'bold': 'Bold claim'},
+                onChanged: (v) => _set(style.copyWith(hook: v)),
+              ),
+            ),
+            Field(
+              label: 'Closing',
+              child: Choice<String>(
+                value: style.cta,
+                options: const {
+                  'none': 'No CTA',
+                  'soft': 'Soft question',
+                  'direct': 'Direct ask',
+                },
+                onChanged: (v) => _set(style.copyWith(cta: v)),
+              ),
+            ),
+            Field(
+              label: 'Written for',
+              child: Choice<String>(
+                value: style.register,
+                options: const {
+                  'practitioner': 'Peers',
+                  'peer': 'Professionals',
+                  'accessible': 'Anyone',
+                },
+                onChanged: (v) => _set(style.copyWith(register: v)),
+              ),
+            ),
+            const SizedBox(height: S.x4),
+
+            const SectionRule('Length and tags'),
+            _Stepper(
+              label: 'Minimum words',
+              value: style.minWords,
+              min: 40,
+              max: style.maxWords - 20,
+              step: 10,
+              onChanged: (v) => _set(style.copyWith(minWords: v)),
+            ),
+            _Stepper(
+              label: 'Maximum words',
+              value: style.maxWords,
+              min: style.minWords + 20,
+              max: 500,
+              step: 10,
+              onChanged: (v) => _set(style.copyWith(maxWords: v)),
+            ),
+            _Stepper(
+              label: 'Hashtags',
+              value: style.hashtagCount,
+              min: 0,
+              // From the server, not hardcoded — a stepper that offers more
+              // than the API accepts silently clamps and looks broken.
+              max: state.status?.maxHashtags ?? 15,
+              step: 1,
+              onChanged: (v) => _set(style.copyWith(hashtagCount: v)),
+            ),
+            const SizedBox(height: S.x5),
+
+            const SectionRule('Signature line'),
+            SwitchRow(
+              title: 'Use a signature line',
+              blurb: 'A rationed catchphrase — at most one short quote, and not in '
+                  'every post.',
+              value: sig != null,
+              onChanged: (on) => _set(
+                on
+                    ? style.copyWith(
+                        signature: const SignatureConfig(
+                          source: 'Marvel films',
+                          maxWords: 12,
+                          budgetPerFive: 1,
+                          banned: [],
+                        ),
+                      )
+                    : style.copyWith(clearSignature: true),
+              ),
+            ),
+            if (sig != null) ...[
+              const SizedBox(height: S.x4),
+              Field(
+                label: 'Quotes drawn from',
+                child: TextFormField(
+                  initialValue: sig.source,
+                  style: T.body,
+                  decoration: const InputDecoration(hintText: 'Marvel films'),
+                  // _set, not a bare assignment: _dirty is computed during
+                  // build, so writing _draft without a rebuild leaves Save
+                  // disabled and the edit unsaveable.
+                  onChanged: (v) => _set(style.copyWith(signature: sig.copyWith(source: v))),
+                ),
+              ),
+              _Stepper(
+                label: 'At most per 5 posts',
+                value: sig.budgetPerFive,
+                min: 1,
+                max: 5,
+                step: 1,
+                onChanged: (v) => _set(style.copyWith(signature: sig.copyWith(budgetPerFive: v))),
+              ),
+            ],
+            const SizedBox(height: S.x5),
+
+            const SectionRule('Rules'),
+            Field(
+              label: 'Banned phrases',
+              hint: 'One per line.',
+              child: TextFormField(
+                initialValue: style.bannedPhrases.join('\n'),
+                maxLines: 5,
+                minLines: 3,
+                style: T.body,
+                onChanged: (v) => _set(style.copyWith(bannedPhrases: _lines(v))),
+              ),
+            ),
+            Field(
+              label: 'Your own rules',
+              hint: 'One per line.',
+              child: TextFormField(
+                initialValue: style.customRules.join('\n'),
+                maxLines: 5,
+                minLines: 3,
+                style: T.body,
+                decoration: const InputDecoration(
+                  hintText: 'Never mention my employer by name',
+                ),
+                onChanged: (v) => _set(style.copyWith(customRules: _lines(v))),
+              ),
+            ),
+
+            if (_error != null) ErrorNote(_error!),
+
+            if (_preview != null) ...[
+              const SizedBox(height: S.x5),
+              _Preview(preview: _preview!),
+            ],
+
+            if (_dirty) ...[
+              const SizedBox(height: S.x4),
+              Center(
+                child: TextButton(
+                  onPressed: () => setState(() {
+                    _draft = null;
+                    _preview = null;
+                  }),
+                  child: const Text('Revert changes'),
+                ),
+              ),
+            ],
           ],
         ),
-        if (_dirty) ...[
-          const SizedBox(height: S.x2),
-          TextButton(
-            onPressed: () => setState(() {
-              _draft = null;
-              _preview = null;
-            }),
-            child: const Text('Revert changes'),
-          ),
-        ],
-        if (_error != null) ErrorText(_error!),
-
-        if (_preview != null) ...[
-          const SizedBox(height: S.x4),
-          _PreviewPanel(preview: _preview!),
-        ],
-      ],
+      ),
+      bottomNavigationBar: _ActionBar(
+        dirty: _dirty,
+        previewing: _previewing,
+        busy: state.loading,
+        onPreview: _runPreview,
+        onSave: _save,
+      ),
     );
   }
 
@@ -341,22 +329,70 @@ class _VoiceScreenState extends State<VoiceScreen> {
       v.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 }
 
-/// Numeric control with big hit areas. A phone keyboard for a number between
-/// 0 and 5 is the wrong tool; two 48px buttons are the right one.
-/// Writing samples, and what the agent has learned from your edits.
-///
-/// This is the one control on this screen that shows the writer prose rather
-/// than describing it. Everything else here is a rule ABOUT the voice; a sample
-/// is the voice, and three real posts move a model's register further than any
-/// number of settings.
-class _WritingSamplesPanel extends StatefulWidget {
-  const _WritingSamplesPanel();
+/// Pinned to the bottom so the commit is always one reach away.
+class _ActionBar extends StatelessWidget {
+  const _ActionBar({
+    required this.dirty,
+    required this.previewing,
+    required this.busy,
+    required this.onPreview,
+    required this.onSave,
+  });
+
+  final bool dirty;
+  final bool previewing;
+  final bool busy;
+  final VoidCallback onPreview;
+  final VoidCallback onSave;
 
   @override
-  State<_WritingSamplesPanel> createState() => _WritingSamplesPanelState();
+  Widget build(BuildContext context) => Container(
+        decoration: const BoxDecoration(
+          color: C.ink2,
+          border: Border(top: BorderSide(color: C.rule)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(S.x3),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: previewing || busy ? null : onPreview,
+                    icon: previewing
+                        ? const SizedBox(
+                            height: 15,
+                            width: 15,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.visibility_outlined, size: 17),
+                    label: Text(previewing ? 'Writing…' : 'Preview'),
+                  ),
+                ),
+                const SizedBox(width: S.x2),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: dirty && !busy ? onSave : null,
+                    child: Text(dirty ? 'Save' : 'Saved'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
-class _WritingSamplesPanelState extends State<_WritingSamplesPanel> {
+/// Writing samples, and what the agent has learned from your edits.
+class _WritingSamples extends StatefulWidget {
+  const _WritingSamples();
+
+  @override
+  State<_WritingSamples> createState() => _WritingSamplesState();
+}
+
+class _WritingSamplesState extends State<_WritingSamples> {
   static const _minSampleChars = 80;
 
   final _input = TextEditingController();
@@ -370,6 +406,7 @@ class _WritingSamplesPanelState extends State<_WritingSamplesPanel> {
 
   Future<void> _add() async {
     final state = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
     final text = _input.text.trim();
     if (text.length < _minSampleChars) return;
 
@@ -381,7 +418,7 @@ class _WritingSamplesPanelState extends State<_WritingSamplesPanel> {
       _input.clear();
       FocusScope.of(context).unfocus();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      messenger.showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -393,121 +430,128 @@ class _WritingSamplesPanelState extends State<_WritingSamplesPanel> {
     final typed = _input.text.trim().length;
     final canAdd = typed >= _minSampleChars && !_adding && !state.loading;
 
-    return Panel(
-      title: 'How you write',
-      subtitle: samples.isEmpty
-          ? 'Paste a few posts you are happy with. The writer studies them before drafting — this changes the voice more than any setting below.'
-          : '${samples.length} sample${samples.length == 1 ? "" : "s"}. The writer studies up to three before drafting.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < samples.length; i++) ...[
-            _SampleTile(
-              text: samples[i],
-              onRemove: state.loading ? null : () => state.removeCorpusSample(i),
-            ),
-            const SizedBox(height: S.x2),
-          ],
-          if (samples.isNotEmpty) const SizedBox(height: S.x2),
-          TextField(
-            controller: _input,
-            maxLines: 5,
-            minLines: 3,
-            style: T.body,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Paste a post here — one you wrote, or one whose voice you want.',
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionRule(
+          'How you write',
+          trailing: samples.isEmpty
+              ? null
+              : Text('${samples.length}', style: T.data.copyWith(fontSize: 12.5)),
+        ),
+        Text(
+          samples.isEmpty
+              ? 'Paste a few posts you are happy with. The writer studies them before '
+                  'drafting — this changes the voice more than any setting below.'
+              : 'The writer studies up to three of these before drafting.',
+          style: T.micro,
+        ),
+        const SizedBox(height: S.x4),
+
+        for (var i = 0; i < samples.length; i++) ...[
+          _Sample(
+            text: samples[i],
+            onRemove: state.loading ? null : () => state.removeCorpusSample(i),
           ),
           const SizedBox(height: S.x2),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  // A short paste teaches a model nothing, and the server drops
-                  // it silently — so say the threshold rather than letting the
-                  // button look broken.
-                  typed == 0
-                      ? 'At least $_minSampleChars characters.'
-                      : typed < _minSampleChars
-                          ? '${_minSampleChars - typed} more characters needed.'
-                          : '$typed characters.',
-                  style: T.xs,
-                ),
-              ),
-              const SizedBox(width: S.x2),
-              FilledButton(
-                onPressed: canAdd ? _add : null,
-                child: Text(_adding ? 'Adding…' : 'Add sample'),
-              ),
-            ],
+        ],
+        if (samples.isNotEmpty) const SizedBox(height: S.x2),
+
+        TextField(
+          controller: _input,
+          maxLines: 5,
+          minLines: 3,
+          style: T.body,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            hintText: 'Paste a post here — one you wrote, or one whose voice you want.',
           ),
-          if (notes != null && notes.trim().isNotEmpty) ...[
-            const SizedBox(height: S.x4),
-            Container(
-              padding: const EdgeInsets.all(S.x3),
-              decoration: BoxDecoration(
-                color: C.surface2,
-                border: Border.all(color: C.border),
-                borderRadius: BorderRadius.circular(R.sm),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('WHAT IT LEARNED FROM YOUR EDITS', style: T.panelHead),
-                  const SizedBox(height: S.x2),
-                  Text(notes.trim(), style: T.sm),
-                  const SizedBox(height: S.x2),
-                  Text(
-                    'Written from drafts you rewrote before publishing. It updates itself as you edit more.',
-                    style: T.xs,
-                  ),
-                ],
+        ),
+        const SizedBox(height: S.x3),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                // A short paste teaches a model nothing and the server drops it
+                // silently — so say the threshold rather than letting the button
+                // look broken.
+                typed == 0
+                    ? 'At least $_minSampleChars characters.'
+                    : typed < _minSampleChars
+                        ? '${_minSampleChars - typed} more characters needed.'
+                        : '$typed characters.',
+                style: T.micro,
               ),
             ),
+            const SizedBox(width: S.x2),
+            FilledButton(
+              onPressed: canAdd ? _add : null,
+              child: Text(_adding ? 'Adding…' : 'Add sample'),
+            ),
           ],
+        ),
+
+        if (notes != null && notes.trim().isNotEmpty) ...[
+          const SizedBox(height: S.x5),
+          ObjectCard(
+            padding: const EdgeInsets.all(S.x3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('WHAT IT LEARNED FROM YOUR EDITS', style: T.slug),
+                const SizedBox(height: S.x2),
+                Text(notes.trim(), style: T.small),
+                const SizedBox(height: S.x2),
+                Text(
+                  'Written from drafts you rewrote before publishing. It updates itself '
+                  'as you edit more.',
+                  style: T.micro,
+                ),
+              ],
+            ),
+          ),
         ],
-      ),
+      ],
     );
   }
 }
 
-class _SampleTile extends StatelessWidget {
-  const _SampleTile({required this.text, required this.onRemove});
+class _Sample extends StatelessWidget {
+  const _Sample({required this.text, required this.onRemove});
 
   final String text;
   final VoidCallback? onRemove;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(S.x3, S.x3, S.x2, S.x3),
-      decoration: BoxDecoration(
-        color: C.surface2,
-        border: Border.all(color: C.border),
-        borderRadius: BorderRadius.circular(R.sm),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(text, style: T.sm, maxLines: 3, overflow: TextOverflow.ellipsis),
-          ),
-          IconButton(
-            onPressed: onRemove,
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: 'Remove this sample',
-            style: IconButton.styleFrom(
-              minimumSize: const Size(kMinTouch, kMinTouch),
-              foregroundColor: C.textFaint,
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(S.x3, S.x2, S.x1, S.x2),
+        decoration: BoxDecoration(
+          color: C.ink2,
+          border: Border.all(color: C.rule),
+          borderRadius: BorderRadius.circular(R.sm),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text(text, style: T.small, maxLines: 3, overflow: TextOverflow.ellipsis),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+            IconButton(
+              onPressed: onRemove,
+              icon: const Icon(Icons.close, size: 17),
+              tooltip: 'Remove this sample',
+              style: IconButton.styleFrom(
+                minimumSize: const Size(kMinTouch, kMinTouch),
+                foregroundColor: C.paperFaint,
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
+/// Numeric control with big hit areas. A phone keyboard for a number between 0
+/// and 5 is the wrong tool; two 48px buttons are the right one.
 class _Stepper extends StatelessWidget {
   const _Stepper({
     required this.label,
@@ -527,36 +571,28 @@ class _Stepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canDown = value - step >= min;
-    final canUp = value + step <= max;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: S.x3),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 15, color: C.text))),
+          Expanded(child: Text(label, style: T.body)),
           _StepButton(
             icon: Icons.remove,
-            onTap: canDown ? () => onChanged(value - step) : null,
-            semanticLabel: 'Decrease $label',
+            label: 'Decrease $label',
+            onTap: value - step >= min ? () => onChanged(value - step) : null,
           ),
           SizedBox(
             width: 52,
             child: Text(
               '$value',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 17,
-                color: C.text,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
+              style: T.data.copyWith(fontSize: 17, color: C.paper),
             ),
           ),
           _StepButton(
             icon: Icons.add,
-            onTap: canUp ? () => onChanged(value + step) : null,
-            semanticLabel: 'Increase $label',
+            label: 'Increase $label',
+            onTap: value + step <= max ? () => onChanged(value + step) : null,
           ),
         ],
       ),
@@ -565,31 +601,29 @@ class _Stepper extends StatelessWidget {
 }
 
 class _StepButton extends StatelessWidget {
-  const _StepButton({required this.icon, required this.onTap, required this.semanticLabel});
+  const _StepButton({required this.icon, required this.onTap, required this.label});
 
   final IconData icon;
   final VoidCallback? onTap;
-  final String semanticLabel;
+  final String label;
 
   @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, size: 20),
-      tooltip: semanticLabel,
-      style: IconButton.styleFrom(
-        minimumSize: const Size(kMinTouch, kMinTouch),
-        backgroundColor: C.surface2,
-        foregroundColor: onTap == null ? C.textFaint : C.text,
-        side: const BorderSide(color: C.borderStrong),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => IconButton(
+        onPressed: onTap,
+        icon: Icon(icon, size: 19),
+        tooltip: label,
+        style: IconButton.styleFrom(
+          minimumSize: const Size(kMinTouch, kMinTouch),
+          backgroundColor: C.ink2,
+          foregroundColor: onTap == null ? C.paperFaint : C.paper,
+          side: const BorderSide(color: C.ruleStrong),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
+        ),
+      );
 }
 
-class _PreviewPanel extends StatelessWidget {
-  const _PreviewPanel({required this.preview});
+class _Preview extends StatelessWidget {
+  const _Preview({required this.preview});
 
   final Map<String, dynamic> preview;
 
@@ -601,28 +635,23 @@ class _PreviewPanel extends StatelessWidget {
     final chars = length?['escapedChars'];
     final within = length?['withinLimit'] != false;
 
-    return Container(
-      padding: const EdgeInsets.all(S.x3),
-      decoration: BoxDecoration(
-        color: C.surface2,
-        border: Border.all(color: C.borderStrong, style: BorderStyle.solid),
-        borderRadius: BorderRadius.circular(R.sm),
-      ),
+    return ObjectCard(
+      tone: Tone.out,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Badge2('PREVIEW', tone: BadgeTone.live),
+              const Slug('preview', tone: Tone.out),
               const SizedBox(width: S.x2),
               if (chars != null)
-                Badge2('$chars chars', tone: within ? BadgeTone.neutral : BadgeTone.alarm),
+                Slug('$chars chars', tone: within ? Tone.quiet : Tone.broken),
             ],
           ),
           const SizedBox(height: S.x2),
-          Text('Rewritten from $sourceLabel — not saved.', style: T.xs),
+          Text('Rewritten from $sourceLabel — not saved.', style: T.micro),
           const SizedBox(height: S.x3),
-          Text(after, style: T.body),
+          Text(after, style: T.copy),
         ],
       ),
     );

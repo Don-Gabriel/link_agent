@@ -179,7 +179,7 @@ export default function Page() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  if (loading) return <div className="gate"><p style={{ color: "var(--text-faint)" }}>Loading…</p></div>;
+  if (loading) return <div className="gate"><p style={{ color: "var(--paper-faint)" }}>Loading…</p></div>;
   if (locked) return <Gate onIn={refresh} />;
   if (!status) return <div className="gate"><p className="error-text">Could not load status.</p></div>;
   if (!status.initialized) return <Setup onDone={refresh} />;
@@ -266,8 +266,8 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
 
   return (
     <div className="shell setup">
-      <h1 style={{ fontSize: "var(--fs-2xl)", margin: "0 0 var(--s2)" }}>Set up your agent</h1>
-      <p style={{ color: "var(--text-faint)", marginTop: 0 }}>
+      <h1 style={{ fontSize: "var(--fs-xl)", margin: "0 0 var(--s2)" }}>Set up your agent</h1>
+      <p style={{ color: "var(--paper-faint)", marginTop: 0 }}>
         This runs once. It decides what the agent reads, how it sounds, and when it posts —
         all of it changeable afterwards.
       </p>
@@ -337,19 +337,19 @@ function Dashboard({ status, refresh }: { status: Status; refresh: () => Promise
         </div>
         <div className="row">
           {status.config.liveMode ? (
-            <span className="badge live"><i className="dot" /> live</span>
+            <span className="badge">live</span>
           ) : (
             <span className="badge warn">dry run</span>
           )}
           {agent.paused ? (
             <span className="badge warn">paused</span>
           ) : (
-            <span className="badge good"><i className="dot" /> running</span>
+            <span className="badge">running</span>
           )}
           {agent.autoPublish ? (
-            <span className="badge live">auto-publish</span>
+            <span className="badge warn">publishes itself</span>
           ) : (
-            <span className="badge">approval mode</span>
+            <span className="badge">waits for you</span>
           )}
           <button
             className="ghost"
@@ -367,8 +367,8 @@ function Dashboard({ status, refresh }: { status: Status; refresh: () => Promise
 
       <div className="columns" style={{ marginTop: "var(--s5)" }}>
         <div className="stack">
-          <Composer refresh={refresh} connected={account.connected && !account.needsReauth} />
           <Queue posts={status.queue ?? []} refresh={refresh} liveMode={status.config.liveMode} />
+          <Composer refresh={refresh} connected={account.connected && !account.needsReauth} />
           <History posts={status.history ?? []} />
         </div>
         <div className="stack sidebar">
@@ -646,6 +646,14 @@ function Queue({
   );
 }
 
+/** The judge's overall mark, from the payload or averaged from its criteria. */
+function judgeTotal(scores: Record<string, number>): string {
+  if (typeof scores.total === "number") return scores.total.toFixed(1);
+  const rest = Object.entries(scores).filter(([k]) => k !== "total");
+  if (rest.length === 0) return "—";
+  return (rest.reduce((a, [, v]) => a + v, 0) / rest.length).toFixed(1);
+}
+
 function PostCard({
   post,
   refresh,
@@ -702,36 +710,55 @@ function PostCard({
           {foldIndex > 0 ? (
             <>
               <p className="post-text">{post.text.slice(0, foldIndex)}</p>
-              <hr className="fold" />
-              <p className="post-text">{post.text.slice(foldIndex + 1)}</p>
+              {/* The cut LinkedIn makes at 210 characters, drawn where it
+                  falls, with the count of what it hides. Judging the hook
+                  against that boundary is the thing this screen does that
+                  LinkedIn's own composer does not. */}
+              <hr
+                className="fold"
+                data-below={`see more · ${post.text.length - foldIndex} below`}
+              />
+              <p className="post-text below-fold">{post.text.slice(foldIndex + 1)}</p>
             </>
           ) : (
             <p className="post-text">{post.text}</p>
           )}
           {post.hashtags.length > 0 && (
-            <p className="post-text" style={{ color: "var(--accent)", marginTop: "var(--s3)" }}>
+            <p className="post-text" style={{ color: "var(--daylight)", marginTop: "var(--s3)" }}>
               {post.hashtags.map((h) => `#${h}`).join(" ")}
             </p>
           )}
         </>
       )}
 
-      {post.rationale && <p className="rationale">{post.rationale}</p>}
+      {/* The judge's reasoning and its five criteria, folded away together.
+          "Why did it pick this" is a question asked occasionally; open under
+          every draft, the meters compete with the copy on every read. */}
+      {(post.rationale || post.scores) && (
+        <details className="judgement">
+          <summary>
+            Why this one
+            {post.scores && <span className="total">{judgeTotal(post.scores)} / 10</span>}
+          </summary>
 
-      {post.scores && (
-        <div className="scores">
-          {Object.entries(post.scores)
-            .filter(([key]) => key !== "total")
-            .map(([key, value]) => (
-              <div className="score" key={key}>
-                <span>{SCORE_LABELS[key] ?? key}</span>
-                <span className="meter">
-                  <i style={{ width: `${(value / 10) * 100}%` }} />
-                </span>
-                <span className="tabular">{value}</span>
-              </div>
-            ))}
-        </div>
+          {post.rationale && <p className="rationale">{post.rationale}</p>}
+
+          {post.scores && (
+            <div className="scores">
+              {Object.entries(post.scores)
+                .filter(([key]) => key !== "total")
+                .map(([key, value]) => (
+                  <div className="score" key={key}>
+                    <span>{SCORE_LABELS[key] ?? key}</span>
+                    <span className="meter">
+                      <i style={{ width: `${(value / 10) * 100}%` }} />
+                    </span>
+                    <span className="tabular">{value}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </details>
       )}
 
       {post.sources[0] && (
@@ -1096,7 +1123,7 @@ function Voice({
           {open ? "Close" : "Edit"}
         </button>
       </div>
-      <p className="sub" style={{ fontSize: "var(--fs-xs)", margin: 0 }}>
+      <p className="sub" style={{ fontSize: "var(--fs-micro)", margin: 0 }}>
         {voiceSummary(agent.style)}
       </p>
 
@@ -1328,7 +1355,7 @@ function Voice({
 
           {preview && (
             <div className="preview">
-              <p className="sub" style={{ fontSize: "var(--fs-xs)" }}>
+              <p className="sub" style={{ fontSize: "var(--fs-micro)" }}>
                 Rewritten from {preview.sourceLabel}
                 {preview.servedBy ? ` · ${preview.servedBy}` : ""} ·{" "}
                 {preview.length.escapedChars} chars

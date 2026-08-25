@@ -108,6 +108,27 @@ class AppState extends ChangeNotifier {
     ].join('|');
   }
 
+  /// How many drafts are asking for a DECISION right now.
+  ///
+  /// Not how many drafts exist. A cleared draft is still in the queue but has
+  /// stopped asking anything of you, and a badge that never clears is a badge
+  /// people learn to ignore.
+  int get onTheDesk {
+    final s = status;
+    if (s == null) return 0;
+    if (s.needingReview > 0) return s.needingReview;
+    return s.queue.where((p) => p.isDraft && !p.isCleared).length;
+  }
+
+  /// Something in the machinery needs a human — the scheduler has stopped, or
+  /// LinkedIn access is expiring or gone. Deliberately excludes drafts: those
+  /// are the job, not a fault.
+  bool get needsAttention {
+    final s = status;
+    if (s == null) return false;
+    return !s.scheduler.healthy || s.account.needsReauth || s.account.expiringSoon;
+  }
+
   Future<void> bootstrap() async {
     phase = _api.hasSession ? AuthPhase.signedIn : AuthPhase.signedOut;
     notifyListeners();
