@@ -12,6 +12,9 @@ import { SESSION_COOKIE, verifySession } from "./lib/auth";
 const PUBLIC_PATHS = new Set([
   "/api/health", // liveness/keep-alive: no data, always 200
   "/api/auth", // the login endpoint itself
+  "/api/native-auth",
+  "/api/native-auth/callback",
+  "/api/linkedin/callback", // single-use server-side OAuth state authenticates this navigation
   "/api/cron/tick", // authenticated by the X-Cron-Secret header instead
   // Same X-Cron-Secret, same reason: it is called by a machine that has no
   // session and never will. Both answer 404 rather than 401 on a bad secret,
@@ -25,7 +28,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (await verifySession(request.cookies.get(SESSION_COOKIE)?.value)) {
+  const bearer = request.headers.get('authorization');
+  if (await verifySession(bearer?.startsWith('Bearer ') ? bearer.slice(7) : request.cookies.get(SESSION_COOKIE)?.value)) {
     return NextResponse.next();
   }
 

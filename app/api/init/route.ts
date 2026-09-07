@@ -6,19 +6,21 @@
  * expands the persona plus runs the first cycle in after().
  */
 import { after, NextResponse } from "next/server";
-import { ensureAgent, expandStoredPersona, getPrimaryAgent } from "../../../lib/agents";
-import { describeCategories, parseCategories } from "../../../lib/categories";
+import { ensureAgent, expandStoredPersona } from "../../../lib/agents";
+import { requestIdentity, getRequestAgent } from "../../../lib/request-agent";
+import { describeCategories, parseCategories, isCategoryId, MAX_SELECTED_CATEGORIES } from "../../../lib/categories";
 import { runCycleWithLock } from "../../../lib/cycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET() {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   return NextResponse.json({ initialized: !!agent, agent });
 }
 
 export async function POST(request: Request) {
+  if (await requestIdentity()) return NextResponse.json({error:'Use ByLine onboarding to finish setup.'}, {status:409});
   let body: {
     name?: string;
     categories?: unknown;
@@ -31,6 +33,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
+  if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.name !== 'string') return NextResponse.json({error:'Enter your name.'},{status:400});
+  if (!Array.isArray(body.categories) || body.categories.length < 1 || body.categories.length > MAX_SELECTED_CATEGORIES || body.categories.some(id=>!isCategoryId(id))) return NextResponse.json({error:'Choose 1–12 subjects from the catalogue.'},{status:400});
   const name = (body.name ?? "").trim();
   if (name.length < 2) {
     return NextResponse.json({ error: "name_required" }, { status: 400 });

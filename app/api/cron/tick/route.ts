@@ -1,3 +1,5 @@
+import { flushNotifications } from '../../../../lib/reviews';
+import { migrateTimetable } from '../../../../lib/unified-timetable';
 /**
  * The sole scheduler driver. Authenticated by the X-Cron-Secret header only,
  * and a mismatch returns 404 rather than 401 so the endpoint does not advertise
@@ -108,6 +110,8 @@ export async function GET(request: Request) {
         console.error("[tick] send pass failed:", err);
       }
 
+      try { await migrateTimetable(); await flushNotifications(); }
+      catch(err) { console.error("[tick] daily review pass failed:",err); }
       // ---- 3. HOUSEKEEPING. Self-throttled to once a day, and last because
       // deleting old rejections must never delay a post that is due.
       try {

@@ -58,7 +58,7 @@ import {
 import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { pemToBytes } from "../lib/push";
-import { FEEDS } from "../lib/discovery";
+import { FEEDS, feedsForCategories } from "../lib/discovery";
 import { apiVersionAge } from "../lib/linkedin";
 import { isRawScore, outputBudgetFor } from "../lib/judge";
 
@@ -286,10 +286,7 @@ console.log("\ncategories");
   // Every category must be reachable by discovery. One with no feed can be
   // assigned by the judge and then never receives a candidate — it looks
   // enabled and does nothing, which is worse than not offering it.
-  const feedCategories = new Set(FEEDS.map((f) => f.category));
-  for (const id of ALL_CATEGORY_IDS) {
-    check(`${id} has at least one feed`, feedCategories.has(id));
-  }
+  check('every selectable category has a discovery route', ALL_CATEGORY_IDS.every(id=>feedsForCategories([id]).length>0));
 
   // Feed names are the PRIMARY KEY of feed_health. Two feeds sharing a name
   // would share one health row, so a working source could clear the failure
@@ -312,11 +309,8 @@ console.log("\ncategories");
     FEEDS.every((f) => ALL_CATEGORY_IDS.includes(f.category)),
     FEEDS.filter((f) => !ALL_CATEGORY_IDS.includes(f.category)).map((f) => f.name).join(", "));
 
-  for (const id of ALL_CATEGORY_IDS) {
-    const c = CATEGORIES[id];
-    check(`${id} has a usable blurb`, c.blurb.length > 80);
-    check(`${id} has hashtags`, c.hashtags.length >= 3);
-  }
+  check('every category has a usable editorial definition', ALL_CATEGORY_IDS.every(id=>CATEGORIES[id].blurb.length>80));
+  check('every category has hashtag vocabulary', ALL_CATEGORY_IDS.every(id=>CATEGORIES[id].hashtags.length>=3));
 
   // The three original ids must keep working: they are stored in every existing
   // agent's categories_json, and dropping one would silently narrow what that
@@ -354,12 +348,8 @@ console.log("\nscope line (agents.domain, the app's header, and the persona prom
   check("every active interest is described",
     off.includes("emerging tech") && off.includes("AI and ML") && off.includes("silicon"), off);
 
-  for (const id of ALL_CATEGORY_IDS) {
-    const c = CATEGORIES[id];
-    check(`${id} has a scope fragment`, c.scope.length > 3 && c.scope === c.scope.trimEnd());
-    check(`${id}'s scope reads as prose, not a label`, !c.scope.includes("—") && !c.scope.includes("·"));
-    check(`${id} is named by its own scope line`, describeCategories([id]) === c.scope);
-  }
+  check('all category scopes are usable prose', ALL_CATEGORY_IDS.every(id=>{const c=CATEGORIES[id];return c.scope.length>3 && c.scope===c.scope.trimEnd() && !/[—·]/.test(c.scope);}));
+  check('every category is named by its own scope', ALL_CATEGORY_IDS.every(id=>describeCategories([id])===CATEGORIES[id].scope));
 
   // Falls back to everything for the same reason the rest of the pipeline does:
   // an agent with no categories watches all of them, so it must say so.

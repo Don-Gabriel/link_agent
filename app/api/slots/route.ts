@@ -5,8 +5,9 @@
  * the session check.
  */
 import { NextResponse } from "next/server";
-import { getPrimaryAgent } from "../../../lib/agents";
-import { parseCategories } from "../../../lib/categories";
+
+import { getRequestAgent } from "../../../lib/request-agent";
+import { parseCategories, isCategoryId, MAX_SELECTED_CATEGORIES } from "../../../lib/categories";
 import {
   createSlot,
   ensureSlotsMigrated,
@@ -14,12 +15,13 @@ import {
   MAX_LEAD_MINUTES,
   MAX_SLOTS,
   MIN_LEAD_MINUTES,
+  setSlotCount,
 } from "../../../lib/slots";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   // Idempotent and cheap after the first call: gives a pre-slots agent its
@@ -44,10 +46,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   let body: {
+    action?:string;
+    count?:number;
     localTime?: string;
     daysMask?: number;
     leadMinutes?: number;
@@ -59,6 +63,15 @@ export async function POST(request: Request) {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Check your posting time settings.'},{status:400});
+  if (body.categories !== undefined && (!Array.isArray(body.categories) || body.categories.length > MAX_SELECTED_CATEGORIES || body.categories.some(id=>!isCategoryId(id)))) return NextResponse.json({error:'Choose up to 12 subjects from the catalogue.'},{status:400});
+  if(body.action==='count') {
+    if(typeof body.count!=='number'||!Number.isInteger(body.count)||body.count<1||body.count>MAX_SLOTS)
+      return NextResponse.json({error:'Choose 1–5 posting times.'},{status:400});
+    await setSlotCount(agent.agentId,agent.timezone,body.count);
+    return NextResponse.json({ok:true,slots:await listSlots(agent.agentId)});
   }
 
   const result = await createSlot(agent.agentId, agent.timezone, {

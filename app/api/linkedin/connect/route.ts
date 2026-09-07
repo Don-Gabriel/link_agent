@@ -4,15 +4,17 @@
  */
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getPrimaryAgent } from "../../../../lib/agents";
+
+import { getRequestAgent } from "../../../../lib/request-agent";
 import { query } from "../../../../lib/db";
 import { authorizeUrl } from "../../../../lib/linkedin";
 import { redirectUriFor } from "../redirect-uri";
+import { nativeReturnUri } from '../../../../lib/native-return';
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   // `?json=1` returns the consent URL instead of redirecting to it.
   //
   // The browser wants a 302 — it is mid-navigation. A phone cannot use one: the
@@ -29,8 +31,11 @@ export async function GET(request: Request) {
 
   if (!agent) return fail("not_initialized");
 
-  const state = randomUUID();
-  await query("INSERT INTO oauth_states (state, agent_id) VALUES ($1, $2)", [state, agent.agentId]);
+  const requestedReturn = new URL(request.url).searchParams.get('returnUri');
+  const returnUri = nativeReturnUri(requestedReturn);
+  if (requestedReturn && !returnUri) return fail('invalid_return_uri');
+  const state = `${wantsJson ? 'app-' : ''}${randomUUID()}`;
+  await query("INSERT INTO oauth_states (state, agent_id, native, return_uri) VALUES ($1, $2, $3, $4)", [state, agent.agentId, wantsJson, returnUri]);
   // Housekeeping: abandoned round trips would otherwise accumulate forever.
   await query("DELETE FROM oauth_states WHERE created_at < now() - interval '1 hour'");
 

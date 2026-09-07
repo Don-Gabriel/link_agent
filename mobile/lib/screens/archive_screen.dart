@@ -12,13 +12,16 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/form_select.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/primitives.dart';
 import 'draft_commands.dart';
+import '../widgets/editorial.dart';
 
 enum _Shelf { published, passed }
 
@@ -31,6 +34,40 @@ class ArchiveScreen extends StatefulWidget {
 
 class _ArchiveScreenState extends State<ArchiveScreen> {
   _Shelf _shelf = _Shelf.published;
+  final List<Post> _older = [];
+  bool _loadingOlder = false, _hasMore = true;
+  String? _historyError;
+
+  Future<void> _loadOlder() async {
+    if (_loadingOlder) return;
+    final history = context.read<AppState>().status?.history ?? [];
+    final cursor = _older.isNotEmpty
+        ? _older.last.seq
+        : history.lastOrNull?.seq;
+    if (cursor == null) return;
+    setState(() {
+      _loadingOlder = true;
+      _historyError = null;
+    });
+    try {
+      final result = await context.read<AppState>().api.get(
+        '/api/posts?before=$cursor',
+      );
+      if (!mounted) return;
+      setState(() {
+        _older.addAll(
+          (result['posts'] as List).map(
+            (p) => Post.fromJson(Map<String, dynamic>.from(p as Map)),
+          ),
+        );
+        _hasMore = result['hasMore'] == true;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _historyError = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingOlder = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +75,16 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     final status = state.status;
 
     return RefreshIndicator(
-      onRefresh: state.refresh,
+      onRefresh: () async {
+        await state.refresh();
+        if (mounted) {
+          setState(() {
+            _older.clear();
+            _hasMore = true;
+            _historyError = null;
+          });
+        }
+      },
       backgroundColor: C.ink2,
       color: C.filament,
       child: ListView(
@@ -59,6 +105,15 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
             onChanged: (v) => setState(() => _shelf = v),
           ),
           const SizedBox(height: S.x5),
+          const StudioBanner(
+            compact: true,
+            scene: StudioScene.ideas,
+            eyebrow: 'YOUR BODY OF WORK',
+            title: 'Every post adds a chapter.',
+            caption:
+                'Revisit what you shared and find the thread for your next idea.',
+          ),
+          const SizedBox(height: S.x5),
           ...switch (_shelf) {
             _Shelf.published => _published(context, state, status),
             _Shelf.passed => _passed(status),
@@ -68,8 +123,15 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     );
   }
 
-  List<Widget> _published(BuildContext context, AppState state, AppStatus? status) {
-    final history = status?.history ?? const <Post>[];
+  List<Widget> _published(
+    BuildContext context,
+    AppState state,
+    AppStatus? status,
+  ) {
+    final history = {
+      for (final post in [...(status?.history ?? <Post>[]), ..._older])
+        post.seq: post,
+    }.values.toList();
     if (history.isEmpty) {
       return [
         const Empty(
@@ -81,9 +143,19 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     }
     return [
       for (final post in history) ...[
-        DraftCard(post: post, busy: state.loading, actions: commandsFor(context, post)),
+        DraftCard(
+          post: post,
+          busy: state.loading,
+          actions: commandsFor(context, post),
+        ),
         const SizedBox(height: S.x3),
       ],
+      if (_historyError != null) Text(_historyError!, style: T.small),
+      if (_hasMore && (status?.history.length ?? 0) >= 20)
+        OutlinedButton(
+          onPressed: _loadingOlder ? null : _loadOlder,
+          child: Text(_loadingOlder ? 'Loading…' : 'Load older posts'),
+        ),
     ];
   }
 
@@ -94,7 +166,8 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
         const Empty(
           icon: Icons.filter_alt_outlined,
           title: 'Nothing passed over',
-          blurb: 'Stories the judge scored and turned down appear here, with its reasoning.',
+          blurb:
+              'Stories the judge scored and turned down appear here, with its reasoning.',
         ),
       ];
     }
@@ -113,7 +186,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   }
 }
 
-/// Two shelves, as a segmented control with live counts.
+/// Filter history using a compact dropdown.
 class _ShelfBar extends StatelessWidget {
   const _ShelfBar({
     required this.value,
@@ -121,80 +194,21 @@ class _ShelfBar extends StatelessWidget {
     required this.passed,
     required this.onChanged,
   });
-
   final _Shelf value;
-  final int published;
-  final int passed;
+  final int published, passed;
   final ValueChanged<_Shelf> onChanged;
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: C.ink2,
-        border: Border.all(color: C.rule),
-        borderRadius: BorderRadius.circular(R.md),
-      ),
-      child: Row(
-        children: [
-          _tab(_Shelf.published, 'Published', published),
-          _tab(_Shelf.passed, 'Passed over', passed),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab(_Shelf shelf, String label, int count) {
-    final selected = shelf == value;
-    return Expanded(
-      child: Semantics(
-        selected: selected,
-        button: true,
-        child: InkWell(
-          onTap: () => onChanged(shelf),
-          borderRadius: BorderRadius.circular(R.sm),
-          child: Container(
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? C.ink3 : Colors.transparent,
-              borderRadius: BorderRadius.circular(R.sm),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: T.body.copyWith(color: selected ? C.paper : C.paperDim),
-                  ),
-                ),
-                if (count > 0) ...[
-                  const SizedBox(width: S.x2),
-                  Text(
-                    '$count',
-                    style: T.data.copyWith(
-                      fontSize: 12.5,
-                      color: selected ? C.paperDim : C.paperFaint,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => FormSelect<_Shelf>(
+    label: 'Show history',
+    value: value,
+    options: {
+      _Shelf.published: 'Published ($published)',
+      _Shelf.passed: 'Passed over ($passed)',
+    },
+    onChanged: onChanged,
+  );
 }
 
-/// A story the judge turned down, and why.
-///
-/// Not a card: there is nothing to do to it. Just a headline, the reasoning
-/// against a rule, and where it came from.
 class _PassedOver extends StatelessWidget {
   const _PassedOver({required this.item});
 
@@ -205,7 +219,10 @@ class _PassedOver extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(item.title, style: T.bodyStrong.copyWith(fontSize: 16, height: 1.35)),
+        Text(
+          item.title,
+          style: T.bodyStrong.copyWith(fontSize: 16, height: 1.35),
+        ),
         const SizedBox(height: S.x2),
         Container(
           padding: const EdgeInsets.only(left: S.x3),
@@ -216,7 +233,30 @@ class _PassedOver extends StatelessWidget {
         ),
         if (item.url.isNotEmpty) ...[
           const SizedBox(height: S.x3),
-          Text(_host(item.url), style: T.mono.copyWith(color: C.daylight)),
+          TextButton.icon(
+            onPressed: () async {
+              final url = Uri.tryParse(item.url);
+              if (url == null || !['https', 'http'].contains(url.scheme)) {
+                return;
+              }
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                if (await launchUrl(
+                  url,
+                  mode: LaunchMode.externalApplication,
+                )) {
+                  return;
+                }
+              } catch (_) {}
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Could not open this source article.'),
+                ),
+              );
+            },
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: Text(_host(item.url)),
+          ),
         ],
       ],
     );

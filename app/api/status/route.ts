@@ -5,7 +5,8 @@
  */
 import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
-import { getPrimaryAgent } from "../../../lib/agents";
+
+import { getRequestAgent } from "../../../lib/request-agent";
 import { ALL_CATEGORY_IDS, CATEGORIES } from "../../../lib/categories";
 import { hasEncryptionKey } from "../../../lib/crypto";
 import { query } from "../../../lib/db";
@@ -17,10 +18,10 @@ import {
   listAmbiguousSends,
   sendsToday,
 } from "../../../lib/distribute";
-import { hookOf } from "../../../lib/format";
+import { POST_COLUMNS, serializePost, type PostRow } from "../../../lib/post-view";
 import { getTodayCalls } from "../../../lib/llm";
 import { memoryDegraded } from "../../../lib/memory";
-import { describeDays, formatInZone } from "../../../lib/schedule";
+import { describeDays, formatInZone, localClock } from "../../../lib/schedule";
 import {
   ensureSlotsMigrated,
   listSlots,
@@ -36,65 +37,9 @@ import { MAX_HASHTAGS, PRESETS } from "../../../lib/style";
 
 export const dynamic = "force-dynamic";
 
-interface PostRow {
-  id: string;
-  seq: number;
-  text: string;
-  rationale: string;
-  status: string;
-  kind: string;
-  category: string | null;
-  scores_json: Record<string, number> | null;
-  sources_json: string[];
-  media_json: string[];
-  hashtags_json: string[];
-  continuity: string | null;
-  used_quote: boolean;
-  created_at: Date;
-  published_at: Date | null;
-  scheduled_for: Date | null;
-  slot_id: string | null;
-  cleared_at: Date | null;
-  hold_until: Date | null;
-}
-
-function serializePost(r: PostRow) {
-  return {
-    id: r.id,
-    seq: r.seq,
-    text: r.text,
-    hook: hookOf(r.text),
-    rationale: r.rationale,
-    status: r.status,
-    kind: r.kind,
-    category: r.category,
-    scores: r.scores_json,
-    sources: r.sources_json ?? [],
-    media: r.media_json ?? [],
-    hashtags: r.hashtags_json ?? [],
-    continuity: r.continuity,
-    usedQuote: r.used_quote,
-    createdAt: r.created_at.toISOString(),
-    publishedAt: r.published_at?.toISOString() ?? null,
-    // Scheduling. `scheduledFor` null means the post is not on the timetable
-    // and will only ever go out if a human sends it by hand.
-    scheduledFor: r.scheduled_for?.toISOString() ?? null,
-    slotId: r.slot_id,
-    clearedAt: r.cleared_at?.toISOString() ?? null,
-    // Only reported while genuinely in effect, so the client never has to work
-    // out whether an expired hold still counts.
-    heldUntil:
-      r.hold_until && r.hold_until.getTime() > Date.now() ? r.hold_until.toISOString() : null,
-  };
-}
-
-const POST_COLUMNS = `id, seq, text, rationale, status, kind, category, scores_json,
-                      sources_json, media_json, hashtags_json, continuity, used_quote,
-                      created_at, published_at, scheduled_for, slot_id, cleared_at, hold_until`;
-
 export async function GET() {
   try {
-    const agent = await getPrimaryAgent();
+    const agent = await getRequestAgent();
     if (!agent) {
       return NextResponse.json({
         initialized: false,
@@ -140,7 +85,7 @@ export async function GET() {
       query<PostRow>(
         `(SELECT ${POST_COLUMNS} FROM posts
            WHERE agent_id = $1 AND status IN ('draft', 'approved', 'failed', 'unknown', 'missed')
-           ORDER BY scheduled_for ASC NULLS LAST, created_at DESC LIMIT 20)
+           ORDER BY scheduled_for ASC NULLS LAST, created_at DESC)
          UNION ALL
          (SELECT ${POST_COLUMNS} FROM posts
            WHERE agent_id = $1 AND status = 'published'
@@ -179,7 +124,10 @@ export async function GET() {
       .sort((a, b) => a.getTime() - b.getTime())[0];
     const nextRunAt = nextSlotRun ?? null;
 
+    const [review] = await query<{next_delivery_at:Date|null;config:unknown}>(`SELECT o.next_delivery_at,o.config FROM onboarding o JOIN agents a ON a.owner_id=o.user_id WHERE a.id=$1`,[agent.agentId]);
+    const [dailyPost] = review ? await query<PostRow>(`SELECT ${POST_COLUMNS} FROM posts WHERE agent_id=$1 AND review_date=$2`,[agent.agentId,localClock(agent.timezone).date]) : [];
     return NextResponse.json({
+      reviewDelivery: review ? {nextDeliveryAt:review.next_delivery_at?.toISOString()??null,config:review.config,post:dailyPost ? serializePost(dailyPost) : null,testMode:process.env.BYLINE_TEST_MODE==='true'} : null,
       initialized: true,
       agent,
       account,
@@ -203,6 +151,7 @@ export async function GET() {
           id,
           label: CATEGORIES[id].label,
           blurb: CATEGORIES[id].blurb,
+          groupLabel: CATEGORIES[id].groupLabel,
         })),
       },
       // Two separate allowances, reported separately — conflating them is what

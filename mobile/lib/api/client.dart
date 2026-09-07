@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// LinkedIn accepts JPG, PNG and GIF; /api/media enforces exactly those.
 /// image_picker re-encodes to JPEG when it downscales, so anything unfamiliar
@@ -60,16 +61,45 @@ const Duration kWriterTimeout = Duration(seconds: 135);
 /// Thrown for any non-2xx response, carrying the server's own error string so
 /// the UI can show the real reason instead of "something went wrong".
 class ApiException implements Exception {
-  ApiException(this.status, this.error, {this.detail});
+  ApiException(this.status, this.error, {this.detail, this.postSeq});
 
   final int status;
   final String error;
   final String? detail;
+  final int? postSeq;
 
   bool get isUnauthorized => status == 401;
 
   @override
-  String toString() => detail == null || detail!.isEmpty ? error : '$error — $detail';
+  String toString() {
+    if (status == 401) return 'Your session has expired. Please sign in again.';
+    if (error == 'timeout') {
+      return 'This is taking longer than expected. Check your connection and try again.';
+    }
+    if (error == 'connection_failed') {
+      return 'We could not connect to ByLine. Check your internet connection and try again.';
+    }
+    if (status >= 500) {
+      return 'ByLine is temporarily unavailable. Please try again shortly.';
+    }
+    if (status == 429) {
+      return 'You have reached the current allowance. Please try again later.';
+    }
+    if (detail != null &&
+        detail!.isNotEmpty &&
+        !detail!.contains('Non-JSON') &&
+        !detail!.contains('http') &&
+        !detail!.contains('Error:')) {
+      return detail!;
+    }
+    if (!error.contains('_') && error.contains(' ')) return error;
+    return switch (error) {
+      'linkedin_not_connected' => 'Connect LinkedIn in Settings to continue.',
+      'upload_failed' => 'The image could not be uploaded. Please try again.',
+      'not_found' => 'This item is no longer available. Refresh to continue.',
+      _ => 'We could not complete that request. Refresh and try again.',
+    };
+  }
 }
 
 class ApiClient {
@@ -81,7 +111,13 @@ class ApiClient {
   /// The Android emulator reaches the host machine on this address; `localhost`
   /// inside the emulator is the emulated device itself. Getting this wrong is
   /// the single most common way a first run fails, so it is the default.
-  static const defaultBaseUrl = 'http://10.0.2.2:3000';
+  static const defaultBaseUrl = String.fromEnvironment(
+    'BYLINE_API_URL',
+    defaultValue: 'http://10.0.2.2:3000',
+  );
+  static const _secure = FlutterSecureStorage();
+  String? _token;
+  bool get isNativeSession => _token != null;
 
   final SharedPreferences _prefs;
   final http.Client _http;
@@ -90,8 +126,55 @@ class ApiClient {
   /// every call. Without it the whole transport layer is untestable, and a
   /// wrong verb — POST where the route exports PATCH — is invisible until a
   /// button 405s in someone's hand. That has already happened once.
-  static Future<ApiClient> create({http.Client? httpClient}) async =>
-      ApiClient._(await SharedPreferences.getInstance(), httpClient ?? http.Client());
+  static Future<ApiClient> create({http.Client? httpClient}) async {
+    final api = ApiClient._(
+      await SharedPreferences.getInstance(),
+      httpClient ?? http.Client(),
+    );
+    if (api._prefs.getBool('native:${api.baseUrl}') == true) {
+      api._token = await _secure.read(key: 'byline:${api.baseUrl}');
+    }
+    return api;
+  }
+
+  Future<void> saveNativeSession(String token) async {
+    await _secure.write(key: 'byline:$baseUrl', value: token);
+    await _prefs.setBool('native:$baseUrl', true);
+    await _prefs.remove(_kCookie);
+    _token = token;
+    await clearPendingSignIn();
+  }
+
+  Future<void> savePendingSignIn(Map<String, dynamic> flow) async {
+    await _secure.write(
+      key: 'byline-pending:$baseUrl',
+      value: jsonEncode(flow),
+    );
+    await _prefs.setBool('pending:$baseUrl', true);
+  }
+
+  Future<Map<String, dynamic>?> pendingSignIn() async {
+    if (_prefs.getBool('pending:$baseUrl') != true) return null;
+    try {
+      final raw = await _secure.read(key: 'byline-pending:$baseUrl');
+      final flow = jsonDecode(raw ?? 'null');
+      if (flow is Map<String, dynamic> &&
+          flow['startedAt'] is int &&
+          DateTime.now().millisecondsSinceEpoch - (flow['startedAt'] as int) <
+              600000) {
+        return flow;
+      }
+    } catch (_) {}
+    await clearPendingSignIn();
+    return null;
+  }
+
+  Future<void> clearPendingSignIn() async {
+    if (_prefs.getBool('pending:$baseUrl') == true) {
+      await _secure.delete(key: 'byline-pending:$baseUrl');
+    }
+    await _prefs.remove('pending:$baseUrl');
+  }
 
   String get baseUrl => _prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
   Future<void> setBaseUrl(String value) async {
@@ -99,16 +182,18 @@ class ApiClient {
     while (v.endsWith('/')) {
       v = v.substring(0, v.length - 1);
     }
+    if (v != baseUrl) await clearSession();
     await _prefs.setString(_kBaseUrl, v);
   }
 
   String? get _cookie => _prefs.getString(_kCookie);
-  bool get hasSession => (_cookie ?? '').isNotEmpty;
+  bool get hasSession => _token != null || (_cookie ?? '').isNotEmpty;
 
   Map<String, String> get _authHeaders => {
-        'Content-Type': 'application/json',
-        if (hasSession) 'Cookie': _cookie!,
-      };
+    'Content-Type': 'application/json',
+    if (_token != null) 'Authorization': 'Bearer $_token',
+    if (_token == null && _cookie != null) 'Cookie': _cookie!,
+  };
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
@@ -128,30 +213,39 @@ class ApiClient {
   Never _fail(http.Response res) {
     String error = 'http_${res.statusCode}';
     String? detail;
+    int? postSeq;
     try {
       final body = jsonDecode(res.body);
       if (body is Map<String, dynamic>) {
         error = (body['error'] as String?) ?? error;
         detail = body['detail'] as String?;
+        postSeq = (body['seq'] as num?)?.toInt();
       }
     } catch (_) {
       // A non-JSON body means we probably hit something other than the API —
       // a proxy, a tunnel login page, the wrong port. Say so plainly.
       detail = res.body.isEmpty ? null : 'Non-JSON response from $baseUrl';
     }
-    throw ApiException(res.statusCode, error, detail: detail);
+    throw ApiException(res.statusCode, error, detail: detail, postSeq: postSeq);
   }
 
-  Future<dynamic> _send(Future<http.Response> Function() run, {Duration? timeout}) async {
+  Future<dynamic> _send(
+    Future<http.Response> Function() run, {
+    Duration? timeout,
+  }) async {
     final limit = timeout ?? _kTimeout;
     final http.Response res;
     try {
       res = await run().timeout(limit);
     } on TimeoutException {
-      throw ApiException(0, 'timeout',
-          detail: 'No response from $baseUrl after ${limit.inSeconds}s. '
-              'On a real phone use http://localhost:3000 with `adb reverse tcp:3000 tcp:3000` '
-              '— 10.0.2.2 only works on an emulator.');
+      throw ApiException(
+        0,
+        'timeout',
+        detail:
+            'No response from $baseUrl after ${limit.inSeconds}s. '
+            'On a real phone use http://localhost:3000 with `adb reverse tcp:3000 tcp:3000` '
+            '— 10.0.2.2 only works on an emulator.',
+      );
     } on Exception catch (e) {
       // Connection-level failures are the common case during setup (wrong host,
       // server not running, cleartext blocked) and deserve an actionable message.
@@ -159,18 +253,42 @@ class ApiClient {
     }
     if (res.statusCode < 200 || res.statusCode >= 300) _fail(res);
     if (res.body.isEmpty) return null;
-    return jsonDecode(res.body);
+    try {
+      return jsonDecode(res.body);
+    } on FormatException {
+      throw ApiException(
+        res.statusCode,
+        'invalid_response',
+        detail: 'ByLine returned an unreadable response. Please try again.',
+      );
+    }
   }
 
-  Future<dynamic> get(String path) => _send(() => _http.get(_uri(path), headers: _authHeaders));
+  Future<dynamic> get(String path) =>
+      _send(() => _http.get(_uri(path), headers: _authHeaders));
 
-  Future<dynamic> post(String path, [Map<String, dynamic>? body, Duration? timeout]) =>
-      _send(() => _http.post(_uri(path), headers: _authHeaders, body: jsonEncode(body ?? {})),
-          timeout: timeout);
+  Future<dynamic> post(
+    String path, [
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  ]) => _send(
+    () => _http.post(
+      _uri(path),
+      headers: _authHeaders,
+      body: jsonEncode(body ?? {}),
+    ),
+    timeout: timeout,
+  );
 
-  Future<dynamic> patch(String path, Map<String, dynamic> body, {Duration? timeout}) =>
-      _send(() => _http.patch(_uri(path), headers: _authHeaders, body: jsonEncode(body)),
-          timeout: timeout);
+  Future<dynamic> patch(
+    String path,
+    Map<String, dynamic> body, {
+    Duration? timeout,
+  }) => _send(
+    () =>
+        _http.patch(_uri(path), headers: _authHeaders, body: jsonEncode(body)),
+    timeout: timeout,
+  );
 
   Future<dynamic> delete(String path) =>
       _send(() => _http.delete(_uri(path), headers: _authHeaders));
@@ -187,13 +305,15 @@ class ApiClient {
     // against {jpeg, png, gif} — so a perfectly valid JPEG is rejected 400
     // "unsupported_type" purely because nobody said what it was.
     final request = http.MultipartRequest('POST', _uri('/api/media'))
-      ..headers.addAll({if (hasSession) 'Cookie': _cookie!})
+      ..headers.addAll({..._authHeaders}..remove('Content-Type'))
       ..fields['altText'] = altText
-      ..files.add(await http.MultipartFile.fromPath(
-        'file',
-        path,
-        contentType: MediaType('image', _imageSubtype(path)),
-      ));
+      ..files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          path,
+          contentType: MediaType('image', _imageSubtype(path)),
+        ),
+      );
 
     final http.Response res;
     try {
@@ -201,9 +321,13 @@ class ApiClient {
       // its own Client, bypassing the one this class was given — which makes
       // the upload path untestable and ignores any client-level configuration.
       final streamed = await _http.send(request).timeout(_kTimeout);
-      res = await http.Response.fromStream(streamed);
+      res = await http.Response.fromStream(streamed).timeout(_kTimeout);
     } on TimeoutException {
-      throw ApiException(0, 'timeout', detail: 'Upload timed out after ${_kTimeout.inSeconds}s.');
+      throw ApiException(
+        0,
+        'timeout',
+        detail: 'Upload timed out after ${_kTimeout.inSeconds}s.',
+      );
     } on Exception catch (e) {
       throw ApiException(0, 'upload_failed', detail: '$e');
     }
@@ -212,7 +336,11 @@ class ApiClient {
     final body = jsonDecode(res.body);
     final id = body is Map ? body['id'] : null;
     if (id is! String) {
-      throw ApiException(res.statusCode, 'upload_failed', detail: 'No media id in the response.');
+      throw ApiException(
+        res.statusCode,
+        'upload_failed',
+        detail: 'No media id in the response.',
+      );
     }
     return id;
   }
@@ -229,9 +357,13 @@ class ApiClient {
           )
           .timeout(_kTimeout);
     } on TimeoutException {
-      throw ApiException(0, 'timeout',
-          detail: 'No response from $baseUrl after ${_kTimeout.inSeconds}s. '
-              'Check the server address and that `npm run dev` is running.');
+      throw ApiException(
+        0,
+        'timeout',
+        detail:
+            'No response from $baseUrl after ${_kTimeout.inSeconds}s. '
+            'Check the server address and that `npm run dev` is running.',
+      );
     } on Exception catch (e) {
       throw ApiException(0, 'connection_failed', detail: '$baseUrl — $e');
     }
@@ -241,21 +373,33 @@ class ApiClient {
       // A 200 with no usable cookie means something between us and the server
       // stripped it. Failing loudly here beats an app that looks logged in and
       // then 401s on every screen.
-      throw ApiException(200, 'no_session_cookie',
-          detail: 'The server accepted the password but returned no session cookie.');
+      throw ApiException(
+        200,
+        'no_session_cookie',
+        detail:
+            'The server accepted the password but returned no session cookie.',
+      );
     }
   }
 
   Future<void> logOut() async {
     try {
-      await _http.delete(_uri('/api/auth'), headers: _authHeaders);
+      await _http
+          .delete(_uri('/api/auth'), headers: _authHeaders)
+          .timeout(_kTimeout);
     } on Exception {
       // Local sign-out must succeed even with no network.
     }
-    await _prefs.remove(_kCookie);
+    await clearSession();
   }
 
   /// Drop the session without calling the server — used when a request comes
   /// back 401 and the stored cookie is known to be dead.
-  Future<void> clearSession() => _prefs.remove(_kCookie);
+  Future<void> clearSession() async {
+    await clearPendingSignIn();
+    if (_token != null) await _secure.delete(key: 'byline:$baseUrl');
+    _token = null;
+    await _prefs.remove('native:$baseUrl');
+    await _prefs.remove(_kCookie);
+  }
 }

@@ -14,12 +14,11 @@
  * rather than known-good. They cost one logged warning per cycle if dead.
  * Run `npm run check:feeds` from your own network to see the real picture.
  *
- * As of 17 Aug 2026 every feed here is verified: a full run reached 15/15,
- * including bedroomproducers and gearnews, which were unreachable from the
- * original build network and had carried a stale `verified: false` since.
+ * Previously checked sources retain their verification flags. New sources
+ * remain unverified until runtime feed health establishes their availability.
  */
 import type { CategoryId } from "./categories";
-import { ALL_CATEGORY_IDS } from "./categories";
+import { CATEGORIES, LEGACY_CATEGORY_IDS as ALL_CATEGORY_IDS, MAX_SELECTED_CATEGORIES } from "./categories";
 import { decodeEntities } from "./entities";
 import { recordFeedResult } from "./feedhealth";
 
@@ -37,6 +36,7 @@ const FETCH_TIMEOUT_MS = 8_000;
 const MAX_CANDIDATES = 26;
 const MAX_CANDIDATES_WIDE = 34;
 const FRESH_HOURS = 72;
+const SPARSE_FRESH_HOURS = 7 * 24;
 
 /**
  * Slots guaranteed per active category, and the ceiling that stops the judge
@@ -162,6 +162,17 @@ interface Feed {
 }
 
 export const FEEDS: Feed[] = [
+  // Checked from the development network on 2026-09-06: all return populated RSS.
+  { name: "HubSpot", url: "https://blog.hubspot.com/marketing/rss.xml", category: "marketing", limit: 8, wideLimit: 12, verified: true },
+  { name: "HR Dive", url: "https://www.hrdive.com/feeds/news/", category: "hr", limit: 8, wideLimit: 12, verified: true },
+  { name: "Federal Reserve", url: "https://www.federalreserve.gov/feeds/press_all.xml", category: "finance", limit: 8, wideLimit: 12, verified: true },
+  // Publisher RSS endpoints; runtime feed health records actual availability.
+  { name: "Banking Dive", url: "https://www.bankingdive.com/feeds/news/", category: "finance", limit: 8, wideLimit: 12, verified: false },
+  { name: "ECB Blog", url: "https://www.ecb.europa.eu/rss/blog.html", category: "finance", limit: 6, wideLimit: 8, verified: false },
+  { name: "ECB Publications", url: "https://www.ecb.europa.eu/rss/pub.html", category: "finance", limit: 6, wideLimit: 8, verified: false },
+  { name: "WHO", url: "https://www.who.int/rss-feeds/news-english.xml", category: "healthcare", limit: 8, wideLimit: 12, verified: true },
+  { name: "Entrepreneur", url: "https://www.entrepreneur.com/latest.rss", category: "business", limit: 8, wideLimit: 12, verified: true },
+
   // -------------------------------------------------- music tech — software
   {
     name: "cdm",
@@ -422,14 +433,14 @@ export const FEEDS: Feed[] = [
 ];
 
 /**
- * Freshness filter: drop candidates older than ~72h. A stale pool guarantees
- * falling timeliness scores. Unparsable dates are kept (benefit of the doubt).
+ * Normally use 72 hours, extending to one week only for sparse categories.
+ * Unparsable dates are kept and passed to the judge as supplied by the feed.
  */
-function isFresh(c: Candidate): boolean {
+function isFresh(c: Candidate, hours = FRESH_HOURS): boolean {
   if (!c.publishedAt) return true;
   const t = Date.parse(c.publishedAt);
   if (Number.isNaN(t)) return true;
-  return Date.now() - t <= FRESH_HOURS * 3_600_000;
+  return Date.now() - t <= hours * 3_600_000;
 }
 
 /**
@@ -460,6 +471,18 @@ function interleaveByCategory(candidates: Candidate[], cap: number): Candidate[]
   return out;
 }
 
+/** Source routing is shared with catalogue coverage checks. No network work here. */
+export function feedsForCategories(active: CategoryId[], wide = false): Feed[] {
+  const activeSet = new Set(active);
+  return [
+    ...FEEDS.filter(f => activeSet.has(f.category) && (wide || !f.wideOnly)),
+    ...active.filter(id => CATEGORIES[id]?.query).slice(0, MAX_SELECTED_CATEGORIES).map(id => ({
+      name: `subject:${id}`, category: id, limit: 8, wideLimit: 12, verified: false,
+      url: `https://news.google.com/rss/search?q=${encodeURIComponent(CATEGORIES[id].query! + ' when:7d')}&hl=en-US&gl=US&ceid=US:en`,
+    })),
+  ];
+}
+
 /** Pull candidates across the agent's active categories, newest first. Partial results are normal. */
 export async function discover(options: DiscoverOptions = {}): Promise<Candidate[]> {
   const wide = options.wide ?? false;
@@ -480,9 +503,7 @@ export async function discover(options: DiscoverOptions = {}): Promise<Candidate
     }
   }
 
-  const feeds = FEEDS.filter(
-    (f) => activeSet.has(f.category) && (wide || !f.wideOnly),
-  );
+  const feeds = feedsForCategories(active, wide);
 
   // Fetched concurrently: ~13 feeds at 8s each would blow the cycle budget serially.
   await Promise.all(
@@ -512,7 +533,14 @@ export async function discover(options: DiscoverOptions = {}): Promise<Candidate
     seen.add(c.url);
     return true;
   });
-  const fresh = unique.filter(isFresh);
+  const fresh = unique.filter(c => isFresh(c));
+  // Quiet categories need a useful pool over weekends too. Supplement only
+  // categories with fewer than five recent stories, using at most a week's
+  // material. The judge still sees the actual date and applies the same bar.
+  const sparse = new Set(active.filter(category =>
+    fresh.filter(c => c.categoryHint === category).length < PER_CATEGORY_FLOOR));
+  fresh.push(...unique.filter(c => sparse.has(c.categoryHint) &&
+    !isFresh(c) && isFresh(c, SPARSE_FRESH_HOURS)));
   fresh.sort((a, b) => (Date.parse(b.publishedAt ?? "") || 0) - (Date.parse(a.publishedAt ?? "") || 0));
 
   const base = wide ? MAX_CANDIDATES_WIDE : MAX_CANDIDATES;

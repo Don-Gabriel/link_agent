@@ -3,14 +3,15 @@
  * string carries ?sslmode=require (see DEPLOY.md).
  *
  * Serverless notes:
- * - The schema is applied lazily on first DB access (ensureSchema), guarded
- *   by a module-level promise so it runs once per instance. CREATE TABLE IF
- *   NOT EXISTS makes concurrent instances safe.
+ * - ensureSchema checks an additive schema-hash ledger once per instance.
+ *   A transaction lock serializes migrations. Hosted releases can require
+ *   the explicit migration command instead of applying changes on first use.
  * - No DATABASE_URL means stub mode (local dev before Neon exists) — callers
  *   must handle a null pool rather than crash.
  */
 import { Pool } from "pg";
 import { SCHEMA_SQL } from "./schema";
+import { createHash } from 'node:crypto';
 
 /**
  * Pool and schema state live on globalThis, NOT in module scope.
@@ -30,6 +31,7 @@ import { SCHEMA_SQL } from "./schema";
 interface DbGlobals {
   pool: Pool | null;
   schemaReady: Promise<void> | null;
+  schemaVersion?: string;
 }
 const g = globalThis as unknown as { __linkdinDb?: DbGlobals };
 g.__linkdinDb ??= { pool: null, schemaReady: null };
@@ -69,13 +71,32 @@ export function getPool(): Pool | null {
 export async function ensureSchema(): Promise<boolean> {
   const p = getPool();
   if (!p) return false;
+  const version=createHash('sha256').update(SCHEMA_SQL).digest('hex');
+  if(state.schemaVersion!==version) {state.schemaReady=null;state.schemaVersion=version;}
   if (!state.schemaReady) {
     const started = Date.now();
-    state.schemaReady = p
-      .query(SCHEMA_SQL)
-      .then(() => {
+    state.schemaReady = (async()=>{
+      const c=await p.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query('SELECT pg_advisory_xact_lock(729311)');
+        if(process.env.BYLINE_REQUIRE_MIGRATIONS==='true') {
+          const exists=await c.query("SELECT to_regclass('byline_schema_versions') AS name");
+          if(!exists.rows[0].name)throw new Error('Database migration required before this release can serve requests.');
+        } else {
+          await c.query('CREATE TABLE IF NOT EXISTS byline_schema_versions(version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
+        }
+        const applied=await c.query('SELECT 1 FROM byline_schema_versions WHERE version=$1',[version]);
+        if(!applied.rowCount) {
+          if(process.env.BYLINE_REQUIRE_MIGRATIONS==='true')throw new Error('Database migration required before this release can serve requests.');
+          await c.query(SCHEMA_SQL);
+          await c.query('INSERT INTO byline_schema_versions(version) VALUES($1)',[version]);
+        }
+        await c.query('COMMIT');
+      } catch(e) {await c.query('ROLLBACK').catch(()=>{});throw e;}
+      finally{c.release();}
         console.log(`[db] schema ensured in ${Date.now() - started}ms`);
-      })
+      })()
       .catch((err) => {
         state.schemaReady = null; // allow retry on the next access
         throw err;

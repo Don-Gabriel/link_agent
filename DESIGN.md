@@ -1,4 +1,12 @@
-# Ink & Filament — the design system
+# ByLine design system
+
+The Android and Windows app now follows the light, responsive design documented in
+[the ByLine UX redesign plan](reports/ByLine-UX-redesign-plan.md), with live tokens
+in `mobile/lib/theme.dart`. That plan supersedes the dark palette, typography and
+layout directions below for the native app. The following is retained as the
+historical design reference for the existing web interface.
+
+## Historical reference: Ink & Filament
 
 The source of truth for how this product looks and behaves. Every value in
 `mobile/lib/theme.dart` and `app/globals.css` comes from here; nothing is

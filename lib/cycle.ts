@@ -1,3 +1,4 @@
+import { withAgentUsage } from './ai-usage';
 /**
  * One cycle, end to end:
  *   discover -> recall memory -> judge (1 LLM call, batched) ->
@@ -68,9 +69,13 @@ export interface CycleResult {
 
 /** What a slot contributes to a cycle: its categories, and where the post lands. */
 export interface CycleContext {
+  onProgress?: (stage: 'discovering' | 'judging' | 'writing' | 'saving') => Promise<void>;
+  reviewDate?: string;
+  suppressNotification?: boolean;
   /** Overrides the agent's categories when non-empty. */
   categories?: CategoryId[];
   slotId?: string;
+  slotDate?: string;
   /** Stamped onto the draft as posts.scheduled_for — when it should go out. */
   scheduledFor?: Date;
 }
@@ -138,6 +143,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   // never widen them beyond what the agent is watching.
   const slotCategories = (context.categories ?? []).filter((c) => settings.categories.includes(c));
   const activeCategories = slotCategories.length > 0 ? slotCategories : settings.categories;
+  await context.onProgress?.('discovering');
   const discovered = await discover({ categories: activeCategories, wide: staleFeed });
 
   // Hard dedup: never re-judge a URL already written about (drafts included —
@@ -201,6 +207,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     )
   ).flatMap((r) => (r.category ? [r.category] : []));
 
+  await context.onProgress?.('judging');
   const judged = await judgeCandidates(
     persona,
     activeCategories,
@@ -301,6 +308,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   ).filter((r) => r.used_quote).length;
 
   const runnersUp = scored.slice(1, 3);
+  await context.onProgress?.('writing');
   const draft = await writePost({
     persona,
     style: settings.style,
@@ -320,13 +328,15 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   }
   if (draft.data.servedBy) servedBy.push(draft.data.servedBy);
 
+  await context.onProgress?.('saving');
   const inserted = await query<{ id: string; seq: number }>(
     `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint, scores_json,
                         continuity, cycle_id, status, kind, category, hashtags_json, used_quote,
-                        slot_id, scheduled_for)
-     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7, $8, 'draft', 'auto', $9, $10, $11,
-            $12, $13
-       FROM posts WHERE agent_id = $1
+                        slot_id, scheduled_for, review_date,slot_date)
+     SELECT $1, byline_next_seq($1), $2, $3, $4, $5, $6, $7, $8, 'draft', 'auto', $9, $10, $11,
+            $12, $13, $14,$15
+     ON CONFLICT(agent_id,slot_id,slot_date) WHERE slot_date IS NOT NULL
+       DO UPDATE SET slot_date=EXCLUDED.slot_date
      RETURNING id, seq`,
     [
       agentId,
@@ -342,6 +352,8 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
       draft.data.used_quote,
       context.slotId ?? null,
       context.scheduledFor?.toISOString() ?? null,
+      context.reviewDate ?? null,
+      context.slotDate ?? null,
     ],
   );
   const postId = inserted[0]?.id;
@@ -379,7 +391,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   //
   // The hook, not the post: a notification is a reason to open the app, not a
   // place to read a draft.
-  if (seq !== undefined) {
+  if (seq !== undefined && !context.suppressNotification) {
     await notify(agentId, {
       kind: "draft_ready",
       seq,
@@ -400,7 +412,10 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
  * transaction-mode pooler, and auto-released on COMMIT/ROLLBACK or death.
  * A session-scoped lock would silently not work here — do not "simplify" it.
  */
-export async function runCycleWithLock(agentId: string, force = false): Promise<CycleResult> {
+export async function runCycleWithLock(agentId: string, force = false, context: CycleContext = {}): Promise<CycleResult> {
+  return withAgentUsage(agentId,()=>runCycleLocked(agentId,force,context));
+}
+async function runCycleLocked(agentId: string, force = false, context: CycleContext = {}): Promise<CycleResult> {
   const pool = getPool();
   if (!pool) return { agentId, ran: false, drafted: false, published: false, skippedReason: "no_database" };
 
@@ -431,7 +446,7 @@ export async function runCycleWithLock(agentId: string, force = false): Promise<
       }
     }
 
-    const result = await runCycle(agentId).catch((err): CycleResult => {
+    const result = await runCycle(agentId, context).catch((err): CycleResult => {
       console.error(`[cycle] agent=${agentId} crashed:`, err);
       return { agentId, ran: true, drafted: false, published: false, skippedReason: String(err) };
     });
@@ -488,7 +503,10 @@ async function queueAlreadyCovers(agentId: string, scheduledFor: Date): Promise<
   return rows[0]?.seq ?? null;
 }
 
-export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
+export async function runSlotCycle(due: DueSlot, manual=false): Promise<CycleResult> {
+  return withAgentUsage(due.slot.agentId,()=>runSlotCycleInternal(due,manual));
+}
+async function runSlotCycleInternal(due: DueSlot, manual=false): Promise<CycleResult> {
   const { slot, runDate, scheduledFor } = due;
   const base: CycleResult = {
     agentId: slot.agentId,
@@ -500,12 +518,19 @@ export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
   return withSlotLock(
     slot.id,
     async () => {
-      if (!(await claimSlotRun(due))) {
+      const [existing]=await query<{seq:number}>(`SELECT seq FROM posts WHERE agent_id=$1 AND slot_id=$2 AND
+        (slot_date=$3::date OR seq IN(SELECT post_seq FROM slot_runs WHERE slot_id=$2 AND run_date=$3::date)) LIMIT 1`,[slot.agentId,slot.id,runDate]);
+      if(existing) {
+        await settleSlotRun(slot.id,runDate,'drafted',{postSeq:existing.seq});
+        await rescheduleSlot(slot,due.timezone,new Date(Math.max(Date.now(),scheduledFor.getTime())));
+        return {...base,ran:true,drafted:true,seq:existing.seq};
+      }
+      if (!(await claimSlotRun(due,manual))) {
         return { ...base, skippedReason: "already_ran_today" };
       }
 
       try {
-        if (due.missed) {
+        if (due.missed && !manual) {
           await settleSlotRun(slot.id, runDate, "missed", {
             detail: `Noticed more than ${MISSED_AFTER_LABEL} after ${slot.localTime}; not published late.`,
           });
@@ -517,7 +542,8 @@ export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
         // whether the author composed it by hand or an earlier run produced it.
         // Recorded as a silent slot with the reason, because the timetable
         // showing a gap it cannot explain is the thing this app refuses to do.
-        const covered = await queueAlreadyCovers(slot.agentId, scheduledFor);
+        const [native]=await query('SELECT 1 FROM agents WHERE id=$1 AND owner_id IS NOT NULL',[slot.agentId]);
+        const covered = native ? null : await queueAlreadyCovers(slot.agentId, scheduledFor);
         if (covered !== null) {
           await settleSlotRun(slot.id, runDate, "silent", {
             detail: `Post #${covered} is already queued for this slot — nothing new was written.`,
@@ -528,10 +554,26 @@ export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
           return { ...base, ran: true, skippedReason: "queue_already_covers" };
         }
 
-        const result = await runCycle(slot.agentId, {
+        if(process.env.BYLINE_TEST_MODE==='true') {
+          const {generateSetupSample,defaultSetup}=await import('./onboarding');
+          const [setup]=await query<{config:typeof defaultSetup}>(`SELECT o.config FROM onboarding o JOIN agents a ON a.owner_id=o.user_id WHERE a.id=$1`,[slot.agentId]);
+          const sample=await generateSetupSample({...defaultSetup,...setup?.config});
+          const [demo]=await query<{seq:number}>(`INSERT INTO posts(agent_id,seq,text,rationale,sources_json,fingerprint,status,kind,slot_id,slot_date,scheduled_for)
+            VALUES($1,byline_next_seq($1),$2,'Local demonstration; no AI call',$3,$4,'draft','auto',$5,$6,$7)
+            ON CONFLICT(agent_id,slot_id,slot_date) WHERE slot_date IS NOT NULL DO UPDATE SET slot_date=EXCLUDED.slot_date RETURNING seq`,
+            [slot.agentId,sample.text,JSON.stringify(sample.sources),`local-slot:${slot.id}:${runDate}`,slot.id,runDate,
+              manual&&scheduledFor.getTime()<=Date.now()?null:scheduledFor]);
+          await settleSlotRun(slot.id,runDate,'drafted',{postSeq:demo.seq});
+          return {...base,ran:true,drafted:true,seq:demo.seq};
+        }
+        const result = await runCycleWithLock(slot.agentId, true, {
           categories: slot.categories,
           slotId: slot.id,
-          scheduledFor,
+          slotDate: runDate,
+          scheduledFor: manual && scheduledFor.getTime()<=Date.now() ? undefined : scheduledFor,
+          onProgress: async stage => {
+            await query('UPDATE slot_runs SET stage=$3 WHERE slot_id=$1 AND run_date=$2',[slot.id,runDate,stage]);
+          },
         });
 
         if (result.drafted) {
@@ -549,7 +591,10 @@ export async function runSlotCycle(due: DueSlot): Promise<CycleResult> {
         }
         return result;
       } finally {
-        await rescheduleSlot(slot, due.timezone).catch((err) =>
+        const [run]=await query<{outcome:string;attempts:number}>(
+          'SELECT outcome,attempts FROM slot_runs WHERE slot_id=$1 AND run_date=$2',[slot.id,runDate]);
+        const retry=run && ['failed','silent'].includes(run.outcome) && run.attempts<3 && scheduledFor.getTime()>Date.now();
+        if(!retry)await rescheduleSlot(slot, due.timezone, new Date(Math.max(Date.now(), scheduledFor.getTime()))).catch((err) =>
           console.error(`[cycle] slot=${slot.id} reschedule failed:`, err),
         );
       }

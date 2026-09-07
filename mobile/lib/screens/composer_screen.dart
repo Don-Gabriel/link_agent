@@ -26,6 +26,10 @@
 library;
 
 import 'dart:io';
+import 'dart:convert';
+import 'dart:math';
+import '../widgets/experience.dart';
+import '../widgets/editorial.dart';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -45,8 +49,9 @@ const int kMaxBodyChars = 2400;
 /// Must stay in step with countWords() in lib/critique.ts — that is the count
 /// the writer is repaired against, and a composer that disagreed with it would
 /// send the author chasing a number the backend was not enforcing.
-int countWords(String text) =>
-    text.trim().isEmpty ? 0 : text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+int countWords(String text) => text.trim().isEmpty
+    ? 0
+    : text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
 
 /// Guards against a second push. The compose request counter can fire while the
 /// composer is already open — tapping "edit" on a card that is already loaded,
@@ -58,12 +63,17 @@ bool _composerOpen = false;
 /// a follow-up to season it with, or nothing at all.
 Future<void> openComposer(BuildContext context) async {
   if (_composerOpen) return;
+  final state = context.read<AppState>();
   _composerOpen = true;
   try {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ComposerScreen(), fullscreenDialog: true),
+      MaterialPageRoute(
+        builder: (_) => const ComposerScreen(),
+        fullscreenDialog: true,
+      ),
     );
   } finally {
+    state.stopEditing();
     _composerOpen = false;
   }
 }
@@ -94,9 +104,15 @@ class _ComposerScreenState extends State<ComposerScreen> {
 
   /// Media ids already attached to the draft being edited.
   List<String> _existingMedia = [];
+  List<String> _sources = const [];
+  late final String _createRequestId = base64UrlEncode(
+    List.generate(32, (_) => Random.secure().nextInt(256)),
+  ).replaceAll('=', '');
 
   /// A rewrite waiting to be accepted or dismissed.
   String? _variant;
+  List<String> _variantHashtags = const [];
+  String? _variantVoice;
   int _variantIndex = 0;
 
   /// The post being edited, or null when writing something new.
@@ -105,6 +121,14 @@ class _ComposerScreenState extends State<ComposerScreen> {
   /// The text this screen opened with, so leaving can tell whether anything
   /// was actually typed.
   String _openedWith = '';
+
+  String get _draftSnapshot => jsonEncode({
+    'text': _text.text.trim(),
+    'hashtags': _hashtags,
+    'media': _existingMedia,
+    'pending': _pending.map((f) => f.path).toList(),
+    'scheduledFor': _scheduledFor?.toIso8601String(),
+  });
 
   /// When this post should go out, or null for "not on the timetable". A
   /// hand-written post can be scheduled exactly like a generated one.
@@ -138,6 +162,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
       _loadedSeq = target.seq;
       _text.text = target.text;
       _existingMedia = List.of(target.media);
+      _sources = List.of(target.sources);
       _hashtags = List.of(target.hashtags);
       _scheduledFor = target.scheduledFor;
       // Take the edit lock so the scheduled send cannot fire while this is open
@@ -154,7 +179,7 @@ class _ComposerScreenState extends State<ComposerScreen> {
         _status = 'A follow-up, ready to edit. Not saved yet.';
       }
     }
-    _openedWith = _text.text;
+    _openedWith = _draftSnapshot;
   }
 
   @override
@@ -173,21 +198,27 @@ class _ComposerScreenState extends State<ComposerScreen> {
   /// Leaving with typed text asks first. Everything else closes silently.
   Future<bool> _confirmLeave() async {
     if (_busy) return false;
-    if (_text.text.trim() == _openedWith.trim()) return true;
+    if (_draftSnapshot == _openedWith) return true;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(_editing ? 'Leave without saving?' : 'Discard this post?'),
         content: Text(
           _editing
-              ? 'The queued draft keeps its current text.'
-              : 'Nothing has been saved yet, and this text is not kept.',
+              ? 'The queued draft keeps its saved text, hashtags, attachments and schedule.'
+              : 'Your unsaved text, hashtags, attachments and schedule changes will be lost.',
           style: T.small,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep writing')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep writing'),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: C.flare, foregroundColor: C.paper),
+            style: FilledButton.styleFrom(
+              backgroundColor: C.flare,
+              foregroundColor: C.onFilament,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(_editing ? 'Leave' : 'Discard'),
           ),
@@ -203,7 +234,10 @@ class _ComposerScreenState extends State<ComposerScreen> {
   void _addTag(int cap) {
     final cleaned = _tagInput.text.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
     if (cleaned.length < 3 || cleaned.length > 40) return;
-    if (_hashtags.length >= cap || _hashtags.contains(cleaned)) return;
+    if (_hashtags.length >= cap ||
+        _hashtags.any((tag) => tag.toLowerCase() == cleaned.toLowerCase())) {
+      return;
+    }
     setState(() {
       _hashtags = [..._hashtags, cleaned];
       _tagInput.clear();
@@ -214,26 +248,39 @@ class _ComposerScreenState extends State<ComposerScreen> {
     try {
       // Downscale at pick time: /api/media caps the body at 4MB and a modern
       // phone photo is several times that.
-      final picked =
-          await _picker.pickMultiImage(maxWidth: 1920, maxHeight: 1920, imageQuality: 85);
+      final picked = await _picker.pickMultiImage(
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
+      if (!mounted) return;
       if (picked.isEmpty) return;
       setState(() {
         _pending.addAll(picked);
         final total = _pending.length + _existingMedia.length;
-        if (total > 20) _pending.removeRange(20 - _existingMedia.length, _pending.length);
+        if (total > 20) {
+          _pending.removeRange(20 - _existingMedia.length, _pending.length);
+        }
         _error = null;
       });
     } on Exception catch (e) {
+      if (!mounted) return;
       setState(() => _error = 'Could not open the picker: $e');
     }
   }
 
   Future<List<String>?> _uploadPending() async {
-    if (_pending.isEmpty) return _existingMedia;
+    final state = context.read<AppState>();
     try {
-      final ids =
-          await context.read<AppState>().uploadImages(_pending.map((f) => f.path).toList());
-      return [..._existingMedia, ...ids];
+      while (_pending.isNotEmpty) {
+        final ids = await state.uploadImages([_pending.first.path]);
+        if (!mounted) return null;
+        setState(() {
+          _existingMedia = [..._existingMedia, ...ids];
+          _pending.removeAt(0);
+        });
+      }
+      return List.of(_existingMedia);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = 'Image upload failed — $e');
       return null;
@@ -241,11 +288,9 @@ class _ComposerScreenState extends State<ComposerScreen> {
   }
 
   Future<void> _rewrite() async {
-    final seq = _loadedSeq;
     final typed = _text.text.trim();
-    // Unsaved text has no seq to reference, so it goes to the endpoint that
-    // takes the body directly. Both return a variant and save nothing.
-    if (seq == null && typed.length < 20) return;
+    // Rewrite what is on screen, including edits to an existing draft.
+    if (_busy || typed.length < 20) return;
 
     setState(() {
       _busy = true;
@@ -254,12 +299,13 @@ class _ComposerScreenState extends State<ComposerScreen> {
     });
     try {
       final state = context.read<AppState>();
-      final text = seq != null
-          ? await state.rewriteDraft(seq, variant: _variantIndex)
-          : await state.rewriteText(typed, variant: _variantIndex);
+      final voice = state.styleFingerprint;
+      final text = await state.rewriteText(typed, variant: _variantIndex);
       if (!mounted) return;
       setState(() {
         _variant = text;
+        _variantHashtags = List.of(state.lastVariantHashtags);
+        _variantVoice = voice;
         _variantIndex++;
         _busy = false;
       });
@@ -275,39 +321,15 @@ class _ComposerScreenState extends State<ComposerScreen> {
   void _acceptVariant() {
     final variant = _variant;
     if (variant == null) return;
-    final state = context.read<AppState>();
 
-    // The author's hashtags are kept, and the rewrite's suggestions fill
-    // whatever room is left under the cap. This used to replace the list
-    // outright, which quietly deleted tags someone had typed deliberately — the
-    // model's opinion about tags is worth less than an explicit choice.
-    //
-    // Existing tags are never dropped even if there are already more of them
-    // than the cap allows: trimming is the tag editor's job, not a side effect
-    // of pressing rewrite.
-    final kept = List.of(_hashtags);
-    final room = state.style.hashtagCount - kept.length;
-    final added = room <= 0
-        ? const <String>[]
-        : state.lastVariantHashtags
-            .where((t) => !kept.any((k) => k.toLowerCase() == t.toLowerCase()))
-            .take(room)
-            .toList();
-
+    // Accept the same body and tags that were shown together in the preview.
+    // Merging old tags here kept an outdated count until the server saved it.
     setState(() {
       _text.text = variant;
-      _hashtags = [...kept, ...added];
+      _hashtags = List.of(_variantHashtags);
       _variant = null;
-      _voiceAtLoad = state.styleFingerprint;
-      _status = switch ((kept.isEmpty, added.isEmpty)) {
-        (true, true) => 'Applied. Not saved yet.',
-        (true, false) => 'Applied, with ${added.length} suggested '
-            '${added.length == 1 ? 'hashtag' : 'hashtags'}. Not saved yet.',
-        (false, true) => 'Applied. Your hashtags are unchanged. Not saved yet.',
-        (false, false) => 'Applied. Your ${kept.length} '
-            '${kept.length == 1 ? 'hashtag' : 'hashtags'} kept, ${added.length} added. '
-            'Not saved yet.',
-      };
+      _voiceAtLoad = _variantVoice;
+      _status = 'Text and hashtags updated. Not saved yet.';
     });
   }
 
@@ -326,6 +348,10 @@ class _ComposerScreenState extends State<ComposerScreen> {
       builder: (ctx) => _PreviewSheet(
         body: _text.text.trim(),
         hashtags: _hashtags,
+        source:
+            _pending.isEmpty && _existingMedia.isEmpty && _sources.isNotEmpty
+            ? _sources.first
+            : null,
         imageCount: _pending.length + _existingMedia.length,
         publishNow: publishNow,
         liveMode: state.status?.liveMode ?? false,
@@ -336,10 +362,28 @@ class _ComposerScreenState extends State<ComposerScreen> {
   }
 
   Future<void> _save({required bool publishNow}) async {
+    if (_busy) return;
+    // AI changes must be reviewed before a save or a send, never afterwards.
+    if (_polish) {
+      await _rewrite();
+      if (mounted && _error == null) {
+        setState(() {
+          _polish = false;
+          _status =
+              'Review the suggested text and hashtags below before saving.';
+        });
+      }
+      return;
+    }
     final state = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    if (!await _previewAndConfirm(publishNow: publishNow)) return;
+    setState(() => _busy = true);
+    final confirmed = await _previewAndConfirm(publishNow: publishNow);
+    if (!confirmed) {
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
     if (!mounted) return;
 
     setState(() {
@@ -353,27 +397,46 @@ class _ComposerScreenState extends State<ComposerScreen> {
       if (mounted) setState(() => _busy = false);
       return;
     }
+    if (!mounted) return;
+    // Keep successful uploads attached when a save/send needs another try.
+    setState(() {
+      _existingMedia = List.of(mediaIds);
+      _pending.clear();
+    });
 
     String? error;
     final seq = _loadedSeq;
     if (seq != null) {
-      error = await state.editPost(seq, _text.text.trim(), _hashtags, mediaIds: mediaIds);
+      error = await state.editPost(
+        seq,
+        _text.text.trim(),
+        _hashtags,
+        mediaIds: mediaIds,
+      );
       // Saving ends the edit, so the hold goes with it — otherwise a scheduled
       // post would sit blocked until the server expired the lock.
       if (error == null) {
         await state.releaseEditing(seq);
-        _loadedSeq = null;
+        _openedWith = _draftSnapshot;
       }
       if (error == null && publishNow) error = await state.sendNow(seq);
     } else {
       error = await state.compose(
         text: _text.text.trim(),
-        polish: _polish,
-        publishNow: publishNow,
+        polish: false,
+        publishNow: false,
         hashtags: _hashtags,
         mediaIds: mediaIds,
         scheduledFor: _scheduledFor,
+        onCreated: (createdSeq) {
+          _loadedSeq = createdSeq;
+        },
+        clientRequestId: _createRequestId,
       );
+      if (error == null) _openedWith = _draftSnapshot;
+      if (error == null && publishNow && _loadedSeq != null) {
+        error = await state.sendNow(_loadedSeq!);
+      }
     }
 
     if (!mounted) return;
@@ -386,11 +449,13 @@ class _ComposerScreenState extends State<ComposerScreen> {
     state.stopEditing();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(publishNow
-            ? 'Published.'
-            : seq != null
-                ? 'Draft updated.'
-                : 'Saved to the desk.'),
+        content: Text(
+          publishNow
+              ? 'Published.'
+              : seq != null
+              ? 'Draft updated.'
+              : 'Draft saved in My posts.',
+        ),
       ),
     );
     // The work is done and the result is on the Desk. Staying on a blank
@@ -413,7 +478,8 @@ class _ComposerScreenState extends State<ComposerScreen> {
     // the screen never showed — a post could sit at a fifth of the required
     // length with nothing on screen disagreeing.
     final words = countWords(_text.text);
-    final wordsOff = words > 0 && (words < style.minWords || words > style.maxWords);
+    final wordsOff =
+        words > 0 && (words < style.minWords || words > style.maxWords);
     final canSend = !_busy && !tooShort && !tooLong;
 
     // Compared against the FULL voice, not style.summary. That summary names
@@ -422,7 +488,9 @@ class _ComposerScreenState extends State<ComposerScreen> {
     // banner silent — the voice really had moved on and the composer said
     // nothing about it.
     final voiceStale =
-        _voiceAtLoad != null && _voiceAtLoad != state.styleFingerprint && length > 0;
+        _voiceAtLoad != null &&
+        _voiceAtLoad != state.styleFingerprint &&
+        length > 0;
 
     return PopScope(
       canPop: false,
@@ -445,7 +513,9 @@ class _ComposerScreenState extends State<ComposerScreen> {
                     if (await _confirmLeave() && mounted) navigator.pop();
                   },
           ),
-          title: Text(_editing ? 'Editing ${state.editing?.id ?? ''}' : 'Write'),
+          title: Text(
+            _editing ? 'Editing ${state.editing?.id ?? ''}' : 'Write',
+          ),
           actions: [
             if (_busy)
               const Padding(
@@ -461,133 +531,166 @@ class _ComposerScreenState extends State<ComposerScreen> {
           ],
         ),
         body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x5),
-            children: [
-              if (voiceStale) ...[
-                Notice(
-                  tone: Tone.desk,
-                  icon: Icons.tune,
-                  title: 'Your voice changed',
-                  body: 'This text was written under the old settings — ${style.summary}.',
-                  actionLabel: 'Rewrite',
-                  onAction: _busy || tooShort ? null : _rewrite,
+          child: PageSurface(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x5),
+              children: [
+                const StudioBanner(
+                  compact: true,
+                  scene: StudioScene.writing,
+                  eyebrow: 'THE WRITING ROOM',
+                  title: 'Give your idea a little space.',
+                  caption:
+                      'Start with one clear thought. Make the rest sound like you.',
+                ),
+                const SizedBox(height: 24),
+                if (voiceStale) ...[
+                  Notice(
+                    tone: Tone.desk,
+                    icon: Icons.tune,
+                    title: 'Your voice changed',
+                    body:
+                        'This text was written under the old settings — ${style.summary}.',
+                    actionLabel: 'Rewrite',
+                    onAction: _busy || tooShort ? null : _rewrite,
+                  ),
+                  const SizedBox(height: S.x4),
+                ],
+
+                // The page IS the text field. No panel around it, nothing
+                // competing: this is the one thing the screen is for.
+                TextField(
+                  // Keyed so a test can reach the body field by name. Without it
+                  // the only handle is `find.byType(TextField).first`, which
+                  // silently becomes the hashtag input once the page is scrolled
+                  // far enough to unmount this one.
+                  key: const Key('composer-body'),
+                  controller: _text,
+                  maxLines: null,
+                  minLines: 10,
+                  autofocus: !_editing,
+                  style: T.copy,
+                  enabled: !_busy,
+                  decoration: const InputDecoration(
+                    hintText:
+                        'What happened, what you learned, what you disagree with.',
+                    border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    filled: false,
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
                 const SizedBox(height: S.x4),
-              ],
 
-              // The page IS the text field. No panel around it, nothing
-              // competing: this is the one thing the screen is for.
-              TextField(
-                // Keyed so a test can reach the body field by name. Without it
-                // the only handle is `find.byType(TextField).first`, which
-                // silently becomes the hashtag input once the page is scrolled
-                // far enough to unmount this one.
-                key: const Key('composer-body'),
-                controller: _text,
-                maxLines: null,
-                minLines: 10,
-                autofocus: !_editing,
-                style: T.copy,
-                enabled: !_busy,
-                decoration: const InputDecoration(
-                  hintText: 'What happened, what you learned, what you disagree with.',
-                  border: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(height: S.x4),
-
-              // One compact line of meters. Words first: it is the rule the
-              // author set and the one the writer is held to. Characters matter
-              // only near LinkedIn's ceiling, which ordinary posts never reach.
-              Wrap(
-                spacing: S.x2,
-                runSpacing: S.x2,
-                children: [
-                  Slug(
-                    '$words / ${style.minWords}–${style.maxWords} words',
-                    tone: words == 0 ? Tone.quiet : (wordsOff ? Tone.desk : Tone.out),
-                  ),
-                  if (length > 0)
+                // One compact line of meters. Words first: it is the rule the
+                // author set and the one the writer is held to. Characters matter
+                // only near LinkedIn's ceiling, which ordinary posts never reach.
+                Wrap(
+                  spacing: S.x2,
+                  runSpacing: S.x2,
+                  children: [
                     Slug(
-                      'hook $hookLength / $kFoldChars',
-                      tone: hookLength > kFoldChars ? Tone.desk : Tone.out,
+                      '$words / ${style.minWords}–${style.maxWords} words',
+                      tone: words == 0
+                          ? Tone.quiet
+                          : (wordsOff ? Tone.desk : Tone.out),
                     ),
-                  if (tooLong || length > kMaxBodyChars - 400)
-                    Slug('$length / $kMaxBodyChars', tone: tooLong ? Tone.broken : Tone.quiet),
+                    if (length > 0)
+                      Slug(
+                        'hook $hookLength / $kFoldChars',
+                        tone: hookLength > kFoldChars ? Tone.desk : Tone.out,
+                      ),
+                    if (tooLong || length > kMaxBodyChars - 400)
+                      Slug(
+                        '$length / $kMaxBodyChars',
+                        tone: tooLong ? Tone.broken : Tone.quiet,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: S.x5),
+
+                if (style.hashtagCount > 0 || _hashtags.isNotEmpty) ...[
+                  _Hashtags(
+                    tags: _hashtags,
+                    cap: style.hashtagCount,
+                    controller: _tagInput,
+                    busy: _busy,
+                    onAdd: () => _addTag(style.hashtagCount),
+                    onRemove: (tag) =>
+                        setState(() => _hashtags = [..._hashtags]..remove(tag)),
+                  ),
+                  const SizedBox(height: S.x5),
                 ],
-              ),
-              const SizedBox(height: S.x5),
 
-              if (style.hashtagCount > 0) ...[
-                _Hashtags(
-                  tags: _hashtags,
-                  cap: style.hashtagCount,
-                  controller: _tagInput,
+                _Attachments(
+                  pending: _pending,
+                  existingCount: _existingMedia.length,
                   busy: _busy,
-                  onAdd: () => _addTag(style.hashtagCount),
-                  onRemove: (tag) => setState(() => _hashtags = [..._hashtags]..remove(tag)),
+                  onAdd: _pickImages,
+                  onRemove: (i) => setState(() => _pending.removeAt(i)),
+                  onClearExisting: () => setState(() => _existingMedia = []),
                 ),
                 const SizedBox(height: S.x5),
+
+                if (!_editing) ...[
+                  const SectionRule('Before it goes out'),
+                  SwitchRow(
+                    title: 'Polish in your voice',
+                    blurb:
+                        'Shows a suggested rewrite for you to review before saving or publishing.',
+                    value: _polish,
+                    onChanged: _busy
+                        ? null
+                        : (v) => setState(() => _polish = v),
+                  ),
+                  const SizedBox(height: S.x3),
+                ],
+
+                // Available while writing something new too, not only when
+                // editing a saved draft — a second opinion is most useful before
+                // the text has been committed to anything.
+                OutlinedButton.icon(
+                  onPressed: _busy || tooShort ? null : _rewrite,
+                  icon: const Icon(Icons.auto_awesome_outlined, size: 17),
+                  label: Text(
+                    _variant == null
+                        ? 'Rewrite in my voice'
+                        : 'Try another version',
+                  ),
+                ),
+                if (tooShort && length > 0)
+                  const Padding(
+                    padding: EdgeInsets.only(top: S.x2),
+                    child: Text(
+                      'Write at least 20 characters to rewrite.',
+                      style: T.micro,
+                    ),
+                  ),
+
+                if (_status != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x3),
+                    child: Text(
+                      _status!,
+                      style: T.micro.copyWith(color: C.daylight),
+                    ),
+                  ),
+                if (_error != null) ErrorNote(_error!),
+
+                if (_variant != null) ...[
+                  const SizedBox(height: S.x5),
+                  _Variant(
+                    text: _variant!,
+                    hashtags: _variantHashtags,
+                    busy: _busy,
+                    onAccept: _acceptVariant,
+                    onDismiss: () => setState(() => _variant = null),
+                    onAnother: _busy ? null : _rewrite,
+                  ),
+                ],
               ],
-
-              _Attachments(
-                pending: _pending,
-                existingCount: _existingMedia.length,
-                busy: _busy,
-                onAdd: _pickImages,
-                onRemove: (i) => setState(() => _pending.removeAt(i)),
-                onClearExisting: () => setState(() => _existingMedia = []),
-              ),
-              const SizedBox(height: S.x5),
-
-              if (!_editing) ...[
-                const SectionRule('Before it goes out'),
-                SwitchRow(
-                  title: 'Polish in your voice',
-                  blurb: 'Tightens the hook and applies your style rules. Never invents facts.',
-                  value: _polish,
-                  onChanged: _busy ? null : (v) => setState(() => _polish = v),
-                ),
-                const SizedBox(height: S.x3),
-              ],
-
-              // Available while writing something new too, not only when
-              // editing a saved draft — a second opinion is most useful before
-              // the text has been committed to anything.
-              OutlinedButton.icon(
-                onPressed: _busy || tooShort ? null : _rewrite,
-                icon: const Icon(Icons.auto_awesome_outlined, size: 17),
-                label: Text(_variant == null ? 'Rewrite with AI' : 'Try another version'),
-              ),
-              if (tooShort && length > 0)
-                const Padding(
-                  padding: EdgeInsets.only(top: S.x2),
-                  child: Text('Write at least 20 characters to rewrite.', style: T.micro),
-                ),
-
-              if (_status != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: S.x3),
-                  child: Text(_status!, style: T.micro.copyWith(color: C.daylight)),
-                ),
-              if (_error != null) ErrorNote(_error!),
-
-              if (_variant != null) ...[
-                const SizedBox(height: S.x5),
-                _Variant(
-                  text: _variant!,
-                  busy: _busy,
-                  onAccept: _acceptVariant,
-                  onDismiss: () => setState(() => _variant = null),
-                  onAnother: _busy ? null : _rewrite,
-                ),
-              ],
-            ],
+            ),
           ),
         ),
         // Pinned, so the commit never scrolls away under the text it applies to.
@@ -621,44 +724,47 @@ class _CommitBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        decoration: const BoxDecoration(
-          color: C.ink2,
-          border: Border(top: BorderSide(color: C.rule)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(S.x3),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    decoration: const BoxDecoration(
+      color: C.ink2,
+      border: Border(top: BorderSide(color: C.rule)),
+    ),
+    child: SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(S.x3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: canSend ? onSave : null,
-                        child: Text(editing ? 'Save changes' : 'Save to the desk'),
-                      ),
-                    ),
-                    const SizedBox(width: S.x2),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: canSend && connected ? onPublish : null,
-                        child: const Text('Publish now'),
-                      ),
-                    ),
-                  ],
-                ),
-                if (!connected)
-                  const Padding(
-                    padding: EdgeInsets.only(top: S.x2),
-                    child: Text('Connect LinkedIn to publish directly.', style: T.micro),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: canSend ? onSave : null,
+                    child: Text(editing ? 'Save changes' : 'Save draft'),
                   ),
+                ),
+                const SizedBox(width: S.x2),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: canSend && connected ? onPublish : null,
+                    child: const Text('Publish now'),
+                  ),
+                ),
               ],
             ),
-          ),
+            if (!connected)
+              const Padding(
+                padding: EdgeInsets.only(top: S.x2),
+                child: Text(
+                  'Connect LinkedIn to publish directly.',
+                  style: T.micro,
+                ),
+              ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }
 
 /// The post exactly as it will be sent: body and hashtags assembled, with the
@@ -667,6 +773,7 @@ class _PreviewSheet extends StatelessWidget {
   const _PreviewSheet({
     required this.body,
     required this.hashtags,
+    this.source,
     required this.imageCount,
     required this.publishNow,
     required this.liveMode,
@@ -675,16 +782,18 @@ class _PreviewSheet extends StatelessWidget {
 
   final String body;
   final List<String> hashtags;
+  final String? source;
   final int imageCount;
   final bool publishNow;
   final bool liveMode;
   final bool editing;
 
-  /// Mirrors assemblePost in lib/format.ts. The source line is appended by the
-  /// server for agent-written posts with no image, which the app cannot know
-  /// here — so it is described rather than faked.
-  String get _assembled =>
-      hashtags.isEmpty ? body : '$body\n\n${hashtags.map((h) => '#$h').join(' ')}';
+  /// Includes the same source line the server appends to text-only posts.
+  String get _assembled => [
+    body,
+    if (source != null) 'Source: $source',
+    if (hashtags.isNotEmpty) hashtags.map((h) => '#$h').join(' '),
+  ].join('\n\n');
 
   @override
   Widget build(BuildContext context) {
@@ -692,8 +801,8 @@ class _PreviewSheet extends StatelessWidget {
     final action = publishNow
         ? (liveMode ? 'Publish to LinkedIn' : 'Publish (dry run)')
         : editing
-            ? 'Save changes'
-            : 'Save to the desk';
+        ? 'Save changes'
+        : 'Save draft';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -743,14 +852,22 @@ class _PreviewSheet extends StatelessWidget {
                   spacing: S.x2,
                   runSpacing: S.x2,
                   children: [
-                    Slug('${text.length} chars',
-                        tone: text.length > kMaxBodyChars ? Tone.broken : Tone.quiet),
-                    Slug(hashtags.isEmpty ? 'no tags' : '${hashtags.length} tags'),
+                    Slug(
+                      '${text.length} chars',
+                      tone: text.length > kMaxBodyChars
+                          ? Tone.broken
+                          : Tone.quiet,
+                    ),
+                    Slug(
+                      hashtags.isEmpty ? 'no tags' : '${hashtags.length} tags',
+                    ),
                     if (imageCount > 0)
                       Slug('$imageCount image${imageCount == 1 ? '' : 's'}'),
                     if (publishNow)
-                      Slug(liveMode ? 'live' : 'dry run',
-                          tone: liveMode ? Tone.out : Tone.desk),
+                      Slug(
+                        liveMode ? 'live' : 'dry run',
+                        tone: liveMode ? Tone.out : Tone.desk,
+                      ),
                   ],
                 ),
                 if (publishNow) ...[
@@ -812,7 +929,10 @@ class _Hashtags extends StatelessWidget {
       children: [
         SectionRule(
           'Hashtags',
-          trailing: Text('${tags.length} / $cap', style: T.data.copyWith(fontSize: 12.5)),
+          trailing: Text(
+            '${tags.length} / $cap',
+            style: T.data.copyWith(fontSize: 12.5),
+          ),
         ),
         if (tags.isNotEmpty)
           Wrap(
@@ -825,7 +945,9 @@ class _Hashtags extends StatelessWidget {
                   onDeleted: busy ? null : () => onRemove(tag),
                   backgroundColor: C.ink2,
                   side: const BorderSide(color: C.ruleStrong),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(R.sm),
+                  ),
                   labelStyle: T.body.copyWith(color: C.daylight),
                   deleteIconColor: C.paperFaint,
                 ),
@@ -845,7 +967,10 @@ class _Hashtags extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: S.x2),
-              OutlinedButton(onPressed: busy ? null : onAdd, child: const Text('Add')),
+              OutlinedButton(
+                onPressed: busy ? null : onAdd,
+                child: const Text('Add'),
+              ),
             ],
           ),
         ],
@@ -858,6 +983,7 @@ class _Hashtags extends StatelessWidget {
 class _Variant extends StatelessWidget {
   const _Variant({
     required this.text,
+    required this.hashtags,
     required this.busy,
     required this.onAccept,
     required this.onDismiss,
@@ -865,6 +991,7 @@ class _Variant extends StatelessWidget {
   });
 
   final String text;
+  final List<String> hashtags;
   final bool busy;
   final VoidCallback onAccept;
   final VoidCallback onDismiss;
@@ -872,49 +999,56 @@ class _Variant extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ObjectCard(
-        tone: Tone.desk,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    tone: Tone.desk,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                const Slug('suggested', tone: Tone.desk),
-                const Spacer(),
-                Text('${text.length} chars', style: T.mono),
-              ],
+            const Slug('suggested', tone: Tone.desk),
+            const Spacer(),
+            Text('${text.length} chars', style: T.mono),
+          ],
+        ),
+        const SizedBox(height: S.x2),
+        Text('Not saved. Use this text and these hashtags?', style: T.micro),
+        const SizedBox(height: S.x4),
+        Text(text, style: T.copy),
+        const SizedBox(height: S.x3),
+        Text(
+          hashtags.isEmpty
+              ? 'No hashtags'
+              : hashtags.map((tag) => '#$tag').join(' '),
+          style: T.small,
+        ),
+        const SizedBox(height: S.x5),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton(
+                onPressed: busy ? null : onAccept,
+                child: const Text('Use this'),
+              ),
             ),
-            const SizedBox(height: S.x2),
-            Text('Not saved. Replace your text with this?', style: T.micro),
-            const SizedBox(height: S.x4),
-            Text(text, style: T.copy),
-            const SizedBox(height: S.x5),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton(
-                    onPressed: busy ? null : onAccept,
-                    child: const Text('Use this'),
-                  ),
-                ),
-                const SizedBox(width: S.x2),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onAnother,
-                    child: const Text('Another'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: S.x1),
-            Center(
-              child: TextButton(
-                onPressed: busy ? null : onDismiss,
-                child: const Text('Discard suggestion'),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: onAnother,
+                child: const Text('Another'),
               ),
             ),
           ],
         ),
-      );
+        const SizedBox(height: S.x1),
+        Center(
+          child: TextButton(
+            onPressed: busy ? null : onDismiss,
+            child: const Text('Discard suggestion'),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Attachments extends StatelessWidget {
@@ -948,8 +1082,10 @@ class _Attachments extends StatelessWidget {
                     minimumSize: const Size(0, 32),
                     padding: const EdgeInsets.symmetric(horizontal: S.x2),
                   ),
-                  child: Text('Remove $existingCount attached',
-                      overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    'Remove $existingCount attached',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 )
               : null,
         ),
@@ -974,7 +1110,10 @@ class _Attachments extends StatelessWidget {
                             width: 84,
                             height: 84,
                             color: C.ink3,
-                            child: const Icon(Icons.broken_image_outlined, color: C.paperFaint),
+                            child: const Icon(
+                              Icons.broken_image_outlined,
+                              color: C.paperFaint,
+                            ),
                           ),
                         ),
                       ),
@@ -989,7 +1128,11 @@ class _Attachments extends StatelessWidget {
                               color: C.ink,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.close, size: 15, color: C.flare),
+                            child: const Icon(
+                              Icons.close,
+                              size: 15,
+                              color: C.flare,
+                            ),
                           ),
                         ),
                       ),
@@ -1009,7 +1152,10 @@ class _Attachments extends StatelessWidget {
                   child: const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.add_photo_alternate_outlined, color: C.paperDim),
+                      Icon(
+                        Icons.add_photo_alternate_outlined,
+                        color: C.paperDim,
+                      ),
                       SizedBox(height: 2),
                       Text('Add', style: T.micro),
                     ],

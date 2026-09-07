@@ -9,7 +9,7 @@
  * credibility with people who actually know you.
  */
 import type { CategoryId } from "./categories";
-import { ALL_CATEGORY_IDS, CATEGORIES, categoryBlock, isCategoryId } from "./categories";
+import { LEGACY_CATEGORY_IDS as ALL_CATEGORY_IDS, CATEGORIES, categoryBlock, isCategoryId } from "./categories";
 import type { Candidate } from "./discovery";
 import { complete, parseJson } from "./llm";
 import type { MemoryContext } from "./memory";
@@ -17,6 +17,12 @@ import type { PersonaRecord } from "./persona";
 import { personaBlock } from "./persona";
 
 export const PUBLISH_THRESHOLD = 6.5;
+
+export function relevanceTotal(scores: Scores, category: unknown, active: CategoryId[]): number {
+  const total=Math.round((scores.persona_fit+scores.category_fit+scores.novelty+scores.timeliness+scores.non_duplication)/5*100)/100;
+  return scores.category_fit>=7 && scores.persona_fit>=6 && isCategoryId(category) && active.includes(category)
+    ? total : Math.min(total,PUBLISH_THRESHOLD-0.01);
+}
 
 /**
  * Output tokens to allow for a batch of `n` candidates.
@@ -90,14 +96,15 @@ function isRawScores(v: unknown): v is RawScore[] {
   return Array.isArray(v) && v.some(isRawScore);
 }
 
-const SYSTEM = `You are the editorial judgment of a working engineer who posts on LinkedIn about their genuine interests. Score EVERY numbered candidate 0-10 on:
+const SYSTEM = `You are the editorial judgment of the professional described in PERSONA, who posts on LinkedIn about their genuine interests. Use their chosen industry and categories; do not assume an engineering background. Score EVERY numbered candidate 0-10 on:
 - persona_fit: would THIS person post about this, given their voice, interests and opinions?
-- category_fit: does it clearly belong to one of the active categories, and is it substantial enough to be worth a post rather than a link?
+- category_fit: does it substantively address one of the exact selected subjects, and is it substantial enough to be worth a post rather than a link? A passing mention, shared keyword, or neighbouring industry does not qualify. Score these below 5. Never force a connection to fill a slot.
 - novelty: does it add something beyond what has already been covered (see PRIOR COVERAGE)?
 - timeliness: is there a reason to write about it right now?
 - non_duplication: 10 = nothing like it in prior coverage; 0 = already covered.
 
 Also assign "category": the id of the single active category it best belongs to.
+The active categories are the author's current scope. If older persona interests describe another field, use the current scope; never reject an otherwise suitable story just to preserve a previous industry.
 
 Be discriminating. This publishes to a real professional profile where the author's colleagues will read it, so most candidates in a batch deserve middling or low scores. Reserve 8+ for something the author would genuinely stop and write about. Product announcements with nothing new in them, funding rounds, and press releases restating a spec sheet are 3s and 4s no matter how big the brand.
 
@@ -136,7 +143,7 @@ function coverageBlock(active: CategoryId[], recent: CategoryId[]): string {
 }
 
 function candidateLine(c: Candidate, i: number, summaryLen: number): string {
-  return `${i}. [${c.source} · likely ${c.categoryHint}] ${c.title}\n   ${c.summary.slice(0, summaryLen)}`;
+  return `${i}. [${c.source} · likely ${c.categoryHint} · published ${c.publishedAt || 'date unavailable'}] ${c.title}\n   ${c.summary.slice(0, summaryLen)}`;
 }
 
 function buildUser(
@@ -161,6 +168,7 @@ function buildUser(
     priorParts.length > 0 ? priorParts.map((f) => `- ${f}`).join("\n") : "- none yet",
     "",
     `CANDIDATES (${candidates.length}):`,
+    `Current date: ${new Date().toISOString().slice(0, 10)}. Score timeliness using the publication dates; older material must still be useful today.`,
     ...candidates.map((c, i) => candidateLine(c, i, summaryLen)),
   ].join("\n");
 }
@@ -246,7 +254,8 @@ export async function judgeCandidates(
           timeliness: s.timeliness,
           non_duplication: s.non_duplication,
         },
-        total,
+        // Relevance is a gate, not an average that novelty can compensate for.
+        total: relevanceTotal(s,s.category,active),
         category,
         reason: s.reason.slice(0, 300),
       });

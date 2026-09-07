@@ -309,7 +309,7 @@ export function styleBlock(style: StyleConfig): string {
     `LENGTH: ${style.minWords}-${style.maxWords} words — aim for about ${Math.round((style.minWords + style.maxWords) / 2)}. The count is checked programmatically after you reply, and a draft outside the range is sent straight back to you.`,
     "NO markdown of any kind. LinkedIn renders none of it — asterisks, backticks and brackets appear literally on screen.",
     "The FIRST LINE is the whole hook: everything past ~210 characters is hidden behind \"see more\".",
-    "Be specific enough to be wrong. Name the actual technology, the actual tradeoff, the actual number. Vagueness is the failure mode that makes these posts worthless.",
+    "Be concrete about the selected subject. Name the relevant development and its implications using only facts present in the source. Do not force technical jargon into nontechnical subjects or invent numbers for specificity.",
   ];
 
   if (style.bannedPhrases.length > 0) {
@@ -326,7 +326,7 @@ export function styleBlock(style: StyleConfig): string {
       "",
       `THE SIGNATURE LINE — this person's trademark, drawn from ${s.source}, used with discipline:`,
       `- At most ONE short quote (under ${s.maxWords} words), attributed inline after an em dash.`,
-      "- It must illuminate the TECHNICAL point. The connection has to be real: a quote about improvisation over a story about live-coding a set is earned; a quote about heroism over a product launch is not.",
+      "- It must illuminate the actual point of this story and be accurately attributed. If no verifiable quote fits, omit it.",
       s.banned.length > 0
         ? `- BANNED as generic inspiration: ${s.banned.map((b) => `"${b}"`).join(", ")} — unless the story gives you a genuinely specific reason to reach for exactly that line.`
         : "",

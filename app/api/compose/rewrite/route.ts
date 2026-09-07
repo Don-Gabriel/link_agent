@@ -12,7 +12,8 @@
  * than the same sentence reshuffled.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
+import { getPersona, voiceReferencesFor } from "../../../../lib/agents";
+import { getRequestAgent } from "../../../../lib/request-agent";
 import { MAX_BODY_CHARS } from "../../../../lib/format";
 import { rewriteDraft } from "../../../../lib/writer";
 
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   // Fetched together: two independent reads against a database that is not in
@@ -56,9 +57,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "rewrite_failed", detail: variant.reason }, { status: 502 });
   }
 
-  // Hashtags are SUGGESTIONS. The composer keeps whatever the author chose and
-  // fills the remaining room under the cap from these, so pressing rewrite can
-  // never delete a tag someone typed on purpose.
+  // Preview the rewritten body and tags together under the current voice cap.
+  // Neither replaces the composer's contents until the user accepts it.
   return NextResponse.json({
     ok: true,
     text: variant.data.text,

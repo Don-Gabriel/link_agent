@@ -1,3 +1,4 @@
+import { ownsMedia } from '../../../../lib/media-ownership';
 /**
  * Actions on a single post: edit, clear, publish, discard, hold, reschedule,
  * and resolving an ambiguous send.
@@ -15,12 +16,14 @@
  * time of its own.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
+import { getPersona, voiceReferencesFor } from "../../../../lib/agents";
+import { getRequestAgent } from "../../../../lib/request-agent";
 import { query } from "../../../../lib/db";
-import { publishPost, resolveAmbiguousSend } from "../../../../lib/distribute";
+import { publishPost, resolveAmbiguousSend, type ReviewedPost } from "../../../../lib/distribute";
 import { assemblePost, checkLength, MAX_BODY_CHARS } from "../../../../lib/format";
 import { HOLD_MINUTES } from "../../../../lib/slots";
 import { rewriteDraft, writeFollowUp } from "../../../../lib/writer";
+import { MAX_HASHTAGS } from "../../../../lib/style";
 
 export const dynamic = "force-dynamic";
 // Two model calls in the worst case, not one: rewrite and followup both go
@@ -46,7 +49,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ seq: string }> },
 ) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   const seq = Number((await context.params).seq);
@@ -62,23 +65,40 @@ export async function PATCH(
     didPublish?: boolean;
     variant?: number;
     scheduledFor?: string | null;
+    reviewed?: ReviewedPost;
   };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+  }
 
+  if(body.mediaIds!==undefined && (!Array.isArray(body.mediaIds) || !await ownsMedia(agent.agentId,body.mediaIds)))return NextResponse.json({error:'invalid_media'},{status:400});
+  if(body.reviewed && (typeof body.reviewed.text!=='string'||!Array.isArray(body.reviewed.hashtags)||!Array.isArray(body.reviewed.media)))return NextResponse.json({error:'invalid_review'},{status:400});
   const rows = await query<{
     status: string;
     scheduled_for: Date | null;
     cleared_at: Date | null;
+    sources_json: string[];
+    media_json: string[];
   }>(
-    "SELECT status, scheduled_for, cleared_at FROM posts WHERE agent_id = $1 AND seq = $2",
+    "SELECT status, scheduled_for, cleared_at, sources_json, media_json FROM posts WHERE agent_id = $1 AND seq = $2",
     [agent.agentId, seq],
   );
   if (rows.length === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const { status, scheduled_for: scheduledFor } = rows[0];
+  if (body.action !== 'resolve' && body.action !== 'release' && body.action !== 'publish') {
+    const sending = await query(
+      `SELECT 1 FROM distributions WHERE agent_id=$1 AND seq=$2 AND status IN ('in_flight','sent')`,
+      [agent.agentId, seq],
+    );
+    if (status === 'unknown' || sending.length) {
+      return NextResponse.json({ error: 'This send has already started. Refresh My Posts and confirm its result before making changes.' }, { status: 409 });
+    }
+  }
 
   switch (body.action) {
     case "edit": {
@@ -93,9 +113,10 @@ export async function PATCH(
       }
       const hashtags = (body.hashtags ?? [])
         .filter((h) => typeof h === "string")
-        .slice(0, agent.style.hashtagCount);
+        .slice(0, MAX_HASHTAGS);
       const length = checkLength(
-        assemblePost({ body: text, hashtags, maxHashtags: agent.style.hashtagCount }),
+        assemblePost({ body: text, hashtags, maxHashtags: MAX_HASHTAGS,
+          sourceUrl: (body.mediaIds ?? rows[0].media_json ?? []).length === 0 ? rows[0].sources_json?.[0] : undefined }),
       );
       if (!length.withinLimit) {
         return NextResponse.json(
@@ -116,7 +137,7 @@ export async function PATCH(
         await query(
           `UPDATE posts
               SET original_text = COALESCE(original_text, text),
-                  text = $3, hashtags_json = $4, media_json = $5, status = 'draft'
+                  text = $3, hashtags_json = $4, media_json = $5, status = 'draft', cleared_at = NULL
             WHERE agent_id = $1 AND seq = $2`,
           [agent.agentId, seq, text, JSON.stringify(hashtags), JSON.stringify(mediaIds)],
         );
@@ -124,7 +145,7 @@ export async function PATCH(
         await query(
           `UPDATE posts
               SET original_text = COALESCE(original_text, text),
-                  text = $3, hashtags_json = $4, status = 'draft'
+                  text = $3, hashtags_json = $4, status = 'draft', cleared_at = NULL
             WHERE agent_id = $1 AND seq = $2`,
           [agent.agentId, seq, text, JSON.stringify(hashtags)],
         );
@@ -149,11 +170,13 @@ export async function PATCH(
       }
       // Releases any stale edit hold in the same breath: saying "this is ready"
       // is unambiguously the end of editing it.
-      await query(
+      const cleared=await query(
         `UPDATE posts SET cleared_at = now(), hold_until = NULL, status = 'approved'
-          WHERE agent_id = $1 AND seq = $2`,
-        [agent.agentId, seq],
+          WHERE agent_id = $1 AND seq = $2 AND ($3::text IS NULL OR
+          (status IN ('draft','approved','failed','missed') AND text=$3 AND COALESCE(hashtags_json,'[]'::jsonb)=$4::jsonb AND COALESCE(media_json,'[]'::jsonb)=$5::jsonb)) RETURNING seq`,
+        [agent.agentId,seq,body.reviewed?.text??null,JSON.stringify(body.reviewed?.hashtags??[]),JSON.stringify(body.reviewed?.media??[])],
       );
+      if(!cleared.length)return NextResponse.json({error:'This post changed on another device. Refresh and review it again.'},{status:409});
       return NextResponse.json({ ok: true, scheduledFor: scheduledFor.toISOString() });
     }
 
@@ -198,17 +221,38 @@ export async function PATCH(
       // null is meaningful: it lifts the post off the schedule entirely and
       // returns it to the queue as something to send by hand.
       if (body.scheduledFor === null) {
-        await query(
-          "UPDATE posts SET scheduled_for = NULL, cleared_at = NULL WHERE agent_id = $1 AND seq = $2",
+        // Approval belongs to the scheduled send. Removing that time also
+        // withdraws approval, so a cleared post becomes a draft again. Keep
+        // real failure/ambiguous states intact instead of hiding their outcome.
+        const unscheduled = await query(
+          `UPDATE posts p
+              SET scheduled_for = NULL, cleared_at = NULL,
+                  status = CASE WHEN p.status IN ('approved','missed') THEN 'draft' ELSE p.status END
+            WHERE p.agent_id = $1 AND p.seq = $2 AND p.status <> 'published'
+              AND NOT EXISTS (
+                SELECT 1 FROM distributions d
+                 WHERE d.agent_id = p.agent_id AND d.seq = p.seq
+                   AND d.status IN ('in_flight', 'sent')
+              )
+            RETURNING seq`,
           [agent.agentId, seq],
         );
+        if (!unscheduled.length) {
+          return NextResponse.json(
+            { error: "This post is being sent or has already been sent. Refresh to see its latest status." },
+            { status: 409 },
+          );
+        }
         return NextResponse.json({ ok: true, scheduledFor: null });
       }
       const when = new Date(body.scheduledFor ?? "");
       if (Number.isNaN(when.getTime())) {
         return NextResponse.json({ error: "bad_scheduled_for" }, { status: 400 });
       }
-      await query("UPDATE posts SET scheduled_for = $3 WHERE agent_id = $1 AND seq = $2", [
+      if (when.getTime() <= Date.now()) {
+        return NextResponse.json({ error: 'Pick a send time in the future.' }, { status: 400 });
+      }
+      await query("UPDATE posts SET scheduled_for = $3, cleared_at = NULL, status = 'draft' WHERE agent_id = $1 AND seq = $2 AND status IN ('draft','approved','failed','missed')", [
         agent.agentId,
         seq,
         when.toISOString(),
@@ -226,7 +270,7 @@ export async function PATCH(
           { status: 409 },
         );
       }
-      const result = await publishPost(agent.agentId, seq);
+      const result = await publishPost(agent.agentId, seq,'manual',body.reviewed);
       if (!result.ok) {
         return NextResponse.json(
           { ok: false, error: result.reason, needsReauth: result.needsReauth, ambiguous: result.ambiguous },
@@ -334,7 +378,9 @@ export async function PATCH(
       if (typeof body.didPublish !== "boolean") {
         return NextResponse.json({ error: "didPublish_required" }, { status: 400 });
       }
-      await resolveAmbiguousSend(agent.agentId, seq, body.didPublish);
+      if (!await resolveAmbiguousSend(agent.agentId, seq, body.didPublish)) {
+        return NextResponse.json({ error: 'This post no longer has an unconfirmed send. Refresh My Posts.' }, { status: 409 });
+      }
       return NextResponse.json({ ok: true });
     }
 

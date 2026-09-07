@@ -33,6 +33,7 @@ class _Call {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late List<_Call> calls;
 
   /// Builds a state wired to a fake transport that records everything and
@@ -43,7 +44,12 @@ void main() {
     bool signedIn = true,
   }) async {
     SharedPreferences.setMockInitialValues(
-      signedIn ? {'session_cookie': 'lc_session=abc', 'base_url': 'http://test.local'} : {},
+      signedIn
+          ? {
+              'session_cookie': 'lc_session=abc',
+              'base_url': 'http://test.local',
+            }
+          : {},
     );
     calls = [];
 
@@ -61,9 +67,14 @@ void main() {
           // Not JSON — rawBody still carries it.
         }
       }
-      calls.add(_Call(request.method, request.url.path, parsed, request.headers, raw));
-      return http.Response(jsonEncode(response), status,
-          headers: {'content-type': 'application/json'});
+      calls.add(
+        _Call(request.method, request.url.path, parsed, request.headers, raw),
+      );
+      return http.Response(
+        jsonEncode(response),
+        status,
+        headers: {'content-type': 'application/json'},
+      );
     });
 
     return AppState(await ApiClient.create(httpClient: mock));
@@ -80,10 +91,17 @@ void main() {
       await state.clear(7);
 
       final call = calls.first;
-      expect(call.method, 'PATCH', reason: 'the route exports PATCH; POST returns 405');
+      expect(
+        call.method,
+        'PATCH',
+        reason: 'the route exports PATCH; POST returns 405',
+      );
       expect(call.path, '/api/posts/7');
-      expect(call.body['action'], 'clear',
-          reason: 'clearing must not publish — it authorises the scheduled send');
+      expect(
+        call.body['action'],
+        'clear',
+        reason: 'clearing must not publish — it authorises the scheduled send',
+      );
     });
 
     test('sendNow sends PATCH with action publish', () async {
@@ -153,53 +171,83 @@ void main() {
       expect(calls.first.body.containsKey('mediaIds'), isFalse);
     });
 
-    test('editPost sends mediaIds when given, including an explicit empty list', () async {
-      final state = await buildState();
-      await state.editPost(4, 'Body text here', const [], mediaIds: const []);
-      expect(calls.first.body['mediaIds'], isEmpty);
-      expect(calls.first.body.containsKey('mediaIds'), isTrue);
-    });
+    test(
+      'editPost sends mediaIds when given, including an explicit empty list',
+      () async {
+        final state = await buildState();
+        await state.editPost(4, 'Body text here', const [], mediaIds: const []);
+        expect(calls.first.body['mediaIds'], isEmpty);
+        expect(calls.first.body.containsKey('mediaIds'), isTrue);
+      },
+    );
 
-    test('compose sends POST /api/posts — the collection route IS a POST', () async {
-      final state = await buildState(response: {'ok': true, 'id': 'p9', 'seq': 9});
-      await state.compose(text: 'A new post body', polish: true, publishNow: false);
+    test(
+      'compose sends POST /api/posts — the collection route IS a POST',
+      () async {
+        final state = await buildState(
+          response: {'ok': true, 'id': 'p9', 'seq': 9},
+        );
+        await state.compose(
+          text: 'A new post body',
+          polish: true,
+          publishNow: false,
+        );
 
-      expect(calls.first.method, 'POST');
-      expect(calls.first.path, '/api/posts');
-      expect(calls.first.body['polish'], isTrue);
-    });
+        expect(calls.first.method, 'POST');
+        expect(calls.first.path, '/api/posts');
+        expect(calls.first.body['polish'], isTrue);
+      },
+    );
 
-    test('rewrite sends PATCH with the variant index and returns the text', () async {
-      final state = await buildState(response: {'ok': true, 'text': 'A different version.'});
-      final text = await state.rewriteDraft(5, variant: 2);
+    test(
+      'rewrite sends PATCH with the variant index and returns the text',
+      () async {
+        final state = await buildState(
+          response: {'ok': true, 'text': 'A different version.'},
+        );
+        final text = await state.rewriteDraft(5, variant: 2);
 
-      expect(calls.first.method, 'PATCH');
-      expect(calls.first.path, '/api/posts/5');
-      expect(calls.first.body['action'], 'rewrite');
-      expect(calls.first.body['variant'], 2);
-      expect(text, 'A different version.');
-    });
+        expect(calls.first.method, 'PATCH');
+        expect(calls.first.path, '/api/posts/5');
+        expect(calls.first.body['action'], 'rewrite');
+        expect(calls.first.body['variant'], 2);
+        expect(text, 'A different version.');
+      },
+    );
 
-    test('rewrite rejects an empty result rather than blanking the draft', () async {
-      final state = await buildState(response: {'ok': true, 'text': '   '});
-      expect(() => state.rewriteDraft(5), throwsA(isA<ApiException>()));
-    });
+    test(
+      'rewrite rejects an empty result rather than blanking the draft',
+      () async {
+        final state = await buildState(response: {'ok': true, 'text': '   '});
+        expect(() => state.rewriteDraft(5), throwsA(isA<ApiException>()));
+      },
+    );
 
-    test('rewriting UNSAVED text posts the body, since there is no seq yet', () async {
-      final state = await buildState(response: {'ok': true, 'text': 'Another angle entirely.'});
-      final text = await state.rewriteText('Some text the user just typed out.', variant: 1);
+    test(
+      'rewriting UNSAVED text posts the body, since there is no seq yet',
+      () async {
+        final state = await buildState(
+          response: {'ok': true, 'text': 'Another angle entirely.'},
+        );
+        final text = await state.rewriteText(
+          'Some text the user just typed out.',
+          variant: 1,
+        );
 
-      expect(calls.first.method, 'POST');
-      expect(calls.first.path, '/api/compose/rewrite');
-      expect(calls.first.body['text'], 'Some text the user just typed out.');
-      expect(calls.first.body['variant'], 1);
-      expect(text, 'Another angle entirely.');
-    });
+        expect(calls.first.method, 'POST');
+        expect(calls.first.path, '/api/compose/rewrite');
+        expect(calls.first.body['text'], 'Some text the user just typed out.');
+        expect(calls.first.body['variant'], 1);
+        expect(text, 'Another angle entirely.');
+      },
+    );
 
     test('an unsaved rewrite also refuses an empty result', () async {
       final state = await buildState(response: {'ok': true, 'text': ''});
-      expect(() => state.rewriteText('Some text the user just typed out.'),
-          throwsA(isA<ApiException>()));
+      expect(
+        () => state.rewriteText('Some text the user just typed out.'),
+        throwsA(isA<ApiException>()),
+      );
     });
   });
 
@@ -234,14 +282,17 @@ void main() {
   });
 
   group('settings', () {
-    test('style save sends PATCH /api/settings with the whole config', () async {
-      final state = await buildState();
-      await state.setStyle(StyleConfig.houseStyle.copyWith(emoji: 'sparing'));
+    test(
+      'style save sends PATCH /api/settings with the whole config',
+      () async {
+        final state = await buildState();
+        await state.setStyle(StyleConfig.houseStyle.copyWith(emoji: 'sparing'));
 
-      expect(calls.first.method, 'PATCH');
-      expect(calls.first.path, '/api/settings');
-      expect((calls.first.body['style'] as Map)['emoji'], 'sparing');
-    });
+        expect(calls.first.method, 'PATCH');
+        expect(calls.first.path, '/api/settings');
+        expect((calls.first.body['style'] as Map)['emoji'], 'sparing');
+      },
+    );
 
     test('preset save sends the preset id, not a style blob', () async {
       final state = await buildState();
@@ -258,42 +309,68 @@ void main() {
     });
 
     test('a 401 clears the session and drops back to the gate', () async {
-      final state = await buildState(response: {'error': 'unauthorized'}, status: 401);
+      final state = await buildState(
+        response: {'error': 'unauthorized'},
+        status: 401,
+      );
       state.phase = AuthPhase.signedIn;
 
       await state.refresh();
 
-      expect(state.phase, AuthPhase.signedOut,
-          reason: 'a dead cookie must not leave a signed-in shell that 401s on every tap');
+      expect(
+        state.phase,
+        AuthPhase.signedOut,
+        reason:
+            'a dead cookie must not leave a signed-in shell that 401s on every tap',
+      );
       expect(state.status, isNull);
     });
 
-    test('a server error surfaces its detail instead of a generic message', () async {
-      final state = await buildState(
-        response: {'error': 'bad_post_time', 'detail': 'Expected HH:MM, got "18:00:00"'},
-        status: 400,
-      );
-      final error = await state.setStyle(StyleConfig.houseStyle);
-      expect(error, contains('Expected HH:MM'));
-    });
+    test(
+      'a server error surfaces its detail instead of a generic message',
+      () async {
+        final state = await buildState(
+          response: {
+            'error': 'bad_post_time',
+            'detail': 'Expected HH:MM, got "18:00:00"',
+          },
+          status: 400,
+        );
+        final error = await state.setStyle(StyleConfig.houseStyle);
+        expect(error, contains('Expected HH:MM'));
+      },
+    );
   });
 
   group('editing target', () {
     test('startEditing sets the target and raises a compose request', () async {
       final state = await buildState();
-      final post = Post.fromJson({'id': 'p2', 'seq': 2, 'text': 'Body', 'status': 'draft'});
+      final post = Post.fromJson({
+        'id': 'p2',
+        'seq': 2,
+        'text': 'Body',
+        'status': 'draft',
+      });
 
       final before = state.composeRequest;
       state.startEditing(post);
 
       expect(state.editing?.seq, 2);
-      expect(state.composeRequest, greaterThan(before),
-          reason: 'the shell watches this counter to bring the composer forward');
+      expect(
+        state.composeRequest,
+        greaterThan(before),
+        reason: 'the shell watches this counter to bring the composer forward',
+      );
     });
 
     test('editing the same post twice still raises a fresh request', () async {
       final state = await buildState();
-      final post = Post.fromJson({'id': 'p2', 'seq': 2, 'text': 'Body', 'status': 'draft'});
+      final post = Post.fromJson({
+        'id': 'p2',
+        'seq': 2,
+        'text': 'Body',
+        'status': 'draft',
+      });
 
       state.startEditing(post);
       final first = state.composeRequest;
@@ -306,7 +383,14 @@ void main() {
 
     test('stopEditing clears the target', () async {
       final state = await buildState();
-      state.startEditing(Post.fromJson({'id': 'p2', 'seq': 2, 'text': 'Body', 'status': 'draft'}));
+      state.startEditing(
+        Post.fromJson({
+          'id': 'p2',
+          'seq': 2,
+          'text': 'Body',
+          'status': 'draft',
+        }),
+      );
       state.stopEditing();
       expect(state.editing, isNull);
     });
@@ -314,12 +398,12 @@ void main() {
 
   group('scheduling state on a post', () {
     Post post(Map<String, dynamic> extra) => Post.fromJson({
-          'id': 'p1',
-          'seq': 1,
-          'text': 'Body text long enough to be a post.',
-          'status': 'draft',
-          ...extra,
-        });
+      'id': 'p1',
+      'seq': 1,
+      'text': 'Body text long enough to be a post.',
+      'status': 'draft',
+      ...extra,
+    });
 
     final future = DateTime.now().toUtc().add(const Duration(minutes: 12));
     final past = DateTime.now().toUtc().subtract(const Duration(minutes: 5));
@@ -341,8 +425,12 @@ void main() {
 
     test('past its time and not cleared is overdue', () {
       final p = post({'scheduledFor': past.toIso8601String()});
-      expect(p.isOverdue, isTrue,
-          reason: 'this is the state worth shouting about — it usually means it was never cleared');
+      expect(
+        p.isOverdue,
+        isTrue,
+        reason:
+            'this is the state worth shouting about — it usually means it was never cleared',
+      );
     });
 
     // A published post is never overdue however long ago its time was: it went
@@ -357,7 +445,10 @@ void main() {
     });
 
     test('a missed post is never overdue either', () {
-      final p = post({'scheduledFor': past.toIso8601String(), 'status': 'missed'});
+      final p = post({
+        'scheduledFor': past.toIso8601String(),
+        'status': 'missed',
+      });
       expect(p.isMissed, isTrue);
       expect(p.isOverdue, isFalse);
     });
@@ -390,7 +481,10 @@ void main() {
       expect(s.categories, ['emerging-tech']);
       // Absent `enabled` must read as true, not false — a slot that silently
       // defaults to disabled is a schedule that never runs.
-      expect(PostSlot.fromJson({'id': 's2', 'localTime': '18:00'}).enabled, isTrue);
+      expect(
+        PostSlot.fromJson({'id': 's2', 'localTime': '18:00'}).enabled,
+        isTrue,
+      );
     });
 
     test('nextDue picks the soonest pending post, not the newest', () {
@@ -402,7 +496,10 @@ void main() {
             'seq': 9,
             'text': 'Later today.',
             'status': 'draft',
-            'scheduledFor': DateTime.now().toUtc().add(const Duration(hours: 8)).toIso8601String(),
+            'scheduledFor': DateTime.now()
+                .toUtc()
+                .add(const Duration(hours: 8))
+                .toIso8601String(),
           },
           {
             'id': 'p8',
@@ -413,8 +510,12 @@ void main() {
           },
         ],
       });
-      expect(status.nextDue!.seq, 8,
-          reason: 'the one with the nearest deadline is the one that needs reading');
+      expect(
+        status.nextDue!.seq,
+        8,
+        reason:
+            'the one with the nearest deadline is the one that needs reading',
+      );
       expect(status.needingReview, 2);
     });
   });
@@ -425,20 +526,25 @@ void main() {
   // settings change can alter. At roughly half a second each, with the whole UI
   // disabled in between, that was most of what "the app feels slow" meant.
   group('settings changes cost one round trip, not two', () {
-    Map<String, dynamic> agentJson({List<String> categories = const ['ai-ml']}) => {
-          'agentId': 'a1',
-          'name': 'A Working Engineer',
-          'domain': 'AI and ML engineering',
-          'categories': categories,
-          'timezone': 'Asia/Kolkata',
-          'postTimeLocal': '09:30',
-          'autoPublish': false,
-          'paused': false,
-          'autoPublishCap': 1,
-          'style': {'structure': 'prose', 'hashtagCount': 2},
-        };
+    Map<String, dynamic> agentJson({
+      List<String> categories = const ['ai-ml'],
+    }) => {
+      'agentId': 'a1',
+      'name': 'A Working Engineer',
+      'domain': 'AI and ML engineering',
+      'categories': categories,
+      'timezone': 'Asia/Kolkata',
+      'postTimeLocal': '09:30',
+      'autoPublish': false,
+      'paused': false,
+      'autoPublishCap': 1,
+      'style': {'structure': 'prose', 'hashtagCount': 2},
+    };
 
-    Future<AppState> seeded({Map<String, dynamic>? response, int status = 200}) async {
+    Future<AppState> seeded({
+      Map<String, dynamic>? response,
+      int status = 200,
+    }) async {
       final state = await buildState(
         response: response ?? {'ok': true, 'agent': agentJson()},
         status: status,
@@ -456,25 +562,34 @@ void main() {
       final state = await seeded();
       await state.setStyle(StyleConfig.houseStyle.copyWith(register: 'blunt'));
 
-      expect(calls.map((c) => c.path), ['/api/settings'],
-          reason: 'the PATCH already answers with the updated agent');
+      expect(
+        calls.map((c) => c.path),
+        ['/api/settings'],
+        reason: 'the PATCH already answers with the updated agent',
+      );
     });
 
     test('the updated agent is taken from the PATCH response', () async {
       final state = await seeded(
-        response: {'ok': true, 'agent': agentJson(categories: ['compute-silicon'])},
+        response: {
+          'ok': true,
+          'agent': agentJson(categories: ['compute-silicon']),
+        },
       );
       await state.setPaused(true);
       expect(state.agent!.categories, ['compute-silicon']);
     });
 
-    test('a response without an agent still falls back to a full refresh', () async {
-      // An older backend, or a shape this build does not recognise. Showing
-      // possibly-stale settings would be worse than paying for the round trip.
-      final state = await seeded(response: {'ok': true});
-      await state.setPaused(true);
-      expect(calls.map((c) => c.path), ['/api/settings', '/api/status']);
-    });
+    test(
+      'a response without an agent still falls back to a full refresh',
+      () async {
+        // An older backend, or a shape this build does not recognise. Showing
+        // possibly-stale settings would be worse than paying for the round trip.
+        final state = await seeded(response: {'ok': true});
+        await state.setPaused(true);
+        expect(calls.map((c) => c.path), ['/api/settings', '/api/status']);
+      },
+    );
 
     test('the schedule fields still take the full refresh', () async {
       // Changing the timezone reschedules every slot, and slots are not part of
@@ -484,23 +599,38 @@ void main() {
       expect(calls.map((c) => c.path), ['/api/settings', '/api/status']);
     });
 
-    test('a category tap shows immediately, before the server answers', () async {
-      final state = await seeded();
-      final pending = state.setCategories(['ai-ml']);
-      expect(state.agent!.categories, ['ai-ml'],
-          reason: 'the chip must not wait half a second to look pressed');
-      expect(state.loading, isFalse,
-          reason: 'setting loading would disable every control on the screen');
-      await pending;
-    });
+    test(
+      'a category tap shows immediately, before the server answers',
+      () async {
+        final state = await seeded();
+        final pending = state.setCategories(['ai-ml']);
+        expect(
+          state.agent!.categories,
+          ['ai-ml'],
+          reason: 'the chip must not wait half a second to look pressed',
+        );
+        expect(
+          state.loading,
+          isFalse,
+          reason: 'setting loading would disable every control on the screen',
+        );
+        await pending;
+      },
+    );
 
     test('a rejected category change is rolled back', () async {
-      final state = await seeded(response: {'error': 'update_failed'}, status: 500);
+      final state = await seeded(
+        response: {'error': 'update_failed'},
+        status: 500,
+      );
       final error = await state.setCategories(['ai-ml']);
 
       expect(error, isNotNull);
-      expect(state.agent!.categories, ['ai-ml', 'dev-tooling'],
-          reason: 'a refused change must never be left looking accepted');
+      expect(
+        state.agent!.categories,
+        ['ai-ml', 'dev-tooling'],
+        reason: 'a refused change must never be left looking accepted',
+      );
     });
   });
 
@@ -509,22 +639,32 @@ void main() {
   // paced four seconds behind the last. Half a minute is normal. The client used
   // to give up at thirty seconds flat, so the post was written and thrown away.
   group('calls that wait on a model get a longer ceiling', () {
-    test('the writer ceiling outlasts the server, so the server error wins', () {
-      // If the client gave up first, the user would see a stopwatch message
-      // instead of whatever actually went wrong.
-      expect(kWriterTimeout.inSeconds, greaterThan(120),
-          reason: 'the routes behind these calls allow 120s');
-    });
+    test(
+      'the writer ceiling outlasts the server, so the server error wins',
+      () {
+        // If the client gave up first, the user would see a stopwatch message
+        // instead of whatever actually went wrong.
+        expect(
+          kWriterTimeout.inSeconds,
+          greaterThan(120),
+          reason: 'the routes behind these calls allow 120s',
+        );
+      },
+    );
 
     test('a follow-up survives longer than a status refresh would', () async {
       // Answers after 40s: past the old 30s default, inside the writer ceiling.
-      SharedPreferences.setMockInitialValues(
-        {'session_cookie': 'lc_session=abc', 'base_url': 'http://test.local'},
-      );
+      SharedPreferences.setMockInitialValues({
+        'session_cookie': 'lc_session=abc',
+        'base_url': 'http://test.local',
+      });
       final slow = MockClient((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 60));
         return http.Response(
-          jsonEncode({'ok': true, 'text': 'A follow-up long enough to be a real post body.'}),
+          jsonEncode({
+            'ok': true,
+            'text': 'A follow-up long enough to be a real post body.',
+          }),
           200,
           headers: {'content-type': 'application/json'},
         );
@@ -545,31 +685,33 @@ void main() {
   // from every style rule plus the author's samples and edit notes.
   group('the voice fingerprint notices every part of the voice', () {
     Map<String, dynamic> withAgent(Map<String, dynamic> agent) => {
-          'initialized': true,
-          'agent': agent,
-          'account': {'connected': true},
-          'config': {'liveMode': false},
-        };
+      'initialized': true,
+      'agent': agent,
+      'account': {'connected': true},
+      'config': {'liveMode': false},
+    };
 
     Map<String, dynamic> base({
-      Map<String, dynamic> style = const {'structure': 'prose', 'hashtagCount': 2},
+      Map<String, dynamic> style = const {
+        'structure': 'prose',
+        'hashtagCount': 2,
+      },
       List<String> corpus = const [],
       String? editNotes,
-    }) =>
-        {
-          'agentId': 'a1',
-          'name': 'N',
-          'domain': 'd',
-          'categories': ['ai-ml'],
-          'timezone': 'UTC',
-          'postTimeLocal': '09:30',
-          'autoPublish': false,
-          'paused': false,
-          'autoPublishCap': 1,
-          'style': style,
-          'corpus': corpus,
-          'editNotes': editNotes,
-        };
+    }) => {
+      'agentId': 'a1',
+      'name': 'N',
+      'domain': 'd',
+      'categories': ['ai-ml'],
+      'timezone': 'UTC',
+      'postTimeLocal': '09:30',
+      'autoPublish': false,
+      'paused': false,
+      'autoPublishCap': 1,
+      'style': style,
+      'corpus': corpus,
+      'editNotes': editNotes,
+    };
 
     Future<String> fingerprintOf(Map<String, dynamic> agent) async {
       final state = await buildState();
@@ -579,9 +721,16 @@ void main() {
 
     test('a register change moves it', () async {
       expect(
-        await fingerprintOf(base(style: {'structure': 'prose', 'register': 'blunt'})),
-        isNot(await fingerprintOf(base(style: {'structure': 'prose', 'register': 'practitioner'}))),
-        reason: 'style.summary never mentioned the register, so the banner stayed silent',
+        await fingerprintOf(
+          base(style: {'structure': 'prose', 'register': 'blunt'}),
+        ),
+        isNot(
+          await fingerprintOf(
+            base(style: {'structure': 'prose', 'register': 'practitioner'}),
+          ),
+        ),
+        reason:
+            'style.summary never mentioned the register, so the banner stayed silent',
       );
     });
 
@@ -589,7 +738,9 @@ void main() {
       // The single largest lever on how the output sounds, and previously
       // invisible to the composer entirely.
       expect(
-        await fingerprintOf(base(corpus: ['A sample of how this person writes.'])),
+        await fingerprintOf(
+          base(corpus: ['A sample of how this person writes.']),
+        ),
         isNot(await fingerprintOf(base())),
       );
     });
@@ -602,7 +753,10 @@ void main() {
     });
 
     test('an unchanged voice keeps the same fingerprint', () async {
-      expect(await fingerprintOf(base(corpus: ['x'])), await fingerprintOf(base(corpus: ['x'])));
+      expect(
+        await fingerprintOf(base(corpus: ['x'])),
+        await fingerprintOf(base(corpus: ['x'])),
+      );
     });
   });
 }

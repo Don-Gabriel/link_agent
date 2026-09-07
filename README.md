@@ -1,8 +1,14 @@
-# LinkedIn agent
+# ByLine
 
-A daily editorial agent that reads music-tech, hardware and emerging-tech
-sources, judges what it finds against your standards, and writes a LinkedIn
-post in your voice — plus a composer for your own posts with images.
+A writing workspace for LinkedIn: discover relevant stories, prepare posts in
+your voice, and review them before publishing. Choose from **1,112 subjects**
+across 55 specialist groups, combine industries, and add your own editorial focus.
+
+The native app includes account setup, optional voice preferences, writing samples,
+a timetable, a composer, and a post archive. Setup and regular drafts use the same
+writer and voice rules. See [local development](BYLINE-LOCAL.md) and
+[live operation](BYLINE-LIVE.md) for the native app; the operator setup below
+documents the original web deployment.
 
 Forked from the autonomous-creator pipeline (discover → judge → write, behind a
 Postgres advisory lock) and retargeted at a real professional profile. The
@@ -11,18 +17,38 @@ separate, guarded decision.
 
 ## What it does
 
-- **Once a day**, at a time you choose, it pulls 20-30 fresh candidates across
+- **At your chosen posting times**, it pulls fresh candidates across
   your categories, scores every one in a single batched LLM call on five
   criteria, and writes a post about the winner — **only if it clears 6.5/10**.
-  Nothing clears the bar on a quiet day, so it stays quiet. That is the feature.
+  A story must also score at least 7/10 for subject fit and 6/10 for author fit.
+  If no relevant source qualifies, it waits rather than forcing an unrelated post.
 - **Approval queue by default.** Drafts wait for you with their scores, the
   editorial reasoning, and a marker showing exactly where LinkedIn will cut the
   text off. Flip auto-publish on once the voice sounds like you.
 - **Your own posts**, with images, an optional pass to tighten the hook, and
   publish-now or save-as-draft.
-- **A Marvel line** as a signature, rationed deliberately: at most one short
-  attributed quote, only when it illuminates the technical point, and never
-  when it was used in the last couple of posts.
+- **Optional voice setup**: 10 tones, free-form instructions, writing samples,
+  audience, structure, word range, openings, closings, emoji, hashtags and phrases
+  to avoid. Skip customization to start with a professional voice, then edit it later.
+- **Searchable subjects**: select up to 12 at once, including specialist areas
+  across industries. Specialist sources use targeted news searches and must pass
+  editorial relevance checks. Source availability varies by subject and date.
+- **Optional signatures**, disabled for new native accounts. Existing accounts
+  retain their saved preferences.
+
+## Verification
+
+```sh
+npm test
+npm run test:catalogue
+npm run build:check
+cd mobile
+flutter analyze
+flutter test
+```
+
+With the isolated local database and backend running, `npm run test:catalogue:api`
+checks setup and persistence without model calls or LinkedIn publishing.
 
 ## Setup
 

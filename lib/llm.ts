@@ -23,6 +23,9 @@
  */
 import { GoogleGenAI } from "@google/genai";
 import { query } from "./db";
+import { usageOwner, reserveUserCall, reserveProviderCall, recordAiUsage } from './ai-usage';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 export interface CompleteArgs {
   system: string;
@@ -121,6 +124,7 @@ function is429(err: unknown): boolean {
 }
 
 async function callGemini(model: string, args: CompleteArgs): Promise<string> {
+  if(!await reserveProviderCall(model,pacificToday(),rpdCap(model)))throw new Error('provider_allowance_or_pacing_limit');
   const userText = isGemma(model) && args.compactUser ? args.compactUser : args.user;
   const jsonNudge = args.jsonMode
     ? "\n\nRespond with ONLY valid JSON. No markdown fences, no commentary."
@@ -143,7 +147,11 @@ async function callGemini(model: string, args: CompleteArgs): Promise<string> {
         },
       };
 
-  const res = await client().models.generateContent(request);
+  const owner=await usageOwner();
+  let res;
+  try {res=await client().models.generateContent(request);}
+  catch(e){await recordAiUsage(owner,model,false).catch(()=>{});throw e;}
+  await recordAiUsage(owner,model,true,res.usageMetadata?.promptTokenCount,res.usageMetadata?.candidatesTokenCount).catch(()=>{});
   const text = res.text;
   if (!text || !text.trim()) throw new Error("empty completion");
   return text;
@@ -184,6 +192,13 @@ async function completeGemini(args: CompleteArgs): Promise<CompleteResult> {
 
 /** The single entry point. Never throws. */
 export async function complete(args: CompleteArgs): Promise<CompleteResult> {
+  if(process.env.BYLINE_TEST_MODE === "true") return {ok:false, reason:"local_test_ai_disabled"};
+  if(process.env.BYLINE_ZERO_BUDGET_STATE_FILE) {
+    try {
+      const guard=JSON.parse(await readFile(process.env.BYLINE_ZERO_BUDGET_STATE_FILE,'utf8'));
+      if(guard.billingEnabled!==false||!Number.isFinite(guard.verifiedUntil)||guard.verifiedUntil<=Date.now()||guard.keyHash!==createHash('sha256').update(process.env.GEMINI_API_KEY??'').digest('hex'))return {ok:false,reason:'free_tier_verification_required'};
+    }catch{return {ok:false,reason:'free_tier_verification_required'};}
+  }
   const provider = process.env.LLM_PROVIDER ?? "gemini";
   if (provider === "anthropic") {
     // Stub kept behind the same interface: switching providers is one env
@@ -192,6 +207,7 @@ export async function complete(args: CompleteArgs): Promise<CompleteResult> {
   }
   if (!process.env.GEMINI_API_KEY) return { ok: false, reason: "missing_gemini_api_key" };
   try {
+    if(!await reserveUserCall(await usageOwner(),pacificToday()))return {ok:false,reason:'daily_ai_allowance_reached'};
     return await completeGemini(args);
   } catch (err) {
     return { ok: false, reason: String((err as Error)?.message ?? err) };

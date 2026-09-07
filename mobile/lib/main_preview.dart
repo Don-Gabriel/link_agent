@@ -42,7 +42,8 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
     return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
-  final today = '${now.year.toString().padLeft(4, '0')}-'
+  final today =
+      '${now.year.toString().padLeft(4, '0')}-'
       '${now.month.toString().padLeft(2, '0')}-'
       '${now.day.toString().padLeft(2, '0')}';
 
@@ -63,7 +64,8 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
             'radio was being told to wait 500 microseconds where the datasheet '
             'meant milliseconds. Three weeks of "intermittent" was one letter.',
       ],
-      'editNotes': 'Cuts the wind-up. Prefers a measured number in the first two '
+      'editNotes':
+          'Cuts the wind-up. Prefers a measured number in the first two '
           'lines and drops adjectives before nouns that already carry weight.',
       'style': {
         'structure': 'prose',
@@ -78,7 +80,10 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
           'source': 'Marvel films',
           'maxWords': 12,
           'budgetPerFive': 1,
-          'banned': ['With great power comes great responsibility', 'I am Iron Man'],
+          'banned': [
+            'With great power comes great responsibility',
+            'I am Iron Man',
+          ],
         },
         'customRules': <String>[],
         'bannedPhrases': ["Here's the thing", 'Let that sink in', 'Thoughts?'],
@@ -96,21 +101,43 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
       'maxAutoCap': 3,
       'maxHashtags': 5,
       'categories': [
-        {'id': 'music-tech-software', 'label': 'Music tech — software', 'blurb': ''},
-        {'id': 'music-tech-hardware', 'label': 'Music tech — hardware', 'blurb': ''},
+        {
+          'id': 'music-tech-software',
+          'label': 'Music tech — software',
+          'blurb': '',
+        },
+        {
+          'id': 'music-tech-hardware',
+          'label': 'Music tech — hardware',
+          'blurb': '',
+        },
         {'id': 'emerging-tech', 'label': 'Emerging tech', 'blurb': ''},
         {'id': 'ai-ml', 'label': 'AI & ML engineering', 'blurb': ''},
         {'id': 'dev-tooling', 'label': 'Developer tooling', 'blurb': ''},
-        {'id': 'hardware-embedded', 'label': 'Hardware & embedded', 'blurb': ''},
+        {
+          'id': 'hardware-embedded',
+          'label': 'Hardware & embedded',
+          'blurb': '',
+        },
         {'id': 'compute-silicon', 'label': 'Compute & silicon', 'blurb': ''},
       ],
       'presets': [
-        {'id': 'practitioner', 'label': 'Practitioner', 'blurb': 'Restrained prose.', 'style': {}},
+        {
+          'id': 'practitioner',
+          'label': 'Practitioner',
+          'blurb': 'Restrained prose.',
+          'style': {},
+        },
         {
           'id': 'builder',
           'label': 'Builder',
           'blurb': 'Lead then bullets.',
-          'style': {'structure': 'mixed', 'emoji': 'sparing', 'cta': 'soft', 'hashtagCount': 3},
+          'style': {
+            'structure': 'mixed',
+            'emoji': 'sparing',
+            'cta': 'soft',
+            'hashtagCount': 3,
+          },
         },
         {
           'id': 'operator',
@@ -128,7 +155,11 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
           'id': 'explainer',
           'label': 'Explainer',
           'blurb': 'Teaching voice.',
-          'style': {'structure': 'bullets', 'register': 'accessible', 'hashtagCount': 3},
+          'style': {
+            'structure': 'bullets',
+            'register': 'accessible',
+            'hashtagCount': 3,
+          },
         },
       ],
     },
@@ -197,7 +228,8 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
       {
         'id': 'p12',
         'seq': 12,
-        'text': 'Ableton 12.2 ships MIDI generators, and the cost is not where the '
+        'text':
+            'Ableton 12.2 ships MIDI generators, and the cost is not where the '
             'announcement suggests. I ran four of them across a live set on an M1 Air '
             'and watched the CPU meter rather than the feature list.\n\n'
             'They evaluate per armed clip, not per track, so the overhead scales with '
@@ -206,9 +238,11 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
             'between a set that runs and a set that stutters in the second chorus.\n\n'
             'Useful feature. Just budget for it like you would a reverb, not like a '
             'piece of UI.',
-        'hook': 'Ableton 12.2 ships MIDI generators, and the cost is not where the '
+        'hook':
+            'Ableton 12.2 ships MIDI generators, and the cost is not where the '
             'announcement suggests.',
-        'rationale': 'This beat two model releases because it is something I actually '
+        'rationale':
+            'This beat two model releases because it is something I actually '
             'measured, and the number is specific enough to argue with.',
         'status': 'draft',
         'kind': 'auto',
@@ -231,7 +265,8 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
       {
         'id': 'p13',
         'seq': 13,
-        'text': 'Three weeks of "intermittent" radio dropouts turned out to be one '
+        'text':
+            'Three weeks of "intermittent" radio dropouts turned out to be one '
             'letter in the datasheet: the delay was specified in milliseconds and the '
             'firmware was waiting microseconds. Every retry landed inside the previous '
             'transmission window.',
@@ -258,12 +293,14 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
       {
         'id': 'p09',
         'seq': 9,
-        'text': 'Every DSP tutorial starts with a biquad and stops before the part that '
+        'text':
+            'Every DSP tutorial starts with a biquad and stops before the part that '
             'bites: coefficient interpolation. Sweep a filter cutoff in a naive '
             'implementation and the coefficients jump between blocks, which is a step '
             'discontinuity in the transfer function — and a step is broadband. That is '
             'the zipper noise, and no amount of oversampling removes it.',
-        'hook': 'Every DSP tutorial starts with a biquad and stops before the part that '
+        'hook':
+            'Every DSP tutorial starts with a biquad and stops before the part that '
             'bites.',
         'rationale': '',
         'status': 'published',
@@ -279,13 +316,15 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
       {
         'title': 'Google Play adds Venmo as a payment option',
         'url': 'https://example.com/venmo',
-        'reason': 'Zero engineering substance and nothing to do with the categories '
+        'reason':
+            'Zero engineering substance and nothing to do with the categories '
             'this agent covers. Scored 3.1.',
       },
       {
         'title': 'Another large language model tops a benchmark leaderboard',
         'url': 'https://example.com/benchmark',
-        'reason': 'Timely but not novel — the same story ran twice this month, and '
+        'reason':
+            'Timely but not novel — the same story ran twice this month, and '
             'there is nothing here you have measured yourself. Scored 5.8.',
       },
     ],
@@ -317,14 +356,14 @@ Map<String, dynamic> buildPreviewStatus(DateTime now) {
 const _destinations = {'desk': 0, 'archive': 1, 'settings': 2};
 
 Widget? _routeFor(String? name) => switch (name) {
-      'timetable' => const TimetableScreen(),
-      'voice' => const VoiceScreen(),
-      'topics' => const TopicsScreen(),
-      'linkedin' => const LinkedInScreen(),
-      'diagnostics' => const DiagnosticsScreen(),
-      'compose' => const ComposerScreen(),
-      _ => null,
-    };
+  'timetable' => const TimetableScreen(),
+  'voice' => const VoiceScreen(),
+  'topics' => const TopicsScreen(),
+  'linkedin' => const LinkedInScreen(),
+  'diagnostics' => const DiagnosticsScreen(),
+  'compose' => const ComposerScreen(),
+  _ => null,
+};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -26,43 +26,43 @@ enum RailStop { published, drafted, quiet, broken, pending }
 
 extension RailStopLook on RailStop {
   Tone get tone => switch (this) {
-        RailStop.published => Tone.out,
-        RailStop.drafted => Tone.desk,
-        RailStop.broken => Tone.broken,
-        RailStop.quiet => Tone.quiet,
-        RailStop.pending => Tone.quiet,
-      };
+    RailStop.published => Tone.out,
+    RailStop.drafted => Tone.desk,
+    RailStop.broken => Tone.broken,
+    RailStop.quiet => Tone.quiet,
+    RailStop.pending => Tone.quiet,
+  };
 
   /// Filled means the slot produced something. Hollow means it did not — which
   /// is readable without reading the label, and is the whole point.
   bool get filled => this == RailStop.published || this == RailStop.drafted;
 
   IconData get glyph => switch (this) {
-        RailStop.published => Icons.check,
-        RailStop.drafted => Icons.edit_outlined,
-        RailStop.broken => Icons.priority_high,
-        RailStop.quiet => Icons.volume_off_outlined,
-        RailStop.pending => Icons.schedule,
-      };
+    RailStop.published => Icons.check,
+    RailStop.drafted => Icons.edit_outlined,
+    RailStop.broken => Icons.priority_high,
+    RailStop.quiet => Icons.volume_off_outlined,
+    RailStop.pending => Icons.schedule,
+  };
 }
 
 RailStop stopFor(String outcome) => switch (outcome) {
-      'published' => RailStop.published,
-      'drafted' => RailStop.drafted,
-      'silent' => RailStop.quiet,
-      'missed' => RailStop.broken,
-      'failed' => RailStop.broken,
-      _ => RailStop.pending,
-    };
+  'published' => RailStop.published,
+  'drafted' => RailStop.drafted,
+  'silent' => RailStop.quiet,
+  'missed' => RailStop.broken,
+  'failed' => RailStop.broken,
+  _ => RailStop.pending,
+};
 
 String labelFor(String outcome) => switch (outcome) {
-      'published' => 'Published',
-      'drafted' => 'Drafted, waiting on you',
-      'silent' => 'Stayed quiet',
-      'missed' => 'Missed',
-      'failed' => 'Failed to send',
-      _ => 'Waiting to run',
-    };
+  'published' => 'Published',
+  'drafted' => 'Drafted, waiting on you',
+  'silent' => 'Stayed quiet',
+  'missed' => 'Missed',
+  'failed' => 'Failed to send',
+  _ => 'Waiting to run',
+};
 
 /// The rail. Give it the day's entries, already in time order.
 class DayRail extends StatelessWidget {
@@ -72,12 +72,12 @@ class DayRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < entries.length; i++)
-            _Stop(entry: entries[i], isLast: i == entries.length - 1),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (var i = 0; i < entries.length; i++)
+        _Stop(entry: entries[i], isLast: i == entries.length - 1),
+    ],
+  );
 }
 
 class _Stop extends StatelessWidget {
@@ -130,7 +130,11 @@ class _Stop extends StatelessWidget {
                 ),
                 if (!isLast)
                   Expanded(
-                    child: Container(width: 1, margin: const EdgeInsets.only(top: 4), color: C.rule),
+                    child: Container(
+                      width: 1,
+                      margin: const EdgeInsets.only(top: 4),
+                      color: C.rule,
+                    ),
                   ),
               ],
             ),
@@ -150,7 +154,10 @@ class _Stop extends StatelessWidget {
                       Flexible(
                         child: Text(
                           labelFor(entry.outcome),
-                          style: T.bodyStrong.copyWith(fontSize: 14, color: colour),
+                          style: T.bodyStrong.copyWith(
+                            fontSize: 14,
+                            color: colour,
+                          ),
                         ),
                       ),
                     ],

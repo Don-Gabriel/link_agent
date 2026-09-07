@@ -33,6 +33,7 @@ import '../widgets/draft_card.dart';
 import '../widgets/primitives.dart';
 import 'draft_commands.dart';
 import 'settings_screen.dart';
+import '../widgets/editorial.dart';
 
 class DeskScreen extends StatelessWidget {
   const DeskScreen({super.key});
@@ -51,6 +52,13 @@ class DeskScreen extends StatelessWidget {
         children: [
           _Masthead(state: state),
           const SizedBox(height: S.x5),
+          const StudioBanner(
+            compact: true,
+            title: 'Good ideas start here.',
+            eyebrow: 'ON YOUR DESK',
+            caption: 'A place to read, refine and make each post your own.',
+          ),
+          const SizedBox(height: S.x5),
           if (status == null)
             const _Waiting()
           else
@@ -63,22 +71,31 @@ class DeskScreen extends StatelessWidget {
   List<Widget> _body(BuildContext context, AppState state, AppStatus status) {
     final queue = status.queue;
     final next = status.nextDue;
-    final drafts = queue.where((p) => p.isDraft).toList();
+    final drafts = queue
+        .where(
+          (p) =>
+              p.isDraft ||
+              (p.status == 'approved' && p.isScheduled && p.isCleared),
+        )
+        .toList();
     // Stranded means "this went wrong and needs a hand". A post that has been
     // cleared is 'approved' on the server too, so without the schedule check a
     // perfectly healthy cleared draft was filed under "needs a hand" and told
     // the reader its publish had failed — while ALSO appearing above as the
     // lede, which is the same post twice on one screen.
     final stranded = queue
-        .where((p) =>
-            !p.isDraft &&
-            !p.isPublished &&
-            p.seq != next?.seq &&
-            !(p.isScheduled && p.isCleared))
+        .where(
+          (p) =>
+              !p.isDraft &&
+              !p.isPublished &&
+              p.seq != next?.seq &&
+              !(p.isScheduled && p.isCleared),
+        )
         .toList();
     final rest = drafts.where((p) => p.seq != next?.seq).toList();
-    final today = status.timeline.where((e) => e.runDate == _localToday()).toList()
-      ..sort((a, b) => a.localTime.compareTo(b.localTime));
+    final today =
+        status.timeline.where((e) => e.runDate == _localToday()).toList()
+          ..sort((a, b) => a.localTime.compareTo(b.localTime));
 
     return [
       ..._conditions(context, state, status),
@@ -99,10 +116,17 @@ class DeskScreen extends StatelessWidget {
         SectionRule(
           next == null ? 'On the desk' : 'Also on the desk',
           tone: Tone.desk,
-          trailing: Text('${rest.length}', style: T.data.copyWith(color: C.filament)),
+          trailing: Text(
+            '${rest.length}',
+            style: T.data.copyWith(color: C.filament),
+          ),
         ),
         for (final post in rest) ...[
-          DraftCard(post: post, busy: state.loading, actions: commandsFor(context, post)),
+          DraftCard(
+            post: post,
+            busy: state.loading,
+            actions: commandsFor(context, post),
+          ),
           const SizedBox(height: S.x4),
         ],
         const SizedBox(height: S.x4),
@@ -118,22 +142,33 @@ class DeskScreen extends StatelessWidget {
           DraftCard(
             post: post,
             busy: state.loading,
-            actions: commandsFor(context, post, actionable: post.status != 'unknown'),
+            actions: commandsFor(
+              context,
+              post,
+              actionable: post.status != 'unknown',
+            ),
           ),
+          if (post.status == 'unknown')
+            OutlinedButton(
+              onPressed: state.loading
+                  ? null
+                  : () => resolveSend(context, post),
+              child: const Text('Confirm publishing result'),
+            ),
           const SizedBox(height: S.x4),
         ],
         const SizedBox(height: S.x4),
       ],
 
-      if (drafts.isEmpty && stranded.isEmpty && !state.loading)
+      if (next == null && drafts.isEmpty && stranded.isEmpty && !state.loading)
         Empty(
           icon: Icons.done_all,
           title: 'Nothing on the desk',
           blurb: status.slots.isEmpty
               ? 'There are no posting times set yet, so the agent has nothing to write to. '
-                  'Add one in Settings → Timetable.'
+                    'Add one in Settings → Timetable.'
               : 'The agent reads on its timetable and stays quiet on days when nothing '
-                  'clears the bar. Check the Archive to see what it passed over.',
+                    'clears the bar. Check the Archive to see what it passed over.',
           actionLabel: 'Ask it to write one now',
           onAction: state.loading || (state.agent?.paused ?? false)
               ? null
@@ -169,7 +204,10 @@ class DeskScreen extends StatelessWidget {
       if (state.agent?.paused ?? false)
         const Padding(
           padding: EdgeInsets.only(top: S.x2),
-          child: Text('Paused — turn it back on in Settings → Timetable.', style: T.micro),
+          child: Text(
+            'Paused — turn it back on in Settings → Timetable.',
+            style: T.micro,
+          ),
         ),
     ];
   }
@@ -187,7 +225,11 @@ class DeskScreen extends StatelessWidget {
   /// as a state chip forty pixels above, it is a standing condition rather than
   /// news, and it would otherwise be the permanent first thing on the screen
   /// for as long as live mode stays off — which is on purpose, for days.
-  List<Widget> _conditions(BuildContext context, AppState state, AppStatus status) {
+  List<Widget> _conditions(
+    BuildContext context,
+    AppState state,
+    AppStatus status,
+  ) {
     final out = <Widget>[];
 
     void add(Widget w) {
@@ -196,30 +238,37 @@ class DeskScreen extends StatelessWidget {
     }
 
     if (!status.scheduler.healthy) {
-      add(ConditionStrip(
-        tone: Tone.broken,
-        icon: Icons.cloud_off,
-        text: status.scheduler.neverRan
-            ? 'The scheduler never started — no posting time will fire'
-            : 'The scheduler stopped — posting times will not fire',
-        onTap: () => openTimetable(context),
-      ));
+      add(
+        ConditionStrip(
+          tone: Tone.broken,
+          icon: Icons.cloud_off,
+          text: status.scheduler.neverRan
+              ? 'The scheduler never started — no posting time will fire'
+              : 'The scheduler stopped — posting times will not fire',
+          onTap: () => openTimetable(context),
+        ),
+      );
     }
 
     if (status.account.needsReauth) {
-      add(ConditionStrip(
-        tone: Tone.broken,
-        icon: Icons.link_off,
-        text: 'LinkedIn access expired — nothing can publish',
-        onTap: () => openLinkedIn(context),
-      ));
+      add(
+        ConditionStrip(
+          tone: Tone.broken,
+          icon: Icons.link_off,
+          text: 'LinkedIn access expired — nothing can publish',
+          onTap: () => openLinkedIn(context),
+        ),
+      );
     } else if (status.account.expiringSoon) {
-      add(ConditionStrip(
-        tone: Tone.desk,
-        icon: Icons.schedule,
-        text: 'LinkedIn access expires in ${status.account.daysRemaining} days',
-        onTap: () => openLinkedIn(context),
-      ));
+      add(
+        ConditionStrip(
+          tone: Tone.desk,
+          icon: Icons.schedule,
+          text:
+              'LinkedIn access expires in ${status.account.daysRemaining} days',
+          onTap: () => openLinkedIn(context),
+        ),
+      );
     }
 
     if (state.error != null) add(ErrorNote(state.error!));
@@ -248,8 +297,18 @@ class _Masthead extends StatelessWidget {
 
   static const _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   static const _months = [
-    'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
-    'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
   ];
 
   @override
@@ -298,7 +357,9 @@ class _Masthead extends StatelessWidget {
             Expanded(
               child: Text(
                 waiting > 0 ? '$waiting waiting on you' : 'nothing waiting',
-                style: T.slug.copyWith(color: waiting > 0 ? C.filament : C.paperFaint),
+                style: T.slug.copyWith(
+                  color: waiting > 0 ? C.filament : C.paperFaint,
+                ),
               ),
             ),
           ],
@@ -343,20 +404,20 @@ class _Waiting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final height in [120.0, 220.0])
-            Padding(
-              padding: const EdgeInsets.only(bottom: S.x3),
-              child: Container(
-                height: height,
-                decoration: BoxDecoration(
-                  color: C.ink2,
-                  border: Border.all(color: C.rule),
-                  borderRadius: BorderRadius.circular(R.md),
-                ),
-              ),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (final height in [120.0, 220.0])
+        Padding(
+          padding: const EdgeInsets.only(bottom: S.x3),
+          child: Container(
+            height: height,
+            decoration: BoxDecoration(
+              color: C.ink2,
+              border: Border.all(color: C.rule),
+              borderRadius: BorderRadius.circular(R.md),
             ),
-        ],
-      );
+          ),
+        ),
+    ],
+  );
 }

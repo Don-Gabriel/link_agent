@@ -13,14 +13,13 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/form_select.dart';
 import '../widgets/primitives.dart';
 import 'settings_screen.dart';
 
 /// Bit per weekday, 0 = Sunday — matching lib/schedule.ts, JS getDay() and
 /// Postgres DOW. Rendered Monday-first because that is how a working week reads.
 const _dayOrder = [1, 2, 3, 4, 5, 6, 0];
-const _dayInitials = {0: 'S', 1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S'};
-const _maskDaily = 0x7F;
 const _maskWeekdays = 0x3E;
 
 class TimetableScreen extends StatelessWidget {
@@ -38,6 +37,13 @@ class TimetableScreen extends StatelessWidget {
     return SettingsPage(
       title: 'Timetable',
       children: [
+        const Text('Your posting schedule', style: T.title),
+        const SizedBox(height: 8),
+        const Text(
+          'Choose up to five posting times. Each enabled time has its own post on Home. New posts wait for you unless you explicitly enable automatic publishing.',
+          style: T.small,
+        ),
+        const SizedBox(height: 24),
         // Above everything: when this is wrong, nothing else on the screen
         // means what it appears to mean.
         if (!status.scheduler.healthy) ...[
@@ -49,13 +55,45 @@ class TimetableScreen extends StatelessWidget {
                 : 'The scheduler stopped',
             body: status.scheduler.neverRan
                 ? 'Nothing has ever called the scheduler on this server, so none of the '
-                    'times below will fire. Point your cron at /api/cron/tick.'
+                      'times below will fire. Check the connection and contact support if this continues.'
                 : 'Nothing has checked in recently. None of the times below will fire '
-                    'until it is running again.',
+                      'until it is running again.',
           ),
           const SizedBox(height: S.x5),
         ],
 
+        FormSelect<int>(
+          label: 'Number of posting times',
+          value: status.slots.isEmpty ? null : status.slots.length,
+          options: const {
+            1: '1 post per scheduled day',
+            2: '2 posts per scheduled day',
+            3: '3 posts per scheduled day',
+            4: '4 posts per scheduled day',
+            5: '5 posts per scheduled day',
+          },
+          onChanged: state.loading
+              ? null
+              : (count) async {
+                  final error = await state.mutate(
+                    () => state.api.post('/api/slots', {
+                      'action': 'count',
+                      'count': count,
+                    }),
+                  );
+                  if (context.mounted && error != null) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error)));
+                  }
+                },
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'One post per enabled time on its selected days. Timetable changes affect future drafts. Change an existing post’s time on its card. Reducing the number removes the last times; saved posts stay in My posts.',
+          style: T.small,
+        ),
+        const SizedBox(height: 20),
         SectionRule(
           'Posting times',
           trailing: Text(
@@ -71,10 +109,16 @@ class TimetableScreen extends StatelessWidget {
         const SizedBox(height: S.x4),
 
         if (status.slots.isEmpty)
-          Text('No posting times yet. The agent has nothing to write to.', style: T.small)
+          Text(
+            'No posting times yet. Add one to start your schedule.',
+            style: T.small,
+          )
         else
           for (final slot in status.slots) ...[
-            _SlotCard(slot: slot, canRemove: status.slots.length > 1),
+            _SlotCard(
+              slot: slot,
+              canRemove: state.api.isNativeSession || status.slots.length > 1,
+            ),
             const SizedBox(height: S.x3),
           ],
 
@@ -115,45 +159,52 @@ class TimetableScreen extends StatelessWidget {
               ? 'The master switch. Individual times can still be set to wait for you.'
               : 'Connect LinkedIn before enabling this.',
           value: agent.autoPublish,
-          onChanged:
-              state.loading || !status.account.usable ? null : state.setAutoPublish,
+          onChanged: state.loading || !status.account.usable
+              ? null
+              : state.setAutoPublish,
         ),
 
         const SizedBox(height: S.x6),
-        const SectionRule('Daily allowance'),
-        Text(
-          'The most the agent may publish by itself in a day. It follows how many '
-          'posting times you have, so you should rarely need to touch it. Your own '
-          'posts do not count against it.',
-          style: T.micro,
-        ),
-        const SizedBox(height: S.x4),
-        _CapStepper(
-          value: agent.autoPublishCap,
-          max: status.maxAutoCap,
-          enabled: !state.loading,
-          onChanged: state.setAutoPublishCap,
-        ),
-        const SizedBox(height: S.x5),
-        _Budget(
-          label: 'Agent published',
-          used: status.budget.autoUsed,
-          cap: status.budget.autoCap,
-          tone: status.budget.autoExhausted ? Tone.desk : Tone.out,
-        ),
-        const SizedBox(height: S.x4),
-        _Budget(
-          label: 'You published',
-          used: status.budget.manualUsed,
-          cap: status.budget.manualCap,
-          tone: Tone.quiet,
-        ),
-        const SizedBox(height: S.x3),
-        Text(
-          'Your own publishing is limited only by LinkedIn, which allows about '
-          '${status.budget.linkedinDailyRequests} API calls a day across posts, image '
-          'uploads and token checks.',
-          style: T.micro,
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: const Text('Advanced publishing limits'),
+          children: [
+            const SectionRule('Automatic publishing limit'),
+            Text(
+              'An optional lower limit on automatic publishing. This does not set how many drafts are prepared. It follows how many '
+              'posting times you have, so you should rarely need to touch it. Your own '
+              'posts do not count against it.',
+              style: T.micro,
+            ),
+            const SizedBox(height: S.x4),
+            _CapStepper(
+              value: agent.autoPublishCap,
+              max: status.maxAutoCap,
+              enabled: !state.loading,
+              onChanged: state.setAutoPublishCap,
+            ),
+            const SizedBox(height: S.x5),
+            _Budget(
+              label: 'Agent published',
+              used: status.budget.autoUsed,
+              cap: status.budget.autoCap,
+              tone: status.budget.autoExhausted ? Tone.desk : Tone.out,
+            ),
+            const SizedBox(height: S.x4),
+            _Budget(
+              label: 'You published',
+              used: status.budget.manualUsed,
+              cap: status.budget.manualCap,
+              tone: Tone.quiet,
+            ),
+            const SizedBox(height: S.x3),
+            Text(
+              'Your own publishing is limited only by LinkedIn, which allows about '
+              '${status.budget.linkedinDailyRequests} API calls a day across posts, image '
+              'uploads and token checks.',
+              style: T.micro,
+            ),
+          ],
         ),
       ],
     );
@@ -173,7 +224,8 @@ class TimetableScreen extends StatelessWidget {
     // day is a volume almost nobody actually wants, and it is easier to add
     // weekends than to notice you are posting 21 times a week.
     final error = await state.addSlot(
-      localTime: '${picked.hour.toString().padLeft(2, '0')}:'
+      localTime:
+          '${picked.hour.toString().padLeft(2, '0')}:'
           '${picked.minute.toString().padLeft(2, '0')}',
       daysMask: _maskWeekdays,
     );
@@ -194,7 +246,10 @@ class TimetableScreen extends StatelessWidget {
           decoration: const InputDecoration(hintText: 'Asia/Kolkata'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             child: const Text('Save'),
@@ -237,7 +292,10 @@ class _SlotCard extends StatelessWidget {
                 onTap: busy ? null : () => _pickTime(context),
                 borderRadius: BorderRadius.circular(R.sm),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: S.x1, vertical: S.x1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: S.x1,
+                    vertical: S.x1,
+                  ),
                   child: Text(
                     slot.localTime,
                     style: T.clock.copyWith(
@@ -261,7 +319,9 @@ class _SlotCard extends StatelessWidget {
               ),
               Switch(
                 value: slot.enabled,
-                onChanged: busy ? null : (v) => state.setSlotEnabled(slot.id, v),
+                onChanged: busy
+                    ? null
+                    : (v) => state.setSlotEnabled(slot.id, v),
               ),
             ],
           ),
@@ -282,9 +342,11 @@ class _SlotCard extends StatelessWidget {
             title: 'This time publishes itself',
             blurb: slot.autoPublish
                 ? 'Goes out at ${slot.localTime} whether or not you have read it.'
-                : 'Waits for you to clear it. If you do not, it stays put.',
+                : 'Waits for you to choose Schedule post or Publish now.',
             value: slot.autoPublish,
-            onChanged: busy || !slot.enabled ? null : (v) => _confirmAutoPublish(context, v),
+            onChanged: busy || !slot.enabled
+                ? null
+                : (v) => _confirmAutoPublish(context, v),
           ),
           if (slot.categories.isNotEmpty) ...[
             const SizedBox(height: S.x3),
@@ -352,8 +414,14 @@ class _SlotCard extends StatelessWidget {
           style: T.small,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Turn on')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Turn on'),
+          ),
         ],
       ),
     );
@@ -373,9 +441,15 @@ class _SlotCard extends StatelessWidget {
           style: T.small,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep'),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: C.flare, foregroundColor: C.paper),
+            style: FilledButton.styleFrom(
+              backgroundColor: C.flare,
+              foregroundColor: C.onFilament,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove'),
           ),
@@ -388,97 +462,47 @@ class _SlotCard extends StatelessWidget {
   }
 }
 
-/// Seven tappable initials. A row of toggles rather than a dropdown because the
-/// whole set has to be readable at a glance — "which days does this run" is the
-/// question, and a menu hides the answer until you open it.
+/// A summarized weekday field opens a staged checklist.
 class _DayPicker extends StatelessWidget {
-  const _DayPicker({required this.mask, required this.enabled, required this.onChanged});
-
+  const _DayPicker({
+    required this.mask,
+    required this.enabled,
+    required this.onChanged,
+  });
   final int mask;
   final bool enabled;
   final ValueChanged<int> onChanged;
-
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          for (final day in _dayOrder)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: S.x1),
-                child: _DayChip(
-                  label: _dayInitials[day]!,
-                  selected: (mask & (1 << day)) != 0,
-                  enabled: enabled,
-                  onTap: () {
-                    final next = mask ^ (1 << day);
-                    // An empty mask is a posting time that can never fire, and a
-                    // schedule that silently never runs is the worst outcome
-                    // here. The server coerces this to daily too; refusing the
-                    // last tap is clearer than accepting it and doing something
-                    // else.
-                    if ((next & _maskDaily) == 0) return;
-                    onChanged(next);
-                  },
-                ),
-              ),
-            ),
-        ],
-      );
-}
-
-class _DayChip extends StatelessWidget {
-  const _DayChip({
-    required this.label,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-        selected: selected,
-        button: true,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(R.sm),
-          child: Container(
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? C.filamentWash : C.ink,
-              border: Border.all(
-                color: selected ? C.filament.withValues(alpha: 0.45) : C.rule,
-              ),
-              borderRadius: BorderRadius.circular(R.sm),
-            ),
-            child: Text(
-              label,
-              style: T.sectionRule.copyWith(
-                fontSize: 14,
-                letterSpacing: 0,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: !enabled
-                    ? C.paperFaint
-                    : selected
-                        ? C.filament
-                        : C.paperDim,
-              ),
-            ),
-          ),
-        ),
-      );
+  Widget build(BuildContext context) => MultiSelectField(
+    label: 'Days of the week',
+    options: const {
+      '1': 'Monday',
+      '2': 'Tuesday',
+      '3': 'Wednesday',
+      '4': 'Thursday',
+      '5': 'Friday',
+      '6': 'Saturday',
+      '0': 'Sunday',
+    },
+    values: [
+      for (final day in _dayOrder)
+        if ((mask & (1 << day)) != 0) '$day',
+    ],
+    onChanged: enabled
+        ? (v) => onChanged(v.fold<int>(0, (a, d) => a | (1 << int.parse(d))))
+        : null,
+  );
 }
 
 /// The review window. Stepped in fives rather than typed, because the exact
 /// number does not matter and a stepper cannot produce a value the server has
 /// to clamp.
 class _LeadRow extends StatelessWidget {
-  const _LeadRow({required this.slot, required this.limits, required this.enabled});
+  const _LeadRow({
+    required this.slot,
+    required this.limits,
+    required this.enabled,
+  });
 
   final PostSlot slot;
   final SlotLimits limits;
@@ -500,7 +524,10 @@ class _LeadRow extends StatelessWidget {
               // than this so the finished draft is on the desk when the window
               // opens. Promising the moment work BEGINS would promise the
               // wrong thing.
-              Text('On your desk this long before it goes out, at least.', style: T.micro),
+              Text(
+                'On your desk this long before it goes out, at least.',
+                style: T.micro,
+              ),
             ],
           ),
         ),
@@ -543,17 +570,17 @@ class _Step extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => IconButton(
-        onPressed: onTap,
-        icon: Icon(icon, size: 18),
-        tooltip: label,
-        style: IconButton.styleFrom(
-          minimumSize: const Size(kMinTouch, kMinTouch),
-          backgroundColor: C.ink3,
-          foregroundColor: onTap == null ? C.paperFaint : C.paper,
-          side: const BorderSide(color: C.ruleStrong),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
-        ),
-      );
+    onPressed: onTap,
+    icon: Icon(icon, size: 18),
+    tooltip: label,
+    style: IconButton.styleFrom(
+      minimumSize: const Size(kMinTouch, kMinTouch),
+      backgroundColor: C.ink3,
+      foregroundColor: onTap == null ? C.paperFaint : C.paper,
+      side: const BorderSide(color: C.ruleStrong),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
+    ),
+  );
 }
 
 class _CapStepper extends StatelessWidget {
@@ -571,42 +598,44 @@ class _CapStepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Wrap(
-        spacing: S.x2,
-        runSpacing: S.x2,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          for (var n = 1; n <= max; n++)
-            Semantics(
-              selected: n == value,
-              button: true,
-              child: InkWell(
-                onTap: enabled && n != value ? () => onChanged(n) : null,
+    spacing: S.x2,
+    runSpacing: S.x2,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      for (var n = 1; n <= max; n++)
+        Semantics(
+          selected: n == value,
+          button: true,
+          child: InkWell(
+            onTap: enabled && n != value ? () => onChanged(n) : null,
+            borderRadius: BorderRadius.circular(R.sm),
+            child: Container(
+              width: 52,
+              height: kMinTouch,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: n == value ? C.filamentWash : C.ink2,
+                border: Border.all(
+                  color: n == value ? C.filament : C.ruleStrong,
+                ),
                 borderRadius: BorderRadius.circular(R.sm),
-                child: Container(
-                  width: 52,
-                  height: kMinTouch,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: n == value ? C.filamentWash : C.ink2,
-                    border: Border.all(color: n == value ? C.filament : C.ruleStrong),
-                    borderRadius: BorderRadius.circular(R.sm),
-                  ),
-                  child: Text(
-                    '$n',
-                    style: T.data.copyWith(
-                      fontSize: 17,
-                      color: n == value ? C.filament : C.paperDim,
-                    ),
-                  ),
+              ),
+              child: Text(
+                '$n',
+                style: T.data.copyWith(
+                  fontSize: 17,
+                  color: n == value ? C.filament : C.paperDim,
                 ),
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.only(left: S.x2),
-            child: Text(value == 1 ? 'post / day' : 'posts / day', style: T.micro),
           ),
-        ],
-      );
+        ),
+      Padding(
+        padding: const EdgeInsets.only(left: S.x2),
+        child: Text(value == 1 ? 'post / day' : 'posts / day', style: T.micro),
+      ),
+    ],
+  );
 }
 
 class _Budget extends StatelessWidget {
@@ -624,16 +653,19 @@ class _Budget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
         children: [
-          Row(
-            children: [
-              Expanded(child: Text(label, style: T.body)),
-              Text('$used / $cap', style: T.data.copyWith(fontSize: 13, color: tone.ink)),
-            ],
+          Expanded(child: Text(label, style: T.body)),
+          Text(
+            '$used / $cap',
+            style: T.data.copyWith(fontSize: 13, color: tone.ink),
           ),
-          const SizedBox(height: S.x2),
-          Meter(value: cap == 0 ? 0 : used / cap, tone: tone),
         ],
-      );
+      ),
+      const SizedBox(height: S.x2),
+      Meter(value: cap == 0 ? 0 : used / cap, tone: tone),
+    ],
+  );
 }

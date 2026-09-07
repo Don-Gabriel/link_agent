@@ -26,12 +26,12 @@
  *      code ever loops, it burns 3 posts and stops, not 150.
  */
 import { getUsableToken, recordAccountError, recordAccountOk } from "./accounts";
-import { query } from "./db";
+import { query, getPool, ensureSchema } from "./db";
 import { assemblePost, checkLength } from "./format";
 import { createPost, postPermalink, type PostImage } from "./linkedin";
 import { safeTimeZone } from "./schedule";
 import { settleSlotRun } from "./slots";
-import { parseStyle } from "./style";
+import { MAX_HASHTAGS } from "./style";
 import { refreshEditNotes } from "./voice";
 
 /**
@@ -59,6 +59,7 @@ export const LINKEDIN_DAILY_REQUESTS = 150;
 export const MAX_AUTO_CAP = 5;
 
 export type PublishSource = "auto" | "manual";
+export interface ReviewedPost {text:string;hashtags:string[];media:string[]}
 
 export type DistributeResult =
   | { ok: true; postUrn: string; permalink: string }
@@ -77,11 +78,12 @@ interface PostRow {
   auto_publish_cap: number | null;
   /** Joined from agents — the cap is counted against the author's calendar day. */
   timezone: string | null;
+  auto_eligible: boolean;
 }
 
 /** Publishing is disabled entirely unless this is explicitly turned on. */
 export function liveModeEnabled(): boolean {
-  return process.env.LINKEDIN_LIVE === "true";
+  return process.env.LINKEDIN_LIVE === "true" && process.env.BYLINE_TEST_MODE !== "true";
 }
 
 /**
@@ -114,11 +116,11 @@ export async function sendsToday(
   return { auto: by.get("auto") ?? 0, manual: by.get("manual") ?? 0 };
 }
 
-async function loadImages(mediaIds: string[]): Promise<PostImage[]> {
+async function loadImages(mediaIds: string[], agentId: string): Promise<PostImage[]> {
   if (mediaIds.length === 0) return [];
   const rows = await query<{ id: string; linkedin_urn: string; alt_text: string | null }>(
-    "SELECT id, linkedin_urn, alt_text FROM media_assets WHERE id = ANY($1::uuid[]) AND status = 'uploaded'",
-    [mediaIds],
+    "SELECT id, linkedin_urn, alt_text FROM media_assets WHERE id = ANY($1::uuid[]) AND agent_id=$2 AND status = 'uploaded'",
+    [mediaIds, agentId],
   );
   // Preserve the author's ordering — ANY() gives no ordering guarantee, and on
   // a multi-image post the sequence is a deliberate choice.
@@ -137,17 +139,37 @@ export async function publishPost(
   agentId: string,
   seq: number,
   source: PublishSource = "manual",
+  reviewed?: ReviewedPost,
 ): Promise<DistributeResult> {
   const rows = await query<PostRow>(
     `SELECT p.seq, p.text, p.status, p.category, p.media_json, p.sources_json, p.hashtags_json,
-            a.style_json, a.auto_publish_cap, a.timezone
+            a.style_json, a.auto_publish_cap, a.timezone,
+            (a.active AND NOT a.paused AND p.scheduled_for <= now()
+             AND (p.hold_until IS NULL OR p.hold_until <= now())
+             AND (p.cleared_at IS NOT NULL OR
+               (a.auto_publish AND EXISTS (SELECT 1 FROM post_slots s WHERE s.id=p.slot_id AND s.auto_publish)))) AS auto_eligible
        FROM posts p JOIN agents a ON a.id = p.agent_id
       WHERE p.agent_id = $1 AND p.seq = $2`,
     [agentId, seq],
   );
   const post = rows[0];
   if (!post) return { ok: false, reason: "post_not_found" };
+  if (source === 'auto' && !post.auto_eligible) {
+    return { ok: false, reason: 'The schedule, approval or pause setting changed before this send.' };
+  }
+  if(reviewed&&(!['draft','approved','failed','missed'].includes(post.status)||post.text!==reviewed.text||JSON.stringify(post.hashtags_json??[])!==JSON.stringify(reviewed.hashtags)||JSON.stringify(post.media_json??[])!==JSON.stringify(reviewed.media))) {
+    return {ok:false,reason:'This post changed on another device. Refresh and review it again.'};
+  }
   if (post.status === "published") return { ok: false, reason: "already_published", alreadyClaimed: true };
+  if (!['draft', 'approved', 'failed', 'missed'].includes(post.status)) {
+    return { ok: false, reason: 'This post cannot be published in its current state. Refresh and review it in My Posts.' };
+  }
+
+  // Explicit isolated testing only; this branch never calls LinkedIn.
+  if (process.env.BYLINE_TEST_MODE === 'true' && process.env.BYLINE_LOCAL_ONLY === 'true') {
+    await query(`UPDATE posts SET status='published',published_at=now(),rationale='Local approval simulation; not posted to LinkedIn' WHERE agent_id=$1 AND seq=$2 AND status<>'published'`,[agentId,seq]);
+    return {ok:true,postUrn:`local-simulation:${agentId}:${seq}`,permalink:''};
+  }
 
   if (!liveModeEnabled()) {
     return { ok: false, reason: "live_mode_disabled — set LINKEDIN_LIVE=true to publish for real" };
@@ -227,7 +249,7 @@ export async function publishPost(
     };
   }
 
-  const images = await loadImages(post.media_json ?? []);
+  const images = await loadImages(post.media_json ?? [], agentId);
   // A source link is worth including on a text post, but on an image post it
   // competes with the image for the reader's attention and looks like spam.
   const sourceUrl = images.length === 0 ? post.sources_json?.[0] : undefined;
@@ -235,7 +257,8 @@ export async function publishPost(
     body: post.text,
     sourceUrl,
     hashtags: post.hashtags_json ?? [],
-    maxHashtags: parseStyle(post.style_json).hashtagCount,
+    // Publish the reviewed post's tags, even if the voice has since changed.
+    maxHashtags: MAX_HASHTAGS,
   });
 
   const length = checkLength(text);
@@ -368,10 +391,12 @@ export async function publishDuePosts(missedAfterMinutes = 45): Promise<DuePubli
     // failure leaves the post eligible on the next tick, and this window is
     // what stops that becoming an unbounded loop.
     if (Number(row.minutes_late) > missedAfterMinutes) {
-      await query("UPDATE posts SET status = 'missed' WHERE agent_id = $1 AND seq = $2", [
+      const missed = await query("UPDATE posts SET status = 'missed' WHERE agent_id = $1 AND seq = $2 AND scheduled_for = $3 AND status IN ('draft','approved','failed') AND (hold_until IS NULL OR hold_until<=now()) RETURNING seq", [
         row.agent_id,
         row.seq,
+        row.scheduled_for,
       ]);
+      if (!missed.length) continue;
       if (row.slot_id && runDate) {
         await settleSlotRun(row.slot_id, runDate, "missed", {
           detail: `Not sent within ${missedAfterMinutes} minutes of its time.`,
@@ -430,23 +455,45 @@ export async function resolveAmbiguousSend(
   agentId: string,
   seq: number,
   didPublish: boolean,
-): Promise<void> {
-  if (didPublish) {
-    await query(
+): Promise<boolean> {
+  await ensureSchema();
+  const client = await getPool()!.connect();
+  try {
+    await client.query('BEGIN');
+    const pending = await client.query(
+      "SELECT seq FROM posts WHERE agent_id=$1 AND seq=$2 AND status='unknown' FOR UPDATE",
+      [agentId, seq],
+    );
+    if (!pending.rowCount) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+    if (didPublish) {
+    await client.query(
       `UPDATE distributions SET status = 'sent', settled_at = now(),
               last_error = 'resolved manually: confirmed published'
         WHERE agent_id = $1 AND seq = $2 AND status = 'in_flight'`,
       [agentId, seq],
     );
-    await query(
+    await client.query(
       "UPDATE posts SET status = 'published', published_at = COALESCE(published_at, now()) WHERE agent_id = $1 AND seq = $2",
       [agentId, seq],
     );
-    return;
-  }
-  await query(
+    } else {
+  await client.query(
     "DELETE FROM distributions WHERE agent_id = $1 AND seq = $2 AND status = 'in_flight'",
     [agentId, seq],
   );
-  await query("UPDATE posts SET status = 'approved' WHERE agent_id = $1 AND seq = $2", [agentId, seq]);
+  // A negative confirmation permits a deliberate retry; it must not restart
+  // the scheduler and send the post before the user has reviewed it again.
+  await client.query("UPDATE posts SET status = 'draft', scheduled_for = NULL, cleared_at = NULL, hold_until = NULL WHERE agent_id = $1 AND seq = $2", [agentId, seq]);
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }

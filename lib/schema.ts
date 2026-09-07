@@ -86,6 +86,8 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'publish
 -- 'auto' = the daily agent cycle wrote it; 'custom' = the user composed it.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS client_request_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS posts_client_request_idx ON posts(agent_id,client_request_id) WHERE client_request_id IS NOT NULL;
 -- Ordered media_assets.id values attached to this post.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_json JSONB NOT NULL DEFAULT '[]';
 -- When this post is due to reach LinkedIn. NULL means "not on a schedule" —
@@ -375,4 +377,63 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   agent_id    UUID NOT NULL REFERENCES agents(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS byline_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL, subject TEXT NOT NULL, name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(provider, subject)
+);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES byline_users(id);
+CREATE UNIQUE INDEX IF NOT EXISTS agents_owner_unique ON agents(owner_id) WHERE owner_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS byline_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES byline_users(id),
+  expires_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS native_auth (
+  id TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier_hash TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL, user_id UUID REFERENCES byline_users(id),
+  error TEXT, claimed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS onboarding (
+  user_id UUID PRIMARY KEY REFERENCES byline_users(id),
+  config JSONB NOT NULL DEFAULT '{}', revision INT NOT NULL DEFAULT 0,
+  preview JSONB, preview_revision INT, accepted_revision INT,
+  completed_at TIMESTAMPTZ, next_delivery_at TIMESTAMPTZ,
+  preview_attempts INT NOT NULL DEFAULT 0, attempts_day DATE NOT NULL DEFAULT CURRENT_DATE,
+  generating_until TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS review_deliveries (
+  agent_id UUID NOT NULL REFERENCES agents(id), delivery_date TEXT NOT NULL,
+  seq INT, attempts INT NOT NULL DEFAULT 0, retry_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lease_until TIMESTAMPTZ, last_error TEXT, PRIMARY KEY(agent_id, delivery_date)
+);
+ALTER TABLE review_deliveries ADD COLUMN IF NOT EXISTS stage TEXT;
+ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS timetable_migrated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE slot_runs ADD COLUMN IF NOT EXISTS stage TEXT;
+ALTER TABLE slot_runs ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 1;
+ALTER TABLE slot_runs ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS slot_date DATE;
+CREATE UNIQUE INDEX IF NOT EXISTS posts_slot_day ON posts(agent_id,slot_id,slot_date) WHERE slot_date IS NOT NULL;
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id BIGSERIAL PRIMARY KEY, agent_id UUID NOT NULL REFERENCES agents(id),
+  payload JSONB NOT NULL, dedupe_key TEXT NOT NULL UNIQUE,
+  attempts INT NOT NULL DEFAULT 0, retry_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  delivered_at TIMESTAMPTZ
+);
+ALTER TABLE oauth_states ADD COLUMN IF NOT EXISTS native BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE oauth_states ADD COLUMN IF NOT EXISTS return_uri TEXT;
+ALTER TABLE native_auth ADD COLUMN IF NOT EXISTS return_uri TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS review_date TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS posts_review_day ON posts(agent_id,review_date) WHERE review_date IS NOT NULL;
+CREATE TABLE IF NOT EXISTS post_counters(agent_id UUID PRIMARY KEY REFERENCES agents(id), value INT NOT NULL);
+CREATE OR REPLACE FUNCTION byline_next_seq(a UUID) RETURNS INT LANGUAGE plpgsql AS $$
+DECLARE n INT;
+BEGIN
+  INSERT INTO post_counters(agent_id,value) SELECT a, COALESCE(MAX(seq),0)+1 FROM posts WHERE agent_id=a
+  ON CONFLICT(agent_id) DO UPDATE SET value=GREATEST(post_counters.value+1,EXCLUDED.value) RETURNING value INTO n;
+  RETURN n;
+END $$;
+CREATE TABLE IF NOT EXISTS ai_user_days(owner TEXT NOT NULL,day DATE NOT NULL,requests INT NOT NULL,PRIMARY KEY(owner,day));
+CREATE TABLE IF NOT EXISTS ai_provider_days(model TEXT NOT NULL,day DATE NOT NULL,attempts INT NOT NULL,next_at TIMESTAMPTZ NOT NULL,PRIMARY KEY(model,day));
+CREATE TABLE IF NOT EXISTS ai_usage(id BIGSERIAL PRIMARY KEY,owner TEXT NOT NULL,model TEXT NOT NULL,success BOOLEAN NOT NULL,input_tokens INT,output_tokens INT,created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 `;

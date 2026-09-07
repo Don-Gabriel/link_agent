@@ -181,7 +181,9 @@ async function main() {
     check("the first claim succeeds", claimed === true);
     check("the second claim is refused", (await claimSlotRun(fakeDue)) === false);
     await runs("settleSlotRun records a failure", () => settleSlotRun(slotId, runDate, "failed"));
-    check("a failed run may be retried", (await claimSlotRun(fakeDue)) === true);
+    check("a failed run waits for its retry backoff", (await claimSlotRun(fakeDue)) === false);
+    await query("UPDATE slot_runs SET retry_at=now()-interval '1 second' WHERE slot_id=$1 AND run_date=$2",[slotId,runDate]);
+    check("a failed run may be retried after backoff", (await claimSlotRun(fakeDue)) === true);
     await runs("settleSlotRun records silence", () => settleSlotRun(slotId, runDate, "silent"));
     check("a settled run is not retried", (await claimSlotRun(fakeDue)) === false);
 

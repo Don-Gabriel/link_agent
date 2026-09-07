@@ -1,3 +1,5 @@
+import { requestIdentity } from '../../../lib/request-agent';
+import { query } from '../../../lib/db';
 /**
  * Login. POST a password, receive an httpOnly session cookie.
  *
@@ -71,6 +73,8 @@ export async function POST(request: Request) {
 
 /** Logout. */
 export async function DELETE() {
+  const identity = await requestIdentity();
+  if (identity) await query('UPDATE byline_sessions SET revoked_at=now() WHERE id=$1', [identity.sessionId]);
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
   return response;

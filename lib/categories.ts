@@ -21,14 +21,18 @@
  * either changing what an existing agent receives, or fetching the same arXiv
  * feed twice per cycle.
  */
-export type CategoryId =
+import { SUBJECT_GROUPS, subjectId } from './category-catalogue';
+
+export type CategoryId = string;
+type LegacyCategoryId =
   | "music-tech-software"
   | "music-tech-hardware"
   | "emerging-tech"
   | "ai-ml"
   | "dev-tooling"
   | "hardware-embedded"
-  | "compute-silicon";
+  | "compute-silicon"
+  | "marketing" | "hr" | "finance" | "healthcare" | "business";
 
 export interface Category {
   id: CategoryId;
@@ -39,9 +43,19 @@ export interface Category {
   scope: string;
   /** Candidate hashtags. The writer picks at most two; more reads as reach-farming. */
   hashtags: string[];
+  group?: string;
+  groupLabel?: string;
+  /** A targeted discovery query, never a generic parent feed. */
+  query?: string;
 }
 
-export const CATEGORIES: Record<CategoryId, Category> = {
+const LEGACY_CATEGORIES: Record<LegacyCategoryId, Category> = {
+"marketing": {"id": "marketing", "label": "Marketing", "scope": "marketing strategy and customer research", "blurb": "Evidence-backed developments in marketing strategy and customer research. Explain implications without inventing facts, personal experience, or giving individualized advice.", "hashtags": ["Marketing", "CustomerExperience", "ContentStrategy"]},
+"hr": {"id": "hr", "label": "People & HR", "scope": "workplace culture and people management", "blurb": "Evidence-backed developments in workplace culture and people management. Explain implications without inventing facts, personal experience, or giving individualized advice.", "hashtags": ["HumanResources", "Leadership", "WorkplaceCulture"]},
+"finance": {"id": "finance", "label": "Finance", "scope": "financial services and economic developments", "blurb": "Evidence-backed developments in financial services and economic developments. Explain implications without inventing facts, personal experience, or giving individualized advice.", "hashtags": ["Finance", "Economics", "Banking"]},
+"healthcare": {"id": "healthcare", "label": "Healthcare", "scope": "healthcare systems and public health research", "blurb": "Evidence-backed developments in healthcare systems and public health research. Explain implications without inventing facts, personal experience, or giving individualized advice.", "hashtags": ["Healthcare", "PublicHealth", "HealthResearch"]},
+"business": {"id": "business", "label": "Business", "scope": "business strategy and entrepreneurship", "blurb": "Evidence-backed developments in business strategy and entrepreneurship. Explain implications without inventing facts, personal experience, or giving individualized advice.", "hashtags": ["Business", "Entrepreneurship", "BusinessStrategy"]},
+
   "music-tech-software": {
     id: "music-tech-software",
     label: "Music tech — software",
@@ -100,10 +114,23 @@ export const CATEGORIES: Record<CategoryId, Category> = {
   },
 };
 
-export const ALL_CATEGORY_IDS = Object.keys(CATEGORIES) as CategoryId[];
+export const CATEGORIES: Record<CategoryId, Category> = Object.assign(
+  Object.create(null), LEGACY_CATEGORIES,
+  Object.fromEntries(SUBJECT_GROUPS.flatMap(([group, groupLabel, subjects]) =>
+    subjects.split('|').map(label => {
+      const id = subjectId(group, label);
+      return [id, {id, label, group, groupLabel, scope: `${label.toLowerCase()} (${groupLabel.toLowerCase()})`,
+        blurb: `Developments specifically about ${label.toLowerCase()} within ${groupLabel.toLowerCase()}. The source must substantively address this subject: a passing mention or a broadly related industry story does not qualify. Explain concrete findings and implications using source evidence; never invent results, personal experience, or individualized advice.`,
+        query: `"${label}"`, hashtags: [...new Set([label.replace(/[^a-zA-Z0-9]/g, ''), groupLabel.replace(/[^a-zA-Z0-9]/g, ''), 'ProfessionalDevelopment'])]} satisfies Category];
+    }))),
+);
+export const ALL_CATEGORY_IDS = Object.keys(CATEGORIES);
+export const MAX_SELECTED_CATEGORIES = 12;
+/** Preserve the scope of existing installations whose saved category list was empty. */
+export const LEGACY_CATEGORY_IDS:CategoryId[]=['music-tech-software','music-tech-hardware','emerging-tech','ai-ml','dev-tooling','hardware-embedded','compute-silicon'];
 
 export function isCategoryId(v: unknown): v is CategoryId {
-  return typeof v === "string" && v in CATEGORIES;
+  return typeof v === "string" && Object.hasOwn(CATEGORIES, v);
 }
 
 export function parseCategories(v: unknown): CategoryId[] {
@@ -137,7 +164,7 @@ export function parseCategories(v: unknown): CategoryId[] {
  * judged as though it did.
  */
 export function describeCategories(ids: CategoryId[]): string {
-  const active = ids.length > 0 ? ids : ALL_CATEGORY_IDS;
+  const active = ids.length > 0 ? ids : LEGACY_CATEGORY_IDS;
   // Comma-joined rather than "a, b and c": several scopes already contain an
   // "and" of their own, and a second one reads as a single run-on interest.
   return active.map((id) => CATEGORIES[id].scope).join(", ");
@@ -152,7 +179,7 @@ export function sameCategorySet(a: CategoryId[], b: CategoryId[]): boolean {
 
 /** Prompt block describing the active categories, shared by judge and writer. */
 export function categoryBlock(ids: CategoryId[]): string {
-  const active = ids.length > 0 ? ids : ALL_CATEGORY_IDS;
+  const active = ids.length > 0 ? ids : LEGACY_CATEGORY_IDS;
   return [
     "ACTIVE CATEGORIES (a post must belong to exactly one):",
     ...active.map((id) => `- ${id} — ${CATEGORIES[id].label}: ${CATEGORIES[id].blurb}`),

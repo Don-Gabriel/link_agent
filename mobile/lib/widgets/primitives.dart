@@ -21,6 +21,8 @@ library;
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'form_select.dart';
+import 'editorial.dart';
 
 /// What a piece of state MEANS. Never "what colour is it".
 enum Tone {
@@ -39,18 +41,18 @@ enum Tone {
 
 extension ToneColour on Tone {
   Color get ink => switch (this) {
-        Tone.desk => C.filament,
-        Tone.out => C.daylight,
-        Tone.broken => C.flare,
-        Tone.quiet => C.paperFaint,
-      };
+    Tone.desk => C.filament,
+    Tone.out => C.daylight,
+    Tone.broken => C.flare,
+    Tone.quiet => C.paperFaint,
+  };
 
   Color get wash => switch (this) {
-        Tone.desk => C.filamentWash,
-        Tone.out => C.daylightWash,
-        Tone.broken => C.flareWash,
-        Tone.quiet => C.ink3,
-      };
+    Tone.desk => C.filamentWash,
+    Tone.out => C.daylightWash,
+    Tone.broken => C.flareWash,
+    Tone.quiet => C.ink3,
+  };
 }
 
 // ---------------------------------------------------------------- structure
@@ -58,7 +60,12 @@ extension ToneColour on Tone {
 /// A section heading: condensed uppercase slug on a hairline that runs to the
 /// edge. This is what replaced the panel title — it separates without boxing.
 class SectionRule extends StatelessWidget {
-  const SectionRule(this.label, {super.key, this.trailing, this.tone = Tone.quiet});
+  const SectionRule(
+    this.label, {
+    super.key,
+    this.trailing,
+    this.tone = Tone.quiet,
+  });
 
   final String label;
 
@@ -73,18 +80,19 @@ class SectionRule extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label.toUpperCase(),
-            style: T.sectionRule.copyWith(
-              color: tone == Tone.quiet ? C.paperDim : tone.ink,
+          Flexible(
+            child: Text(
+              label,
+              style: T.sectionRule.copyWith(
+                color: tone == Tone.quiet ? C.paperDim : tone.ink,
+              ),
             ),
           ),
           const SizedBox(width: S.x3),
-          const Expanded(child: Divider(color: C.rule, height: 1, thickness: 1)),
-          if (trailing != null) ...[
-            const SizedBox(width: S.x3),
-            trailing!,
-          ],
+          const Expanded(
+            child: Divider(color: C.rule, height: 1, thickness: 1),
+          ),
+          if (trailing != null) ...[const SizedBox(width: S.x3), trailing!],
         ],
       ),
     );
@@ -115,20 +123,13 @@ class ObjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A raised fill ALREADY separates this from the page. Drawing a border on
-    // top of it was saying the same thing twice, and a screen of outlined boxes
-    // is what makes an interface feel packed rather than calm.
-    //
-    // So: no border in the ordinary case. A tone gets a whisper of an edge, and
-    // only [emphasis] — the one object on the screen with a deadline — gets an
-    // edge you actually notice. Everything else is separated by the fill and by
-    // the space around it.
-    final Border? edge = tone == null
-        ? null
-        : Border.all(
-            color: tone!.ink.withValues(alpha: emphasis ? 0.55 : 0.18),
-            width: 1,
-          );
+    // A light boundary keeps actionable objects distinct on a white workspace.
+    // Sections and navigation remain flat; only drafts and slots use this edge.
+    final edge = Border.all(
+      color: tone == null
+          ? C.rule
+          : tone!.ink.withValues(alpha: emphasis ? 0.55 : 0.28),
+    );
 
     return AnimatedContainer(
       duration: motionAllowed(context) ? kStateChange : Duration.zero,
@@ -160,7 +161,7 @@ class Field extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label.toUpperCase(), style: T.slug),
+          Text(label, style: T.slug),
           if (hint != null) ...[
             const SizedBox(height: S.x1),
             Text(hint!, style: T.micro),
@@ -223,14 +224,14 @@ class Meter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: LinearProgressIndicator(
-          value: value.clamp(0.0, 1.0),
-          minHeight: 3,
-          backgroundColor: C.ink3,
-          valueColor: AlwaysStoppedAnimation(tone.ink),
-        ),
-      );
+    borderRadius: BorderRadius.circular(999),
+    child: LinearProgressIndicator(
+      value: value.clamp(0.0, 1.0),
+      minHeight: 3,
+      backgroundColor: C.ink3,
+      valueColor: AlwaysStoppedAnimation(tone.ink),
+    ),
+  );
 }
 
 /// Something the user should know before reading the rest of the screen: a dry
@@ -264,7 +265,9 @@ class Notice extends StatelessWidget {
       decoration: BoxDecoration(
         color: tone.wash,
         border: Border(left: BorderSide(color: colour, width: 2)),
-        borderRadius: const BorderRadius.horizontal(right: Radius.circular(R.sm)),
+        borderRadius: const BorderRadius.horizontal(
+          right: Radius.circular(R.sm),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -275,7 +278,10 @@ class Notice extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: T.bodyStrong.copyWith(color: colour, fontSize: 14)),
+                Text(
+                  title,
+                  style: T.bodyStrong.copyWith(color: colour, fontSize: 14),
+                ),
                 const SizedBox(height: 2),
                 Text(body, style: T.micro.copyWith(color: C.paperDim)),
                 if (actionLabel != null) ...[
@@ -336,7 +342,9 @@ class ConditionStrip extends StatelessWidget {
         decoration: BoxDecoration(
           color: tone.wash,
           border: Border(left: BorderSide(color: colour, width: 2)),
-          borderRadius: const BorderRadius.horizontal(right: Radius.circular(R.sm)),
+          borderRadius: const BorderRadius.horizontal(
+            right: Radius.circular(R.sm),
+          ),
         ),
         child: Row(
           children: [
@@ -349,7 +357,11 @@ class ConditionStrip extends StatelessWidget {
               ),
             ),
             if (onTap != null)
-              Icon(Icons.chevron_right, size: 17, color: colour.withValues(alpha: 0.7)),
+              Icon(
+                Icons.chevron_right,
+                size: 17,
+                color: colour.withValues(alpha: 0.7),
+              ),
           ],
         ),
       ),
@@ -366,21 +378,18 @@ class ErrorNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: S.x2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.error_outline, size: 16, color: C.flare),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: Text(
-                message,
-                style: T.small.copyWith(color: C.flare),
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.only(top: S.x2),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.error_outline, size: 16, color: C.flare),
+        const SizedBox(width: S.x2),
+        Expanded(
+          child: Text(message, style: T.small.copyWith(color: C.flare)),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 /// An empty screen is an invitation to act, not a shrug.
@@ -402,31 +411,34 @@ class Empty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x7, horizontal: S.x4),
-        child: Column(
-          children: [
-            Icon(icon, size: 32, color: C.ruleStrong),
-            const SizedBox(height: S.x4),
-            Text(title.toUpperCase(), style: T.sectionRule, textAlign: TextAlign.center),
-            const SizedBox(height: S.x2),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 320),
-              child: Text(blurb, style: T.small, textAlign: TextAlign.center),
-            ),
-            if (actionLabel != null) ...[
-              const SizedBox(height: S.x4),
-              OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
-            ],
-          ],
+    padding: const EdgeInsets.symmetric(vertical: S.x7, horizontal: S.x4),
+    child: Column(
+      children: [
+        const StudioArt(scene: StudioScene.ideas, height: 112),
+        Icon(icon, size: 22, color: C.filament),
+        const SizedBox(height: S.x4),
+        Text(
+          title.toUpperCase(),
+          style: T.sectionRule,
+          textAlign: TextAlign.center,
         ),
-      );
+        const SizedBox(height: S.x2),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Text(blurb, style: T.small, textAlign: TextAlign.center),
+        ),
+        if (actionLabel != null) ...[
+          const SizedBox(height: S.x4),
+          OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
+        ],
+      ],
+    ),
+  );
 }
 
 // ------------------------------------------------------------------ controls
 
-/// Single-choice chips. Used instead of a dropdown because these option sets
-/// are short and the alternatives should be visible without opening a menu —
-/// on the Voice screen, comparing them IS the task.
+/// Single-choice form dropdowns preserve the existing value contracts.
 class Choice<V> extends StatelessWidget {
   const Choice({
     super.key,
@@ -435,26 +447,16 @@ class Choice<V> extends StatelessWidget {
     required this.onChanged,
     this.enabled = true,
   });
-
   final V value;
   final Map<V, String> options;
   final ValueChanged<V> onChanged;
   final bool enabled;
-
   @override
-  Widget build(BuildContext context) => Wrap(
-        spacing: S.x2,
-        runSpacing: S.x2,
-        children: [
-          for (final entry in options.entries)
-            PickChip(
-              label: entry.value,
-              selected: entry.key == value,
-              enabled: enabled,
-              onTap: () => onChanged(entry.key),
-            ),
-        ],
-      );
+  Widget build(BuildContext context) => FormSelect<V>(
+    value: value,
+    options: options,
+    onChanged: enabled ? onChanged : null,
+  );
 }
 
 /// One selectable chip. 48 high because these are primary controls.
@@ -501,8 +503,8 @@ class PickChip extends StatelessWidget {
                 color: !enabled
                     ? C.paperFaint
                     : selected
-                        ? C.paper
-                        : C.paperDim,
+                    ? C.paper
+                    : C.paperDim,
                 fontVariations: selected
                     ? const [FontVariation('wght', 600)]
                     : const [FontVariation('wght', 400)],
@@ -611,19 +613,21 @@ class Readout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: Text(label, style: T.small)),
-            const SizedBox(width: S.x3),
-            Text(
-              value,
-              style: T.data.copyWith(color: tone == Tone.quiet ? C.paper : tone.ink),
-            ),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: S.x2),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: Text(label, style: T.small)),
+        const SizedBox(width: S.x3),
+        Text(
+          value,
+          style: T.data.copyWith(
+            color: tone == Tone.quiet ? C.paper : tone.ink,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 /// A row that opens something. Full-width target, chevron to say so.
@@ -727,13 +731,17 @@ class _DisclosureState extends State<Disclosure> {
                 children: [
                   AnimatedRotation(
                     turns: _open ? 0.25 : 0,
-                    duration: motionAllowed(context) ? kStateChange : Duration.zero,
-                    child: const Icon(Icons.chevron_right, size: 18, color: C.paperFaint),
+                    duration: motionAllowed(context)
+                        ? kStateChange
+                        : Duration.zero,
+                    child: const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: C.paperFaint,
+                    ),
                   ),
                   const SizedBox(width: S.x2),
-                  Expanded(
-                    child: Text(widget.label.toUpperCase(), style: T.slug),
-                  ),
+                  Expanded(child: Text(widget.label, style: T.slug)),
                   if (widget.trailing != null)
                     Text(widget.trailing!, style: T.data),
                 ],
@@ -763,28 +771,28 @@ class WriteButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        button: true,
-        label: 'Write a post',
-        child: InkWell(
-          onTap: onTap,
+    button: true,
+    label: 'Write a post',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(R.sm),
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: S.x3),
+        decoration: BoxDecoration(
+          color: C.filamentWash,
+          border: Border.all(color: C.filament.withValues(alpha: 0.55)),
           borderRadius: BorderRadius.circular(R.sm),
-          child: Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: S.x3),
-            decoration: BoxDecoration(
-              color: C.filamentWash,
-              border: Border.all(color: C.filament.withValues(alpha: 0.55)),
-              borderRadius: BorderRadius.circular(R.sm),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.edit_outlined, size: 15, color: C.filament),
-                const SizedBox(width: S.x2),
-                Text('WRITE', style: T.slug.copyWith(color: C.filament)),
-              ],
-            ),
-          ),
         ),
-      );
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.edit_outlined, size: 15, color: C.filament),
+            const SizedBox(width: S.x2),
+            Text('WRITE', style: T.slug.copyWith(color: C.filament)),
+          ],
+        ),
+      ),
+    ),
+  );
 }

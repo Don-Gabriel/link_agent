@@ -15,9 +15,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/experience.dart';
+import '../widgets/form_select.dart';
+import '../widgets/profile_card.dart';
+import '../widgets/personal_topics.dart';
 import '../widgets/primitives.dart';
 import 'timetable_screen.dart';
 import 'voice_screen.dart';
+import 'delivery_settings_screen.dart';
+import 'delete_account_screen.dart';
 
 /// Fallback labels, used only when the server has not sent its categories yet —
 /// a cold start, or a backend too old to serve them. The live list comes from
@@ -87,19 +93,21 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: state.refresh,
-          backgroundColor: C.ink2,
-          color: C.filament,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x7),
-            children: [
-              if (widget.blurb != null) ...[
-                Text(widget.blurb!, style: T.small),
-                const SizedBox(height: S.x5),
+        child: PageSurface(
+          child: RefreshIndicator(
+            onRefresh: state.refresh,
+            backgroundColor: C.ink2,
+            color: C.filament,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(S.x4, S.x5, S.x4, S.x6),
+              children: [
+                if (widget.blurb != null) ...[
+                  Text(widget.blurb!, style: T.small),
+                  const SizedBox(height: S.x5),
+                ],
+                ...widget.children,
               ],
-              ...widget.children,
-            ],
+            ),
           ),
         ),
       ),
@@ -111,11 +119,13 @@ class _SettingsPageState extends State<SettingsPage> {
 ///
 /// The Desk raises conditions but does not fix them; these are how a
 /// one-line strip up there leads to the controls down here.
-void openTimetable(BuildContext context) =>
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TimetableScreen()));
+void openTimetable(BuildContext context) => Navigator.of(
+  context,
+).push(MaterialPageRoute(builder: (_) => const TimetableScreen()));
 
-void openLinkedIn(BuildContext context) =>
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LinkedInScreen()));
+void openLinkedIn(BuildContext context) => Navigator.of(
+  context,
+).push(MaterialPageRoute(builder: (_) => const LinkedInScreen()));
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -134,70 +144,96 @@ class SettingsScreen extends StatelessWidget {
     final chosen = labels.keys.where(agent.categories.contains).toList();
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
       children: [
-        const Text('Settings', style: T.title),
-        const SizedBox(height: S.x2),
-        // The agent's name is a proper noun, not a section label.
-        Text(agent.name, style: T.body.copyWith(color: C.paperDim)),
-        const SizedBox(height: S.x5),
-
-        const SectionRule('How it runs'),
-        NavRow(
-          label: 'Timetable',
-          icon: Icons.schedule,
-          value: _timetableSummary(status, agent),
-          tone: status.scheduler.healthy ? null : Tone.broken,
-          onTap: () => _open(context, const TimetableScreen()),
+        const ProfileCard(),
+        const Divider(height: 24),
+        FormSection(
+          title: 'Writing preferences',
+          description: 'Make every suggestion sound more like you.',
+          child: Column(
+            children: [
+              NavRow(
+                label: 'Voice',
+                icon: Icons.edit_note,
+                value: state.style.summary,
+                onTap: () => _open(context, const VoiceScreen()),
+              ),
+              const Divider(),
+              NavRow(
+                label: 'Topics',
+                icon: Icons.interests_outlined,
+                value: chosen.isEmpty
+                    ? 'Choose your interests'
+                    : chosen.map((id) => labels[id] ?? id).join(' · '),
+                onTap: () => _open(context, const TopicsScreen()),
+              ),
+            ],
+          ),
         ),
-        const Divider(),
-        NavRow(
-          label: 'Voice',
-          icon: Icons.tune,
-          value: state.style.summary,
-          onTap: () => _open(context, const VoiceScreen()),
+        const Divider(height: 24),
+        FormSection(
+          title: 'Schedule & notifications',
+          child: Column(
+            children: [
+              if (state.api.isNativeSession) ...[
+                NavRow(
+                  label: 'Notifications',
+                  icon: Icons.notifications_none,
+                  value: '${agent.postTimeLocal} · ${agent.timezone}',
+                  onTap: () => _open(context, const DeliverySettingsScreen()),
+                ),
+                const Divider(),
+              ],
+              NavRow(
+                label: 'Timetable',
+                icon: Icons.event_note,
+                value: _timetableSummary(status, agent),
+                tone: status.scheduler.healthy ? null : Tone.broken,
+                onTap: () => _open(context, const TimetableScreen()),
+              ),
+            ],
+          ),
         ),
-        const Divider(),
-        NavRow(
-          label: 'Topics',
-          icon: Icons.category_outlined,
-          value: chosen.isEmpty
-              ? 'Nothing selected — it has nothing to look for'
-              : chosen.map((id) => labels[id] ?? id).join(' · '),
-          tone: chosen.isEmpty ? Tone.broken : null,
-          onTap: () => _open(context, const TopicsScreen()),
-        ),
-        const SizedBox(height: S.x5),
-
-        const SectionRule('Connection'),
-        NavRow(
-          label: 'LinkedIn',
-          icon: status.account.usable ? Icons.link : Icons.link_off,
-          value: _accountSummary(status.account),
-          tone: status.account.needsReauth
-              ? Tone.broken
-              : status.account.expiringSoon
-                  ? Tone.desk
-                  : status.account.usable
-                      ? Tone.out
-                      : Tone.broken,
-          onTap: () => _open(context, const LinkedInScreen()),
-        ),
-        const Divider(),
-        NavRow(
-          label: 'Diagnostics',
-          icon: Icons.monitor_heart_outlined,
-          value: 'Model usage, health checks, ${status.cycleCount} cycles run',
-          onTap: () => _open(context, const DiagnosticsScreen()),
-        ),
-        const SizedBox(height: S.x6),
-
-        const SectionRule('Session'),
-        Text(state.baseUrl, style: T.mono),
-        const SizedBox(height: S.x3),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(onPressed: state.signOut, child: const Text('Sign out')),
+        const Divider(height: 24),
+        FormSection(
+          title: 'Account',
+          child: Column(
+            children: [
+              NavRow(
+                label: 'LinkedIn',
+                icon: status.account.usable ? Icons.link : Icons.link_off,
+                value: _accountSummary(status.account),
+                tone: status.account.usable ? Tone.out : Tone.broken,
+                onTap: () => _open(context, const LinkedInScreen()),
+              ),
+              const Divider(),
+              NavRow(
+                label: 'Diagnostics',
+                icon: Icons.monitor_heart_outlined,
+                value:
+                    'Model usage, health checks, ${status.cycleCount} cycles run',
+                onTap: () => _open(context, const DiagnosticsScreen()),
+              ),
+              const Divider(),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.logout),
+                title: const Text('Sign out'),
+                onTap: state.signOut,
+              ),
+              if (state.api.isNativeSession)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.delete_outline, color: C.flare),
+                  title: const Text(
+                    'Delete ByLine account',
+                    style: TextStyle(color: C.flare),
+                  ),
+                  onTap: () => _open(context, const DeleteAccountScreen()),
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -222,7 +258,9 @@ class SettingsScreen extends StatelessWidget {
 
   static String _accountSummary(Account account) {
     if (!account.connected) return 'Not connected — nothing can publish';
-    if (account.needsReauth) return 'Access expired — reconnect to resume posting';
+    if (account.needsReauth) {
+      return 'Access expired — reconnect to resume posting';
+    }
     final days = account.daysRemaining;
     final who = account.memberName ?? 'Connected';
     return days == null ? who : '$who · $days days of access left';
@@ -242,7 +280,9 @@ Map<String, String> availableCategories(AppState state) {
     out.addAll(_fallbackCategoryLabels);
   } else {
     for (final c in served) {
-      out[c.id] = c.label;
+      out[c.id] = c.groupLabel == null
+          ? c.label
+          : '${c.label} · ${c.groupLabel}';
     }
   }
   for (final id in state.agent?.categories ?? const <String>[]) {
@@ -265,34 +305,27 @@ class TopicsScreen extends StatelessWidget {
 
     return SettingsPage(
       title: 'Topics',
-      blurb: 'Discovery pulls from these, the judge scores against them, and the agent '
-          'describes itself by them. Changing this list changes what it thinks it is about.',
+      blurb: 'Make room for the subjects that matter to you.',
       children: [
-        Wrap(
-          spacing: S.x2,
-          runSpacing: S.x2,
-          children: [
-            for (final entry in labels.entries)
-              PickChip(
-                label: entry.value,
-                selected: agent.categories.contains(entry.key),
-                // Refuse to remove the last one: an agent with no topics
-                // discovers nothing and looks exactly like a broken cron.
-                enabled: !state.loading &&
-                    !(agent.categories.contains(entry.key) && agent.categories.length == 1),
-                onTap: () {
-                  final next = agent.categories.contains(entry.key)
-                      ? (agent.categories.toList()..remove(entry.key))
-                      : [...agent.categories, entry.key];
-                  state.setCategories(next);
-                },
-              ),
-          ],
+        const PersonalTopics(),
+        const SizedBox(height: 32),
+        const SectionRule('Source coverage'),
+        const Text(
+          'Search the subject catalogue and choose up to 12 areas. Your selection guides which articles become drafts.',
+          style: T.small,
+        ),
+        const SizedBox(height: 16),
+        MultiSelectField(
+          label: 'Source coverage',
+          options: labels,
+          values: agent.categories,
+          max: 12,
+          onChanged: state.loading ? null : (v) => state.setCategories(v),
         ),
         if (agent.categories.length == 1) ...[
           const SizedBox(height: S.x4),
           Text(
-            'One topic left. It has to keep at least one, or there is nothing to read.',
+            'Keep at least one subject selected to receive relevant drafts.',
             style: T.micro,
           ),
         ],
@@ -331,18 +364,27 @@ class _LinkedInScreenState extends State<LinkedInScreen> {
 
     if (url == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Could not start the connection. Is the server reachable?')),
+        const SnackBar(
+          content: Text(
+            'Could not start the connection. Is the server reachable?',
+          ),
+        ),
       );
       return;
     }
 
-    final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final opened = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
     if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
-        content: Text(opened
-            ? 'Approve it in the browser, then come back and pull to refresh.'
-            : 'No browser could open the LinkedIn page.'),
+        content: Text(
+          opened
+              ? 'Finish in your browser. ByLine will refresh when you return.'
+              : 'No browser could open the LinkedIn page.',
+        ),
       ),
     );
   }
@@ -359,9 +401,15 @@ class _LinkedInScreenState extends State<LinkedInScreen> {
           style: T.small,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: C.flare, foregroundColor: C.paper),
+            style: FilledButton.styleFrom(
+              backgroundColor: C.flare,
+              foregroundColor: C.paper,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Disconnect'),
           ),
@@ -379,7 +427,9 @@ class _LinkedInScreenState extends State<LinkedInScreen> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final account = state.status?.account;
-    if (account == null) return const SettingsPage(title: 'LinkedIn', children: []);
+    if (account == null) {
+      return const SettingsPage(title: 'LinkedIn', children: []);
+    }
 
     final busy = _busy || state.loading;
     final connected = account.connected;
@@ -397,7 +447,9 @@ class _LinkedInScreenState extends State<LinkedInScreen> {
             const SizedBox(width: S.x2),
             Expanded(
               child: Text(
-                connected ? (account.memberName ?? 'Connected') : 'Not connected',
+                connected
+                    ? (account.memberName ?? 'Connected')
+                    : 'Not connected',
                 style: T.body,
               ),
             ),
@@ -455,7 +507,9 @@ class DiagnosticsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final status = state.status;
-    if (status == null) return const SettingsPage(title: 'Diagnostics', children: []);
+    if (status == null) {
+      return const SettingsPage(title: 'Diagnostics', children: []);
+    }
 
     final watchdog = status.watchdogMinutesSince;
 
@@ -463,7 +517,10 @@ class DiagnosticsScreen extends StatelessWidget {
       title: 'Diagnostics',
       children: [
         const SectionRule('Model usage today'),
-        Text('Quotas are per model, so the cascade stacks them.', style: T.micro),
+        Text(
+          'Quotas are per model, so the cascade stacks them.',
+          style: T.micro,
+        ),
         const SizedBox(height: S.x3),
         if (status.llm.isEmpty)
           Text('No model calls recorded today.', style: T.small)
@@ -471,7 +528,9 @@ class DiagnosticsScreen extends StatelessWidget {
           for (final usage in status.llm)
             Readout(
               usage.model,
-              usage.cap > 0 ? '${usage.calls} / ${usage.cap}' : '${usage.calls}',
+              usage.cap > 0
+                  ? '${usage.calls} / ${usage.cap}'
+                  : '${usage.calls}',
             ),
         const SizedBox(height: S.x5),
 

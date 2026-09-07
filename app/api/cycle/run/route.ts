@@ -15,14 +15,15 @@
  * continues in after().
  */
 import { after, NextResponse } from "next/server";
-import { getPrimaryAgent } from "../../../../lib/agents";
+
+import { getRequestAgent } from "../../../../lib/request-agent";
 import { runCycleWithLock } from "../../../../lib/cycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST() {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   if (agent.paused) {

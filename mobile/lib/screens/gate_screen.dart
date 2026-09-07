@@ -42,7 +42,10 @@ class _GateScreenState extends State<GateScreen> {
   Future<void> _submit() async {
     final state = context.read<AppState>();
     await state.setBaseUrl(_url.text);
-    await state.signIn(_password.text);
+    final signedIn = await state.signIn(_password.text);
+    if (signedIn && mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -76,7 +79,9 @@ class _GateScreenState extends State<GateScreen> {
                       keyboardType: TextInputType.url,
                       autocorrect: false,
                       enabled: !state.loading,
-                      decoration: const InputDecoration(hintText: ApiClient.defaultBaseUrl),
+                      decoration: const InputDecoration(
+                        hintText: ApiClient.defaultBaseUrl,
+                      ),
                     ),
                   ),
                   Field(
@@ -89,7 +94,10 @@ class _GateScreenState extends State<GateScreen> {
                       decoration: InputDecoration(
                         hintText: 'APP_PASSWORD',
                         suffixIcon: IconButton(
-                          icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 19),
+                          icon: Icon(
+                            _obscure ? Icons.visibility_off : Icons.visibility,
+                            size: 19,
+                          ),
                           color: C.paperFaint,
                           tooltip: _obscure ? 'Show password' : 'Hide password',
                           onPressed: () => setState(() => _obscure = !_obscure),
@@ -103,7 +111,10 @@ class _GateScreenState extends State<GateScreen> {
                         ? const SizedBox(
                             height: 17,
                             width: 17,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: C.onFilament),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: C.onFilament,
+                            ),
                           )
                         : const Text('Sign in'),
                   ),

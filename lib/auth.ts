@@ -59,10 +59,31 @@ export async function createSession(): Promise<{ value: string; maxAge: number }
 export async function verifySession(cookie: string | undefined): Promise<boolean> {
   const secret = process.env.APP_SECRET;
   if (!secret || !cookie) return false;
+  if (cookie.startsWith('v2.')) return (await sessionIdentity(cookie)) !== null;
+  if (cookie.split('.').length !== 2) return false;
   const [expiry, mac] = cookie.split(".");
   if (!expiry || !mac) return false;
   if (!Number.isFinite(Number(expiry)) || Number(expiry) < Date.now()) return false;
   return timingSafeEqual(mac, await sign(expiry, secret));
+}
+
+/** Native sessions carry identity, never a client-selected agent id. */
+export async function createUserSession(userId: string, sessionId: string) {
+  const secret = process.env.APP_SECRET;
+  if (!secret) throw new Error('APP_SECRET is not set');
+  const maxAge = SESSION_DAYS * 86400;
+  const payload = `v2.${userId}.${sessionId}.${Date.now() + maxAge * 1000}`;
+  return { value: `${payload}.${await sign(payload, secret)}`, maxAge };
+}
+
+export async function sessionIdentity(value: string | undefined): Promise<{ userId: string; sessionId: string } | null> {
+  if (!value || !process.env.APP_SECRET) return null;
+  const parts = value.split('.');
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (parts.length !== 5 || parts[0] !== 'v2' || !uuid.test(parts[1]) || !uuid.test(parts[2]) ||
+      !Number.isFinite(Number(parts[3])) || Number(parts[3]) <= Date.now()) return null;
+  if (!timingSafeEqual(parts[4], await sign(parts.slice(0, 4).join('.'), process.env.APP_SECRET))) return null;
+  return { userId: parts[1], sessionId: parts[2] };
 }
 
 export async function passwordMatches(candidate: string): Promise<boolean> {

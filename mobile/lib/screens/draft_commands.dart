@@ -26,7 +26,12 @@ import 'composer_screen.dart';
 ///
 /// [actionable] is false for an ambiguous send — one LinkedIn never confirmed —
 /// which must not be republished blind.
-DraftActions commandsFor(BuildContext context, Post post, {bool actionable = true}) {
+DraftActions commandsFor(
+  BuildContext context,
+  Post post, {
+  bool actionable = true,
+}) {
+  if (post.status == 'unknown') return const DraftActions();
   if (!actionable) return const DraftActions();
 
   if (post.isPublished) {
@@ -39,7 +44,12 @@ DraftActions commandsFor(BuildContext context, Post post, {bool actionable = tru
     // On a scheduled post the primary action clears it for its own time. On an
     // unscheduled one there is no time to clear it for, so sending is the only
     // thing approving can mean.
-    onClear: post.isScheduled && !post.isCleared ? () => clearForItsTime(context, post) : null,
+    onClear:
+        post.isScheduled &&
+            !post.isCleared &&
+            post.scheduledFor!.isAfter(DateTime.now())
+        ? () => clearForItsTime(context, post)
+        : null,
     onSendNow: () => sendNow(context, post),
     // Offered on every unpublished draft, whether or not it came from a slot.
     // A post from the agent arrives with its slot's time; one from "run a cycle
@@ -61,13 +71,19 @@ Future<void> clearForItsTime(BuildContext context, Post post) async {
   final state = context.read<AppState>();
   final messenger = ScaffoldMessenger.of(context);
   final at = post.scheduledFor;
-  final error = await state.clear(post.seq);
+  final error = await state.clear(post.seq, reviewed: post);
   messenger.showSnackBar(
     SnackBar(
-      content: Text(error ?? 'Cleared — goes out ${at == null ? "at its time" : whenLabel(at)}.'),
+      content: Text(
+        error ??
+            'Scheduled — publishes ${at == null ? "at its time" : whenLabel(at)}.',
+      ),
       action: error != null
           ? null
-          : SnackBarAction(label: 'Undo', onPressed: () => state.unclear(post.seq)),
+          : SnackBarAction(
+              label: 'Undo',
+              onPressed: () => state.unclear(post.seq),
+            ),
     ),
   );
 }
@@ -81,27 +97,35 @@ Future<void> sendNow(BuildContext context, Post post) async {
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: Text(live ? 'Send now?' : 'Send now (dry run)?'),
+      title: Text(live ? 'Publish now?' : 'Publish now (dry run)?'),
       content: Text(
         !live
             ? 'Live mode is off, so nothing will actually reach LinkedIn.'
             : scheduled != null
-                ? 'This posts to your profile immediately, instead of ${whenLabel(scheduled)}. '
-                    'It cannot be unpublished from here.'
-                : 'This posts to your profile now. It cannot be unpublished from here.',
+            ? 'This posts to your profile immediately, instead of ${whenLabel(scheduled)}. '
+                  'It cannot be unpublished from here.'
+            : 'This posts to your profile now. It cannot be unpublished from here.',
         style: T.small,
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send now')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Publish now'),
+        ),
       ],
     ),
   );
   if (ok != true || !context.mounted) return;
 
   final messenger = ScaffoldMessenger.of(context);
-  final error = await state.sendNow(post.seq);
-  messenger.showSnackBar(SnackBar(content: Text(error ?? 'Published ${post.id}.')));
+  final error = await state.sendNow(post.seq, reviewed: post);
+  messenger.showSnackBar(
+    SnackBar(content: Text(error ?? 'Published ${post.id}.')),
+  );
 }
 
 /// Give this one post a send time.
@@ -129,8 +153,10 @@ Future<void> pickSendTime(BuildContext context, Post post) async {
   final error = await state.reschedule(post.seq, when);
   messenger.showSnackBar(
     SnackBar(
-      content: Text(error ??
-          'Sends ${whenLabel(when)}. Clear it before then or it stays put.'),
+      content: Text(
+        error ??
+            'Sends ${whenLabel(when)}. Schedule it before then or publish it manually.',
+      ),
     ),
   );
 }
@@ -140,7 +166,9 @@ Future<void> removeSendTime(BuildContext context, Post post) async {
   final messenger = ScaffoldMessenger.of(context);
   final error = await state.reschedule(post.seq, null);
   messenger.showSnackBar(
-    SnackBar(content: Text(error ?? 'Send time removed. It waits for you now.')),
+    SnackBar(
+      content: Text(error ?? 'Send time removed. It waits for you now.'),
+    ),
   );
 }
 
@@ -155,9 +183,15 @@ Future<void> discard(BuildContext context, Post post) async {
         style: T.small,
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Keep'),
+        ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: C.flare, foregroundColor: C.paper),
+          style: FilledButton.styleFrom(
+            backgroundColor: C.flare,
+            foregroundColor: C.paper,
+          ),
           onPressed: () => Navigator.pop(ctx, true),
           child: const Text('Discard'),
         ),
@@ -168,7 +202,9 @@ Future<void> discard(BuildContext context, Post post) async {
 
   final messenger = ScaffoldMessenger.of(context);
   final error = await state.discard(post.seq);
-  messenger.showSnackBar(SnackBar(content: Text(error ?? 'Discarded ${post.id}.')));
+  messenger.showSnackBar(
+    SnackBar(content: Text(error ?? 'Discarded ${post.id}.')),
+  );
 }
 
 /// Ask for a follow-up, then hand it to the composer.
@@ -187,9 +223,15 @@ Future<void> followUp(BuildContext context, int seq) async {
     const SnackBar(
       content: Row(
         children: [
-          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
           SizedBox(width: S.x3),
-          Expanded(child: Text('Writing a follow-up — this takes up to a minute.')),
+          Expanded(
+            child: Text('Writing a follow-up — this takes up to a minute.'),
+          ),
         ],
       ),
       // Effectively "until dismissed": hidden explicitly below. The server
@@ -208,12 +250,60 @@ Future<void> followUp(BuildContext context, int seq) async {
 
 /// Why a post is sitting outside the draft list, in the reader's terms.
 String explainStranded(String status) => switch (status) {
-      'approved' => 'Approved but never sent — the publish failed. Try again, or discard it.',
-      'failed' => 'The last send was rejected. Fix the text and try again.',
-      'unknown' => 'LinkedIn never confirmed this send. Check your profile, then resolve it '
-          'from the web dashboard before touching it here.',
-      _ => '',
-    };
+  'approved' =>
+    'This post has not been sent. Choose a publish time or use Publish now.',
+  'failed' => 'The last send was rejected. Fix the text and try again.',
+  'unknown' =>
+    'LinkedIn never confirmed this send. Check your profile, then resolve it '
+        'below before trying again.',
+  'missed' => 'The send time passed. Choose a new time or use Publish now.',
+  _ => '',
+};
+
+Future<void> resolveSend(BuildContext context, Post post) async {
+  final state = context.read<AppState>();
+  final messenger = ScaffoldMessenger.of(context);
+  final didPublish = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Check your LinkedIn profile'),
+      content: const Text(
+        'Look for this exact post on your profile before choosing. If you cannot tell yet, cancel and check again later.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Confirmed: not published'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Confirmed: published'),
+        ),
+      ],
+    ),
+  );
+  if (didPublish == null) return;
+  final error = await state.mutate(
+    () => state.api.patch('/api/posts/${post.seq}', {
+      'action': 'resolve',
+      'didPublish': didPublish,
+    }),
+  );
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        error ??
+            (didPublish
+                ? 'Marked as published.'
+                : 'Returned to Drafts. Review it before sending again.'),
+      ),
+    ),
+  );
+}
 
 /// Ask the agent to run a whole cycle right now, off the timetable.
 Future<void> runCycleNow(BuildContext context) async {
@@ -221,8 +311,10 @@ Future<void> runCycleNow(BuildContext context) async {
   final error = await context.read<AppState>().runCycleNow();
   messenger.showSnackBar(
     SnackBar(
-      content: Text(error ??
-          'Started. A draft appears in 30–60 seconds if anything clears the bar.'),
+      content: Text(
+        error ??
+            'Started. A draft appears in 30–60 seconds if anything clears the bar.',
+      ),
     ),
   );
 }

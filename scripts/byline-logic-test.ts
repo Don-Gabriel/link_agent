@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import { nativeReturnUri } from '../lib/native-return';
+import { nativeCallbackPage } from '../lib/native-callback';
+import {nextSlotRun,localClock} from '../lib/schedule';
+import {createUserSession,verifySession,sessionIdentity} from '../lib/auth';
+import {defaultSetup,firstDelivery,parseSetup,setupStyle} from '../lib/onboarding';
+async function main(){
+process.env.APP_SECRET='local-unit-test-secret';
+const desktop = `http://127.0.0.1:54321/byline-return/${'a'.repeat(43)}`;
+assert.equal(nativeReturnUri(desktop),desktop);
+for (const bad of [desktop.replace('127.0.0.1','localhost'),desktop.replace(':54321',':80'),desktop.replace(':54321',':99999'),desktop+'?code=secret',desktop+'#fragment',desktop.replace('127.0.0.1','evil.example'),desktop.replace('127.0.0.1','user@127.0.0.1'),desktop.replace('/byline-return/','/other/')]) assert.equal(nativeReturnUri(bad),null);
+const page=await nativeCallbackPage(true,desktop).text();
+assert.ok(page.includes(`content="1;url=${desktop}"`) && !page.includes('intent://'));
+const expired=await nativeCallbackPage(false).text();
+assert.ok(expired.includes('could not be completed') && !expired.includes('href="/"'));
+const session=await createUserSession('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222');
+assert.equal(await verifySession(session.value),true);
+assert.equal(await verifySession(session.value+'.extra'),false);
+assert.equal((await sessionIdentity(session.value))?.userId,'11111111-1111-4111-8111-111111111111');
+const spring=nextSlotRun('America/New_York','09:00',1,new Date('2026-03-07T12:00:00Z'))!;
+assert.equal(spring.toISOString(),'2026-03-08T13:00:00.000Z');
+const autumn=nextSlotRun('America/New_York','09:00',1,new Date('2026-10-31T12:00:00Z'))!;
+assert.equal(autumn.toISOString(),'2026-11-01T14:00:00.000Z');
+const repeated=nextSlotRun('America/New_York','01:30',127,new Date('2026-11-01T05:31:00Z'))!;
+assert.equal(localClock('America/New_York',repeated).date,'2026-11-02');
+const seconds=nextSlotRun('UTC','09:00',127,new Date('2026-09-06T08:20:41Z'))!;
+assert.equal(seconds.toISOString(),'2026-09-06T09:00:00.000Z');
+const next=firstDelivery({...defaultSetup,timezone:'Asia/Kolkata'},new Date('2026-09-06T01:00:00Z'));
+assert.equal(next.toISOString(),'2026-09-07T03:30:00.000Z');
+assert.throws(()=>parseSetup({...defaultSetup,topics:['AI','ai','AI']}));
+assert.throws(()=>parseSetup({...defaultSetup,timezone:'No/SuchZone'}));
+assert.equal(setupStyle(defaultSetup).signature,null);
+console.log('ByLine session, input validation, first-delivery and DST checks passed.');
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

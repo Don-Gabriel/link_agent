@@ -9,8 +9,16 @@
     "start": "next start",
     "test": "tsx scripts/selftest.ts",
     "test:db": "tsx scripts/dbtest.ts",
+    "test:catalogue": "tsx scripts/catalogue-test.ts",
+    "test:catalogue:api": "node scripts/catalogue-api-test.mjs",
     "check:feeds": "node scripts/check-feeds.mjs",
-    "keygen": "node -e \"console.log('TOKEN_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64')); console.log('APP_SECRET=' + require('crypto').randomBytes(32).toString('hex')); console.log('CRON_SECRET=' + require('crypto').randomBytes(24).toString('hex'))\""
+    "keygen": "node -e \"console.log('TOKEN_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64')); console.log('APP_SECRET=' + require('crypto').randomBytes(32).toString('hex')); console.log('CRON_SECRET=' + require('crypto').randomBytes(24).toString('hex'))\"",
+    "local:setup": "node scripts/local-setup.mjs",
+    "local:dev": "node scripts/local-dev.mjs",
+    "migrate": "tsx scripts/migrate.ts",
+    "live:setup": "node scripts/live-setup.mjs",
+    "live:dev": "node scripts/live-dev.mjs",
+    "live:backup": "node scripts/backup-live.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.16.0",

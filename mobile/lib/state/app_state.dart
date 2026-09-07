@@ -7,11 +7,13 @@
 /// is precisely the bug class an approval queue must not have.
 library;
 
+import '../auth_return.dart';
 import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 
 import '../api/client.dart';
+import '../push.dart' show stopPush;
 import '../api/models.dart';
 
 enum AuthPhase { unknown, signedOut, signedIn }
@@ -24,10 +26,12 @@ class AppState extends ChangeNotifier {
 
   AuthPhase phase = AuthPhase.unknown;
   AppStatus? status;
+  Map<String, dynamic>? reviewDelivery;
 
   /// Set while a full refresh is in flight, so screens can show a spinner
   /// without every button needing its own flag.
   bool loading = false;
+  int _refreshRevision = 0;
 
   /// The last error worth showing at the top of a screen. Cleared on success.
   String? error;
@@ -116,8 +120,9 @@ class AppState extends ChangeNotifier {
   int get onTheDesk {
     final s = status;
     if (s == null) return 0;
-    if (s.needingReview > 0) return s.needingReview;
-    return s.queue.where((p) => p.isDraft && !p.isCleared).length;
+    return s.queue
+        .where((p) => !p.isCleared && (p.isDraft || p.status == 'approved'))
+        .length;
   }
 
   /// Something in the machinery needs a human — the scheduler has stopped, or
@@ -126,7 +131,9 @@ class AppState extends ChangeNotifier {
   bool get needsAttention {
     final s = status;
     if (s == null) return false;
-    return !s.scheduler.healthy || s.account.needsReauth || s.account.expiringSoon;
+    return !s.scheduler.healthy ||
+        s.account.needsReauth ||
+        s.account.expiringSoon;
   }
 
   Future<void> bootstrap() async {
@@ -160,9 +167,25 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _refreshRevision++;
+    phase = AuthPhase.signedOut;
+    await stopPush();
+    if (_deviceToken != null) {
+      try {
+        await _api.delete(
+          '/api/devices?token=${Uri.encodeComponent(_deviceToken!)}',
+        );
+      } catch (_) {}
+    }
+    _deviceToken = null;
+    editing = null;
+    composeSeed = null;
+    composeSeedHashtags = const [];
+    _draftWatch++;
     await _api.logOut();
     phase = AuthPhase.signedOut;
     status = null;
+    reviewDelivery = null;
     error = null;
     notifyListeners();
   }
@@ -173,21 +196,33 @@ class AppState extends ChangeNotifier {
   /// control on screen every fifteen seconds — the spinner is for refreshes the
   /// user asked for and is waiting on.
   Future<void> refresh({bool quiet = false}) async {
+    final revision = ++_refreshRevision;
     if (!quiet) {
       loading = true;
       notifyListeners();
     }
     try {
       final json = await _api.get('/api/status');
+      if (revision != _refreshRevision) return;
       status = AppStatus.fromJson(json as Map<String, dynamic>);
+      reviewDelivery = json['reviewDelivery'] is Map
+          ? Map<String, dynamic>.from(json['reviewDelivery'] as Map)
+          : null;
       error = null;
     } on ApiException catch (e) {
+      if (revision != _refreshRevision) return;
       // An expired or rejected cookie must drop us back to the gate rather than
       // leaving a signed-in shell that fails on every tap.
       if (e.isUnauthorized) {
+        _draftWatch++;
+        await stopPush();
         await _api.clearSession();
         phase = AuthPhase.signedOut;
         status = null;
+        reviewDelivery = null;
+        editing = null;
+        composeSeed = null;
+        composeSeedHashtags = const [];
       }
       error = e.toString();
     }
@@ -231,11 +266,15 @@ class AppState extends ChangeNotifier {
   /// this one pays for a full status refetch, which is the right price for a
   /// mutation that moves posts or slots and far too much for a toggle.
   Future<String?> mutate(Future<void> Function() action) async {
+    _refreshRevision++;
     loading = true;
     notifyListeners();
     try {
       await action();
     } on ApiException catch (e) {
+      // A rejected send can still change the post to failed/unknown. Refresh
+      // that result so the screen offers recovery for the actual saved state.
+      await refresh(quiet: true);
       loading = false;
       error = e.toString();
       notifyListeners();
@@ -259,12 +298,16 @@ class AppState extends ChangeNotifier {
   /// [mutate]: the server recomputes every slot's next occurrence, and those
   /// live outside the agent object.
   Future<String?> mutateAgent(Future<dynamic> Function() action) async {
+    _refreshRevision++;
     loading = true;
     notifyListeners();
     try {
       final json = await action();
-      final updated = json is Map<String, dynamic> ? json['agent'] as Map<String, dynamic>? : null;
+      final updated = json is Map<String, dynamic>
+          ? json['agent'] as Map<String, dynamic>?
+          : null;
       if (updated != null && status != null) {
+        _refreshRevision++;
         status = status!.withAgent(Agent.fromJson(updated));
         error = null;
         loading = false;
@@ -339,9 +382,15 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      final json = await _api.patch('/api/settings', {'categories': categories});
-      if (mySeq != _categoriesSeq) return null; // a newer tap already owns the state
-      final updated = json is Map<String, dynamic> ? json['agent'] as Map<String, dynamic>? : null;
+      final json = await _api.patch('/api/settings', {
+        'categories': categories,
+      });
+      if (mySeq != _categoriesSeq) {
+        return null; // a newer tap already owns the state
+      }
+      final updated = json is Map<String, dynamic>
+          ? json['agent'] as Map<String, dynamic>?
+          : null;
       if (updated != null && status != null) {
         // The server is the authority on what was actually stored: it refuses
         // to leave the agent with no categories, and it rewrites the scope line
@@ -374,11 +423,29 @@ class AppState extends ChangeNotifier {
   /// cheap. Failure is deliberately quiet — an app that cannot register for
   /// notifications is still a working control surface, and saying so on the
   /// gate screen would be alarming out of all proportion.
-  Future<void> registerDevice(String token) async {
+  String? _deviceToken;
+  Future<String?> testDeviceNotification() async {
+    if (_deviceToken == null) {
+      return 'Enable notifications on this device first.';
+    }
+    return mutate(
+      () =>
+          _api.post('/api/devices', {'action': 'test', 'token': _deviceToken}),
+    );
+  }
+
+  Future<bool> registerDevice(String token) async {
+    if (phase != AuthPhase.signedIn) return false;
     try {
-      await _api.post('/api/devices', {'token': token, 'platform': 'android'});
+      final result = await _api.post('/api/devices', {
+        'token': token,
+        'platform': 'android',
+      });
+      _deviceToken = token;
+      return (result as Map)['configured'] == true;
     } on ApiException catch (e) {
       debugPrint('[state] could not register for notifications: $e');
+      return false;
     }
   }
 
@@ -395,8 +462,9 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final json =
-          await _api.patch('/api/posts/$seq', {'action': 'followup'}, timeout: kWriterTimeout);
+      final json = await _api.patch('/api/posts/$seq', {
+        'action': 'followup',
+      }, timeout: kWriterTimeout);
       final map = json as Map<String, dynamic>?;
       final text = map?['text'];
       if (text is! String || text.trim().isEmpty) {
@@ -407,7 +475,9 @@ class AppState extends ChangeNotifier {
       final tags = map?['hashtags'];
       editing = null;
       composeSeed = text;
-      composeSeedHashtags = tags is List ? tags.whereType<String>().toList() : const [];
+      composeSeedHashtags = tags is List
+          ? tags.whereType<String>().toList()
+          : const [];
       composeRequest++; // brings the composer forward
       loading = false;
       notifyListeners();
@@ -429,7 +499,13 @@ class AppState extends ChangeNotifier {
   /// inside the app's HTTP stack.
   Future<String?> linkedInConsentUrl() async {
     try {
-      final res = await _api.get('/api/linkedin/connect?json=1');
+      final returnUri = await prepareDesktopAuthReturn(
+        onReturn: () => refresh(quiet: true),
+      );
+      final suffix = returnUri == null
+          ? ''
+          : '&returnUri=${Uri.encodeComponent(returnUri)}';
+      final res = await _api.get('/api/linkedin/connect?json=1$suffix');
       final url = (res as Map)['url'];
       return url is String && url.isNotEmpty ? url : null;
     } on ApiException catch (e) {
@@ -485,21 +561,42 @@ class AppState extends ChangeNotifier {
   /// thing as publishing. Before slots existed, approving a draft sent it
   /// immediately; that is the wrong default once a post has a time of its own,
   /// because clearing something at 08:48 should not publish it at 08:48.
-  Future<String?> clear(int seq) => mutate(() => _api.patch('/api/posts/$seq', {'action': 'clear'}));
+  Future<String?> clear(int seq, {Post? reviewed}) => mutate(
+    () => _api.patch('/api/posts/$seq', {
+      'action': 'clear',
+      if (reviewed != null)
+        'reviewed': {
+          'text': reviewed.text,
+          'hashtags': reviewed.hashtags,
+          'media': reviewed.media,
+        },
+    }),
+  );
 
   /// Withdraw clearance. On a hold-mode slot this is enough to stop the send.
   Future<String?> unclear(int seq) =>
       mutate(() => _api.patch('/api/posts/$seq', {'action': 'unclear'}));
 
   /// Send right now, ignoring the schedule. The override, not the default.
-  Future<String?> sendNow(int seq) =>
-      mutate(() => _api.patch('/api/posts/$seq', {'action': 'publish'}));
+  Future<String?> sendNow(int seq, {Post? reviewed}) => mutate(
+    () => _api.patch('/api/posts/$seq', {
+      'action': 'publish',
+      if (reviewed != null)
+        'reviewed': {
+          'text': reviewed.text,
+          'hashtags': reviewed.hashtags,
+          'media': reviewed.media,
+        },
+    }),
+  );
 
   /// Move a post to a different time, or lift it off the schedule with null.
-  Future<String?> reschedule(int seq, DateTime? when) => mutate(() => _api.patch(
-        '/api/posts/$seq',
-        {'action': 'reschedule', 'scheduledFor': when?.toUtc().toIso8601String()},
-      ));
+  Future<String?> reschedule(int seq, DateTime? when) => mutate(
+    () => _api.patch('/api/posts/$seq', {
+      'action': 'reschedule',
+      'scheduledFor': when?.toUtc().toIso8601String(),
+    }),
+  );
 
   /// Take the composer's edit lock so a scheduled send cannot fire mid-edit.
   ///
@@ -523,22 +620,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> discard(int seq) => mutate(() => _api.patch('/api/posts/$seq', {'action': 'discard'}));
+  Future<String?> discard(int seq) =>
+      mutate(() => _api.patch('/api/posts/$seq', {'action': 'discard'}));
 
   Future<String?> editPost(
     int seq,
     String text,
     List<String> hashtags, {
     List<String>? mediaIds,
-  }) =>
-      mutate(() => _api.patch('/api/posts/$seq', {
-            'action': 'edit',
-            'text': text,
-            'hashtags': hashtags,
-            // Omitted entirely when null: the server treats an absent key as
-            // "leave the existing images alone".
-            'mediaIds': ?mediaIds,
-          }));
+  }) => mutate(
+    () => _api.patch('/api/posts/$seq', {
+      'action': 'edit',
+      'text': text,
+      'hashtags': hashtags,
+      // Omitted entirely when null: the server treats an absent key as
+      // "leave the existing images alone".
+      'mediaIds': ?mediaIds,
+    }),
+  );
 
   /// Ask the writer for a different treatment of a draft. Returns the variant
   /// text; nothing is saved until the user accepts it with [editPost].
@@ -547,20 +646,23 @@ class AppState extends ChangeNotifier {
   /// button repeatedly gives genuinely different options rather than the same
   /// rephrasing each time.
   Future<String> rewriteDraft(int seq, {int variant = 0}) => _readVariant(
-      _api.patch('/api/posts/$seq', {'action': 'rewrite', 'variant': variant},
-          timeout: kWriterTimeout));
+    _api.patch('/api/posts/$seq', {
+      'action': 'rewrite',
+      'variant': variant,
+    }, timeout: kWriterTimeout),
+  );
 
   /// Same, for text that has not been saved yet — the composer writing
   /// something new has no seq to reference.
   Future<String> rewriteText(String text, {int variant = 0}) => _readVariant(
-      _api.post('/api/compose/rewrite', {'text': text, 'variant': variant}, kWriterTimeout));
+    _api.post('/api/compose/rewrite', {
+      'text': text,
+      'variant': variant,
+    }, kWriterTimeout),
+  );
 
-  /// Hashtags the last rewrite SUGGESTED, if any.
-  ///
-  /// Suggestions, not a replacement. The composer keeps whatever the author
-  /// chose and fills the room left under the cap from these — a model's opinion
-  /// about tags is worth less than an explicit choice, and accepting a variant
-  /// used to delete tags someone had typed on purpose.
+  /// Hashtags returned with the last rewrite. The composer snapshots them with
+  /// its text, previews both, and applies both only when the user accepts.
   List<String> lastVariantHashtags = const [];
 
   Future<String> _readVariant(Future<dynamic> call) async {
@@ -568,10 +670,16 @@ class AppState extends ChangeNotifier {
     final map = json as Map<String, dynamic>?;
     final text = map?['text'];
     if (text is! String || text.trim().isEmpty) {
-      throw ApiException(0, 'rewrite_failed', detail: 'The writer returned nothing usable.');
+      throw ApiException(
+        0,
+        'rewrite_failed',
+        detail: 'The writer returned nothing usable.',
+      );
     }
     final tags = map?['hashtags'];
-    lastVariantHashtags = tags is List ? tags.whereType<String>().toList() : const [];
+    lastVariantHashtags = tags is List
+        ? tags.whereType<String>().toList()
+        : const [];
     return text;
   }
 
@@ -592,21 +700,36 @@ class AppState extends ChangeNotifier {
     List<String> hashtags = const [],
     List<String> mediaIds = const [],
     DateTime? scheduledFor,
-  }) =>
-      mutate(() => _api.post('/api/posts', {
-            'text': text,
-            'polish': polish,
-            'publishNow': publishNow,
-            'category': ?category,
-            'hashtags': hashtags,
-            'mediaIds': mediaIds,
-            // Your own post goes on the same timetable as a generated one —
-            // the send pass does not care who wrote the text. Scheduling counts
-            // as clearing it: you wrote it, so there is nothing left to review.
-            'scheduledFor': ?scheduledFor?.toUtc().toIso8601String(),
-          },
-          // Composing with polish on is a model call like any other.
-          polish ? kWriterTimeout : null));
+    void Function(int seq)? onCreated,
+    String? clientRequestId,
+  }) => mutate(() async {
+    try {
+      final result = await _api.post(
+        '/api/posts',
+        {
+          'text': text,
+          'polish': polish,
+          'publishNow': publishNow,
+          'clientRequestId': ?clientRequestId,
+          'category': ?category,
+          'hashtags': hashtags,
+          'mediaIds': mediaIds,
+          // Your own post goes on the same timetable as a generated one —
+          // the send pass does not care who wrote the text. Scheduling counts
+          // as clearing it: you wrote it, so there is nothing left to review.
+          'scheduledFor': ?scheduledFor?.toUtc().toIso8601String(),
+        },
+        // Composing with polish on is a model call like any other.
+        polish ? kWriterTimeout : null,
+      );
+      if (result is Map && result['seq'] is num) {
+        onCreated?.call((result['seq'] as num).toInt());
+      }
+    } on ApiException catch (error) {
+      if (error.postSeq != null) onCreated?.call(error.postSeq!);
+      rethrow;
+    }
+  });
 
   // ------------------------------------------------------------------ slots
 
@@ -621,14 +744,15 @@ class AppState extends ChangeNotifier {
     int? leadMinutes,
     bool autoPublish = false,
     List<String> categories = const [],
-  }) =>
-      mutate(() => _api.post('/api/slots', {
-            'localTime': localTime,
-            'daysMask': ?daysMask,
-            'leadMinutes': ?leadMinutes,
-            'autoPublish': autoPublish,
-            'categories': categories,
-          }));
+  }) => mutate(
+    () => _api.post('/api/slots', {
+      'localTime': localTime,
+      'daysMask': ?daysMask,
+      'leadMinutes': ?leadMinutes,
+      'autoPublish': autoPublish,
+      'categories': categories,
+    }),
+  );
 
   Future<String?> updateSlot(String id, Map<String, dynamic> patch) =>
       mutate(() => _api.patch('/api/slots/$id', patch));
@@ -655,13 +779,15 @@ class AppState extends ChangeNotifier {
   Future<String?> setSlotCategories(String id, List<String> categories) =>
       updateSlot(id, {'categories': categories});
 
-  Future<String?> removeSlot(String id) => mutate(() => _api.delete('/api/slots/$id'));
+  Future<String?> removeSlot(String id) =>
+      mutate(() => _api.delete('/api/slots/$id'));
 
   /// Preview a candidate voice without saving it. Returns the server payload
   /// rather than storing it — a preview is screen-local by nature.
   Future<Map<String, dynamic>> previewStyle(StyleConfig style) async {
-    final json =
-        await _api.post('/api/style/preview', {'style': style.toJson()}, kWriterTimeout);
+    final json = await _api.post('/api/style/preview', {
+      'style': style.toJson(),
+    }, kWriterTimeout);
     return (json as Map<String, dynamic>?) ?? const {};
   }
 }

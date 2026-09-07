@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 // Type-only: erased at build time, so this pulls no server code into the bundle.
 import type { StyleConfig } from "../lib/style";
+import { CATEGORIES, MAX_SELECTED_CATEGORIES } from "../lib/categories";
 
 // ---------------------------------------------------------------- types
 
@@ -80,18 +81,25 @@ interface Status {
   ambiguous?: { seq: number | null; createdAt: string; lastError: string | null }[];
 }
 
-// Kept in step with lib/categories.ts by hand. The phone reads this list from
-// /api/status instead; this page is the setup-and-OAuth surface, where the
-// categories have to render before any status payload has been fetched.
-const CATEGORY_LABELS: Record<string, string> = {
-  "music-tech-software": "Music tech · software",
-  "music-tech-hardware": "Music tech · hardware",
-  "emerging-tech": "Emerging tech",
-  "ai-ml": "AI & ML engineering",
-  "dev-tooling": "Developer tooling",
-  "hardware-embedded": "Hardware & embedded",
-  "compute-silicon": "Compute & silicon",
-};
+const CATEGORY_LABELS = Object.fromEntries(Object.values(CATEGORIES).map(c=>[c.id,c.label]));
+
+function CategoryPicker({values,onChange,disabled=false}:{values:string[];onChange:(ids:string[])=>void;disabled?:boolean}) {
+  const [query,setQuery]=useState('');
+  const [group,setGroup]=useState('');
+  const [limit,setLimit]=useState(40);
+  const groups=[...new Set(Object.values(CATEGORIES).map(c=>c.groupLabel).filter(Boolean))].sort();
+  const matches=Object.values(CATEGORIES).filter(c=>(!group||c.groupLabel===group)&&query.toLowerCase().trim().split(/\s+/).every(word=>`${c.label} ${c.groupLabel??''}`.toLowerCase().includes(word)));
+  const toggle=(id:string)=>onChange(values.includes(id)?values.filter(v=>v!==id):[...values,id]);
+  return <div>
+    <input aria-label="Search subjects" placeholder={`Search ${Object.keys(CATEGORIES).length.toLocaleString()} subjects`} value={query} onChange={e=>{setQuery(e.target.value);setLimit(40);}} />
+    <select aria-label="Filter subjects by industry" value={group} onChange={e=>{setGroup(e.target.value);setLimit(40);}}><option value="">All industries</option>{groups.map(g=><option key={g} value={g}>{g}</option>)}</select>
+    <p className="hint" role="status">{values.length} selected · {matches.length} results · choose up to {MAX_SELECTED_CATEGORIES}</p>
+    <div className="chips" aria-label="Selected subjects">{values.map(id=><button type="button" className="chip" data-on key={id} disabled={disabled||values.length===1} onClick={()=>toggle(id)} aria-label={`Remove ${CATEGORY_LABELS[id]??id}`}>{CATEGORY_LABELS[id]??id} ×</button>)}</div>
+    <div className="chips">{matches.slice(0,limit).map(c=><button type="button" className="chip" key={c.id} data-on={values.includes(c.id)} aria-pressed={values.includes(c.id)} disabled={disabled||(values.includes(c.id)?values.length===1:values.length>=MAX_SELECTED_CATEGORIES)} onClick={()=>toggle(c.id)}>{c.label}</button>)}</div>
+    {matches.length===0&&<p>No matching subjects. Try a broader search.</p>}
+    {matches.length>limit&&<button type="button" onClick={()=>setLimit(v=>v+40)}>Show more subjects</button>}
+  </div>;
+}
 
 // The subset pre-selected at init. Deliberately NOT every category: seven
 // active at once spreads the daily candidate pool thin across interests the
@@ -283,22 +291,9 @@ function Setup({ onDone }: { onDone: () => Promise<void> }) {
             The scope is the categories, so it is only asked for once. */}
         <label className="field">
           <span>What you write about</span>
-          <div className="chips">
-            {Object.entries(CATEGORY_LABELS).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className="chip"
-                data-on={categories.includes(id)}
-                onClick={() => toggle(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <CategoryPicker values={categories} onChange={setCategories} disabled={busy} />
           <p className="hint">
-            The agent&apos;s voice, its reading list and how it describes itself all come from
-            these. Change them whenever you like — it rebuilds itself to match.
+            Your selection guides the articles we find and the subjects your posts cover. You can change it any time.
           </p>
         </label>
         <div className="row" style={{ alignItems: "flex-end" }}>
@@ -393,8 +388,8 @@ function Alerts({ status, refresh }: { status: Status; refresh: () => Promise<vo
     alerts.push(
       <div className="notice bad" key="key">
         <div>
-          <strong>TOKEN_ENCRYPTION_KEY is not set</strong>
-          <p>LinkedIn cannot be connected until it is — tokens are never stored unencrypted.</p>
+          <strong>LinkedIn connection is temporarily unavailable</strong>
+          <p>Please contact the workspace administrator to finish secure connection setup.</p>
         </div>
       </div>,
     );
@@ -404,10 +399,9 @@ function Alerts({ status, refresh }: { status: Status; refresh: () => Promise<vo
     alerts.push(
       <div className="notice" key="dry">
         <div>
-          <strong>Dry run</strong>
+          <strong>Preview environment</strong>
           <p>
-            Drafts are written and queued, but nothing reaches LinkedIn. Set{" "}
-            <code>LINKEDIN_LIVE=true</code> when you are ready to publish for real.
+            You can write and review drafts here. Publishing to LinkedIn is disabled in this environment.
           </p>
         </div>
       </div>,
@@ -419,7 +413,7 @@ function Alerts({ status, refresh }: { status: Status; refresh: () => Promise<vo
       <div className="notice bad" key="reauth">
         <div>
           <strong>LinkedIn access expired</strong>
-          <p>Publishing is paused until you reconnect. Tokens last 60 days and cannot self-renew.</p>
+          <p>Reconnect LinkedIn to resume publishing. Your drafts are saved.</p>
         </div>
         <a href="/api/linkedin/connect"><button className="primary">Reconnect</button></a>
       </div>,
@@ -791,7 +785,7 @@ function PostCard({
             className="primary"
             onClick={() => void act("publish")}
             disabled={!!busy || !liveMode || post.status === "unknown"}
-            title={liveMode ? undefined : "Dry run — set LINKEDIN_LIVE=true to publish"}
+            title={liveMode ? undefined : "Publishing is disabled in this preview environment"}
           >
             {busy === "publish" ? "Publishing…" : "Publish"}
           </button>
@@ -910,28 +904,7 @@ function Settings({
 
       <label className="field">
         <span>Categories</span>
-        <div className="chips">
-          {Object.entries(CATEGORY_LABELS).map(([id, label]) => {
-            const on = agent.categories.includes(id);
-            return (
-              <button
-                key={id}
-                className="chip"
-                data-on={on}
-                disabled={busy || (on && agent.categories.length === 1)}
-                onClick={() =>
-                  void patch({
-                    categories: on
-                      ? agent.categories.filter((c) => c !== id)
-                      : [...agent.categories, id],
-                  })
-                }
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <CategoryPicker values={agent.categories} onChange={categories=>void patch({categories})} disabled={busy} />
       </label>
 
       <label className="field">
@@ -1357,7 +1330,7 @@ function Voice({
             <div className="preview">
               <p className="sub" style={{ fontSize: "var(--fs-micro)" }}>
                 Rewritten from {preview.sourceLabel}
-                {preview.servedBy ? ` · ${preview.servedBy}` : ""} ·{" "}
+                ·{" "}
                 {preview.length.escapedChars} chars
                 {preview.length.withinLimit ? "" : " · TOO LONG"}
               </p>
@@ -1397,20 +1370,7 @@ function Schedule({ status }: { status: Status }) {
             {status.budget?.manualUsed ?? 0} today
           </span>
         </li>
-        {(status.llm ?? []).map((m) => (
-          <li key={m.model}>
-            {m.model}
-            <span className="why tabular">
-              {m.calls} / {m.cap} calls today
-            </span>
-          </li>
-        ))}
-        {status.config.memoryDegraded && (
-          <li>
-            Graph memory
-            <span className="why">degraded — using local fingerprints instead</span>
-          </li>
-        )}
+
       </ul>
     </section>
   );

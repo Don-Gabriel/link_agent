@@ -6,18 +6,19 @@
  * which looks exactly like the setting being ignored.
  */
 import { NextResponse } from "next/server";
-import { getPrimaryAgent, updateAgentSettings } from "../../../lib/agents";
+import { updateAgentSettings } from "../../../lib/agents";
+import { getRequestAgent } from "../../../lib/request-agent";
 import { getAccountStatus } from "../../../lib/accounts";
-import { parseCategories } from "../../../lib/categories";
+import { parseCategories, isCategoryId, MAX_SELECTED_CATEGORIES } from "../../../lib/categories";
 import { query } from "../../../lib/db";
-import { nextDailyRun, normalizeHhMm } from "../../../lib/schedule";
+import { nextDailyRun, normalizeHhMm, isValidTimeZone } from "../../../lib/schedule";
 import { rescheduleAllSlots } from "../../../lib/slots";
 import { PRESETS, type StyleConfig } from "../../../lib/style";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   let body: {
@@ -36,6 +37,19 @@ export async function PATCH(request: Request) {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+  }
+  if (body.categories !== undefined && (!Array.isArray(body.categories) || body.categories.length < 1 || body.categories.length > MAX_SELECTED_CATEGORIES || body.categories.some(id=>!isCategoryId(id)) || new Set(body.categories).size !== body.categories.length)) {
+    return NextResponse.json({error:'Choose 1–12 distinct subjects from the catalogue.'},{status:400});
+  }
+  if (body.timezone !== undefined && (typeof body.timezone !== 'string' || !isValidTimeZone(body.timezone))) {
+    return NextResponse.json({ error: 'Choose a valid timezone.' }, { status: 400 });
+  }
+  if (body.corpus !== undefined && (!Array.isArray(body.corpus) || body.corpus.length > 10 ||
+      body.corpus.some(sample => typeof sample !== 'string' || sample.trim().length < 80 || sample.trim().length > 2400))) {
+    return NextResponse.json({ error: 'Use up to 10 writing samples, each 80–2400 characters.' }, { status: 400 });
   }
 
   // Turning on auto-publish without a working connection would produce a daily
@@ -94,6 +108,9 @@ export async function PATCH(request: Request) {
   if (!updated) return NextResponse.json({ error: "update_failed" }, { status: 500 });
 
   if (postTimeLocal || body.timezone) {
+    await query(`UPDATE onboarding SET config=config||$2::jsonb,next_delivery_at=NULL
+      WHERE user_id=(SELECT owner_id FROM agents WHERE id=$1) AND completed_at IS NOT NULL`,
+      [agent.agentId,JSON.stringify({timezone:updated.timezone})]);
     await query(
       `INSERT INTO scheduler_state (agent_id, next_run_at) VALUES ($1, $2)
        ON CONFLICT (agent_id) DO UPDATE SET next_run_at = $2`,

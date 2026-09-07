@@ -70,18 +70,18 @@ class StyleConfig {
   }
 
   Map<String, dynamic> toJson() => {
-        'structure': structure,
-        'emoji': emoji,
-        'hook': hook,
-        'cta': cta,
-        'minWords': minWords,
-        'maxWords': maxWords,
-        'hashtagCount': hashtagCount,
-        'register': register,
-        'signature': signature?.toJson(),
-        'customRules': customRules,
-        'bannedPhrases': bannedPhrases,
-      };
+    'structure': structure,
+    'emoji': emoji,
+    'hook': hook,
+    'cta': cta,
+    'minWords': minWords,
+    'maxWords': maxWords,
+    'hashtagCount': hashtagCount,
+    'register': register,
+    'signature': signature?.toJson(),
+    'customRules': customRules,
+    'bannedPhrases': bannedPhrases,
+  };
 
   StyleConfig copyWith({
     String? structure,
@@ -98,29 +98,28 @@ class StyleConfig {
     // mean "clear the signature", not "leave it alone".
     bool clearSignature = false,
     SignatureConfig? signature,
-  }) =>
-      StyleConfig(
-        structure: structure ?? this.structure,
-        emoji: emoji ?? this.emoji,
-        hook: hook ?? this.hook,
-        cta: cta ?? this.cta,
-        minWords: minWords ?? this.minWords,
-        maxWords: maxWords ?? this.maxWords,
-        hashtagCount: hashtagCount ?? this.hashtagCount,
-        register: register ?? this.register,
-        signature: clearSignature ? null : (signature ?? this.signature),
-        customRules: customRules ?? this.customRules,
-        bannedPhrases: bannedPhrases ?? this.bannedPhrases,
-      );
+  }) => StyleConfig(
+    structure: structure ?? this.structure,
+    emoji: emoji ?? this.emoji,
+    hook: hook ?? this.hook,
+    cta: cta ?? this.cta,
+    minWords: minWords ?? this.minWords,
+    maxWords: maxWords ?? this.maxWords,
+    hashtagCount: hashtagCount ?? this.hashtagCount,
+    register: register ?? this.register,
+    signature: clearSignature ? null : (signature ?? this.signature),
+    customRules: customRules ?? this.customRules,
+    bannedPhrases: bannedPhrases ?? this.bannedPhrases,
+  );
 
   /// One-line summary for the collapsed settings row.
   String get summary => [
-        _structureLabels[structure] ?? structure,
-        emoji == 'none' ? 'no emoji' : '$emoji emoji',
-        hashtagCount == 0 ? 'no tags' : '$hashtagCount tags',
-        '$minWords–$maxWords words',
-        signature == null ? 'no signature' : '${signature!.source} line',
-      ].join(' · ');
+    _structureLabels[structure] ?? structure,
+    emoji == 'none' ? 'no emoji' : '$emoji emoji',
+    hashtagCount == 0 ? 'no tags' : '$hashtagCount tags',
+    '$minWords–$maxWords words',
+    signature == null ? 'no signature' : '${signature!.source} line',
+  ].join(' · ');
 }
 
 class SignatureConfig {
@@ -137,26 +136,30 @@ class SignatureConfig {
   final List<String> banned;
 
   factory SignatureConfig.fromJson(Map<String, dynamic> j) => SignatureConfig(
-        source: _str(j['source'], ''),
-        maxWords: _int(j['maxWords'], 12),
-        budgetPerFive: _int(j['budgetPerFive'], 1),
-        banned: _strList(j['banned']),
-      );
+    source: _str(j['source'], ''),
+    maxWords: _int(j['maxWords'], 12),
+    budgetPerFive: _int(j['budgetPerFive'], 1),
+    banned: _strList(j['banned']),
+  );
 
   Map<String, dynamic> toJson() => {
-        'source': source,
-        'maxWords': maxWords,
-        'budgetPerFive': budgetPerFive,
-        'banned': banned,
-      };
+    'source': source,
+    'maxWords': maxWords,
+    'budgetPerFive': budgetPerFive,
+    'banned': banned,
+  };
 
-  SignatureConfig copyWith({String? source, int? maxWords, int? budgetPerFive, List<String>? banned}) =>
-      SignatureConfig(
-        source: source ?? this.source,
-        maxWords: maxWords ?? this.maxWords,
-        budgetPerFive: budgetPerFive ?? this.budgetPerFive,
-        banned: banned ?? this.banned,
-      );
+  SignatureConfig copyWith({
+    String? source,
+    int? maxWords,
+    int? budgetPerFive,
+    List<String>? banned,
+  }) => SignatureConfig(
+    source: source ?? this.source,
+    maxWords: maxWords ?? this.maxWords,
+    budgetPerFive: budgetPerFive ?? this.budgetPerFive,
+    banned: banned ?? this.banned,
+  );
 }
 
 /// A category, as the server describes it.
@@ -165,21 +168,33 @@ class SignatureConfig {
 /// client release. Both clients previously carried their own id -> label map,
 /// and an unlisted id rendered as a raw slug like "compute-silicon".
 class CategoryInfo {
-  const CategoryInfo({required this.id, required this.label, required this.blurb});
+  const CategoryInfo({
+    required this.id,
+    required this.label,
+    required this.blurb,
+    this.groupLabel,
+  });
 
   final String id;
   final String label;
   final String blurb;
+  final String? groupLabel;
 
   factory CategoryInfo.fromJson(Map<String, dynamic> j) => CategoryInfo(
-        id: _str(j['id'], ''),
-        label: _str(j['label'], ''),
-        blurb: _str(j['blurb'], ''),
-      );
+    id: _str(j['id'], ''),
+    label: _str(j['label'], ''),
+    blurb: _str(j['blurb'], ''),
+    groupLabel: j['groupLabel'] as String?,
+  );
 }
 
 class StylePreset {
-  const StylePreset({required this.id, required this.label, required this.blurb, required this.style});
+  const StylePreset({
+    required this.id,
+    required this.label,
+    required this.blurb,
+    required this.style,
+  });
 
   final String id;
   final String label;
@@ -187,11 +202,11 @@ class StylePreset {
   final StyleConfig style;
 
   factory StylePreset.fromJson(Map<String, dynamic> j) => StylePreset(
-        id: _str(j['id'], ''),
-        label: _str(j['label'], ''),
-        blurb: _str(j['blurb'], ''),
-        style: StyleConfig.fromJson(_map(j['style'])),
-      );
+    id: _str(j['id'], ''),
+    label: _str(j['label'], ''),
+    blurb: _str(j['blurb'], ''),
+    style: StyleConfig.fromJson(_map(j['style'])),
+  );
 }
 
 class Agent {
@@ -235,34 +250,34 @@ class Agent {
   /// The same agent with a different category list, for optimistic updates.
   /// The server's reply replaces this the moment it lands.
   Agent withCategories(List<String> next) => Agent(
-        agentId: agentId,
-        name: name,
-        domain: domain,
-        categories: next,
-        timezone: timezone,
-        postTimeLocal: postTimeLocal,
-        autoPublish: autoPublish,
-        paused: paused,
-        autoPublishCap: autoPublishCap,
-        style: style,
-        corpus: corpus,
-        editNotes: editNotes,
-      );
+    agentId: agentId,
+    name: name,
+    domain: domain,
+    categories: next,
+    timezone: timezone,
+    postTimeLocal: postTimeLocal,
+    autoPublish: autoPublish,
+    paused: paused,
+    autoPublishCap: autoPublishCap,
+    style: style,
+    corpus: corpus,
+    editNotes: editNotes,
+  );
 
   factory Agent.fromJson(Map<String, dynamic> j) => Agent(
-        agentId: _str(j['agentId'], ''),
-        name: _str(j['name'], 'Agent'),
-        domain: _str(j['domain'], ''),
-        categories: _strList(j['categories']),
-        timezone: _str(j['timezone'], 'UTC'),
-        postTimeLocal: _str(j['postTimeLocal'], '09:30'),
-        autoPublish: _bool(j['autoPublish']),
-        paused: _bool(j['paused']),
-        autoPublishCap: _int(j['autoPublishCap'], 1),
-        style: StyleConfig.fromJson(_map(j['style'])),
-        corpus: _strList(j['corpus']),
-        editNotes: j['editNotes'] as String?,
-      );
+    agentId: _str(j['agentId'], ''),
+    name: _str(j['name'], 'Agent'),
+    domain: _str(j['domain'], ''),
+    categories: _strList(j['categories']),
+    timezone: _str(j['timezone'], 'UTC'),
+    postTimeLocal: _str(j['postTimeLocal'], '09:30'),
+    autoPublish: _bool(j['autoPublish']),
+    paused: _bool(j['paused']),
+    autoPublishCap: _int(j['autoPublishCap'], 1),
+    style: StyleConfig.fromJson(_map(j['style'])),
+    corpus: _strList(j['corpus']),
+    editNotes: j['editNotes'] as String?,
+  );
 }
 
 class Account {
@@ -289,7 +304,9 @@ class Account {
     return Account(
       connected: _bool(j['connected']),
       memberName: j['memberName'] as String?,
-      daysRemaining: j['daysRemaining'] is num ? (j['daysRemaining'] as num).toInt() : null,
+      daysRemaining: j['daysRemaining'] is num
+          ? (j['daysRemaining'] as num).toInt()
+          : null,
       expiringSoon: _bool(j['expiringSoon']),
       needsReauth: _bool(j['needsReauth']),
       lastError: j['lastError'] as String?,
@@ -366,31 +383,34 @@ class Post {
   /// True when the send time has passed but it has not gone out — the state
   /// worth surfacing loudly, because it usually means it was never cleared.
   bool get isOverdue =>
-      scheduledFor != null && !isPublished && !isMissed && scheduledFor!.isBefore(DateTime.now());
+      scheduledFor != null &&
+      !isPublished &&
+      !isMissed &&
+      scheduledFor!.isBefore(DateTime.now());
 
   factory Post.fromJson(Map<String, dynamic> j) => Post(
-        id: _str(j['id'], ''),
-        seq: _int(j['seq'], 0),
-        text: _str(j['text'], ''),
-        hook: _str(j['hook'], ''),
-        rationale: _str(j['rationale'], ''),
-        status: _str(j['status'], 'draft'),
-        kind: _str(j['kind'], 'auto'),
-        category: j['category'] as String?,
-        scores: j['scores'] is Map
-            ? (j['scores'] as Map).map((k, v) => MapEntry('$k', v is num ? v : 0))
-            : const {},
-        sources: _strList(j['sources']),
-        media: _strList(j['media']),
-        hashtags: _strList(j['hashtags']),
-        usedQuote: _bool(j['usedQuote']),
-        createdAt: DateTime.tryParse(_str(j['createdAt'], '')),
-        publishedAt: DateTime.tryParse(_str(j['publishedAt'], '')),
-        scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
-        slotId: j['slotId'] as String?,
-        clearedAt: DateTime.tryParse(_str(j['clearedAt'], ''))?.toLocal(),
-        heldUntil: DateTime.tryParse(_str(j['heldUntil'], ''))?.toLocal(),
-      );
+    id: _str(j['id'], ''),
+    seq: _int(j['seq'], 0),
+    text: _str(j['text'], ''),
+    hook: _str(j['hook'], ''),
+    rationale: _str(j['rationale'], ''),
+    status: _str(j['status'], 'draft'),
+    kind: _str(j['kind'], 'auto'),
+    category: j['category'] as String?,
+    scores: j['scores'] is Map
+        ? (j['scores'] as Map).map((k, v) => MapEntry('$k', v is num ? v : 0))
+        : const {},
+    sources: _strList(j['sources']),
+    media: _strList(j['media']),
+    hashtags: _strList(j['hashtags']),
+    usedQuote: _bool(j['usedQuote']),
+    createdAt: DateTime.tryParse(_str(j['createdAt'], '')),
+    publishedAt: DateTime.tryParse(_str(j['publishedAt'], '')),
+    scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
+    slotId: j['slotId'] as String?,
+    clearedAt: DateTime.tryParse(_str(j['clearedAt'], ''))?.toLocal(),
+    heldUntil: DateTime.tryParse(_str(j['heldUntil'], ''))?.toLocal(),
+  );
 }
 
 /// One recurring posting time.
@@ -431,27 +451,27 @@ class PostSlot {
   final String? nextRunLocal;
 
   factory PostSlot.fromJson(Map<String, dynamic> j) => PostSlot(
-        id: _str(j['id'], ''),
-        localTime: _str(j['localTime'], '09:30'),
-        daysMask: _int(j['daysMask'], 127),
-        daysLabel: _str(j['daysLabel'], ''),
-        leadMinutes: _int(j['leadMinutes'], 15),
-        autoPublish: _bool(j['autoPublish']),
-        categories: _strList(j['categories']),
-        enabled: j['enabled'] == null ? true : _bool(j['enabled']),
-        position: _int(j['position'], 0),
-        nextRunAt: DateTime.tryParse(_str(j['nextRunAt'], ''))?.toLocal(),
-        nextRunLocal: j['nextRunLocal'] as String?,
-      );
+    id: _str(j['id'], ''),
+    localTime: _str(j['localTime'], '09:30'),
+    daysMask: _int(j['daysMask'], 127),
+    daysLabel: _str(j['daysLabel'], ''),
+    leadMinutes: _int(j['leadMinutes'], 15),
+    autoPublish: _bool(j['autoPublish']),
+    categories: _strList(j['categories']),
+    enabled: j['enabled'] == null ? true : _bool(j['enabled']),
+    position: _int(j['position'], 0),
+    nextRunAt: DateTime.tryParse(_str(j['nextRunAt'], ''))?.toLocal(),
+    nextRunLocal: j['nextRunLocal'] as String?,
+  );
 
   Map<String, dynamic> toJson() => {
-        'localTime': localTime,
-        'daysMask': daysMask,
-        'leadMinutes': leadMinutes,
-        'autoPublish': autoPublish,
-        'categories': categories,
-        'enabled': enabled,
-      };
+    'localTime': localTime,
+    'daysMask': daysMask,
+    'leadMinutes': leadMinutes,
+    'autoPublish': autoPublish,
+    'categories': categories,
+    'enabled': enabled,
+  };
 }
 
 /// What one slot did on one day. `silent` and `missed` are the important ones:
@@ -483,14 +503,14 @@ class TimelineEntry {
   bool get isPublished => outcome == 'published';
 
   factory TimelineEntry.fromJson(Map<String, dynamic> j) => TimelineEntry(
-        slotId: _str(j['slotId'], ''),
-        localTime: _str(j['localTime'], ''),
-        runDate: _str(j['runDate'], ''),
-        scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
-        outcome: _str(j['outcome'], 'pending'),
-        postSeq: j['postSeq'] is num ? (j['postSeq'] as num).toInt() : null,
-        detail: j['detail'] as String?,
-      );
+    slotId: _str(j['slotId'], ''),
+    localTime: _str(j['localTime'], ''),
+    runDate: _str(j['runDate'], ''),
+    scheduledFor: DateTime.tryParse(_str(j['scheduledFor'], ''))?.toLocal(),
+    outcome: _str(j['outcome'], 'pending'),
+    postSeq: j['postSeq'] is num ? (j['postSeq'] as num).toInt() : null,
+    detail: j['detail'] as String?,
+  );
 }
 
 /// Server-authoritative bounds for the schedule editor, so the app never offers
@@ -530,7 +550,9 @@ class SchedulerHealth {
       ? unknown
       : SchedulerHealth(
           lastTickAt: DateTime.tryParse(_str(j['lastTickAt'], ''))?.toLocal(),
-          minutesSince: j['minutesSince'] is num ? (j['minutesSince'] as num).toInt() : null,
+          minutesSince: j['minutesSince'] is num
+              ? (j['minutesSince'] as num).toInt()
+              : null,
           healthy: j['healthy'] == null ? true : _bool(j['healthy']),
           staleAfterMinutes: _int(j['staleAfterMinutes'], 16),
         );
@@ -586,27 +608,31 @@ class Budget {
   bool get autoExhausted => autoUsed >= autoCap;
 
   factory Budget.fromJson(Map<String, dynamic>? j) => Budget(
-        autoUsed: _int(j?['autoUsed'], 0),
-        autoCap: _int(j?['autoCap'], 1),
-        manualUsed: _int(j?['manualUsed'], 0),
-        manualCap: _int(j?['manualCap'], 40),
-        linkedinDailyRequests: _int(j?['linkedinDailyRequests'], 150),
-      );
+    autoUsed: _int(j?['autoUsed'], 0),
+    autoCap: _int(j?['autoCap'], 1),
+    manualUsed: _int(j?['manualUsed'], 0),
+    manualCap: _int(j?['manualCap'], 40),
+    linkedinDailyRequests: _int(j?['linkedinDailyRequests'], 150),
+  );
 }
 
 /// A story the judge scored and rejected, with its reason.
 class Rejection {
-  const Rejection({required this.title, required this.url, required this.reason});
+  const Rejection({
+    required this.title,
+    required this.url,
+    required this.reason,
+  });
 
   final String title;
   final String url;
   final String reason;
 
   factory Rejection.fromJson(Map<String, dynamic> j) => Rejection(
-        title: _str(j['title'], ''),
-        url: _str(j['url'], ''),
-        reason: _str(j['reason'], ''),
-      );
+    title: _str(j['title'], ''),
+    url: _str(j['url'], ''),
+    reason: _str(j['reason'], ''),
+  );
 }
 
 /// One model's usage against its daily quota.
@@ -618,10 +644,10 @@ class LlmUsage {
   final int cap;
 
   factory LlmUsage.fromJson(Map<String, dynamic> j) => LlmUsage(
-        model: _str(j['model'], ''),
-        calls: _int(j['calls'], 0),
-        cap: _int(j['cap'], 0),
-      );
+    model: _str(j['model'], ''),
+    calls: _int(j['calls'], 0),
+    cap: _int(j['cap'], 0),
+  );
 }
 
 /// The whole dashboard in one object, matching GET /api/status.
@@ -659,28 +685,28 @@ class AppStatus {
   /// settings. Timezone and post time ARE — they reschedule slots — and those
   /// callers deliberately still take the full refresh.
   AppStatus withAgent(Agent next) => AppStatus(
-        initialized: initialized,
-        agent: next,
-        account: account,
-        liveMode: liveMode,
-        maxAutoCap: maxAutoCap,
-        maxHashtags: maxHashtags,
-        presets: presets,
-        queue: queue,
-        history: history,
-        rejections: rejections,
-        llm: llm,
-        budget: budget,
-        nextRunLocal: nextRunLocal,
-        cycleCount: cycleCount,
-        ambiguousCount: ambiguousCount,
-        slots: slots,
-        timeline: timeline,
-        slotLimits: slotLimits,
-        categories: categories,
-        scheduler: scheduler,
-        watchdogMinutesSince: watchdogMinutesSince,
-      );
+    initialized: initialized,
+    agent: next,
+    account: account,
+    liveMode: liveMode,
+    maxAutoCap: maxAutoCap,
+    maxHashtags: maxHashtags,
+    presets: presets,
+    queue: queue,
+    history: history,
+    rejections: rejections,
+    llm: llm,
+    budget: budget,
+    nextRunLocal: nextRunLocal,
+    cycleCount: cycleCount,
+    ambiguousCount: ambiguousCount,
+    slots: slots,
+    timeline: timeline,
+    slotLimits: slotLimits,
+    categories: categories,
+    scheduler: scheduler,
+    watchdogMinutesSince: watchdogMinutesSince,
+  );
 
   final bool initialized;
   final Agent? agent;
@@ -735,16 +761,22 @@ class AppStatus {
   /// The draft that needs reading soonest — the single most useful thing to put
   /// at the top of a screen, because it is the one with a deadline.
   Post? get nextDue {
-    final pending = queue
-        .where((p) => p.isScheduled && !p.isPublished && !p.isMissed)
-        .toList()
-      ..sort((a, b) => a.scheduledFor!.compareTo(b.scheduledFor!));
+    final pending =
+        queue
+            .where(
+              (p) => p.isScheduled && (p.isDraft || p.status == 'approved'),
+            )
+            .toList()
+          ..sort((a, b) => a.scheduledFor!.compareTo(b.scheduledFor!));
     return pending.isEmpty ? null : pending.first;
   }
 
   /// Drafts waiting on a decision before their time runs out.
-  int get needingReview =>
-      queue.where((p) => p.isScheduled && !p.isCleared && !p.isPublished && !p.isMissed).length;
+  int get needingReview => queue
+      .where(
+        (p) => p.isScheduled && !p.isCleared && !p.isPublished && !p.isMissed,
+      )
+      .length;
 
   factory AppStatus.fromJson(Map<String, dynamic> j) {
     final config = _map(j['config']) ?? const <String, dynamic>{};
@@ -771,11 +803,13 @@ class AppStatus {
       slots: _list(j['slots']).map(PostSlot.fromJson).toList(),
       timeline: _list(j['timeline']).map(TimelineEntry.fromJson).toList(),
       slotLimits: SlotLimits.fromJson(_map(j['slotLimits'])),
-      categories: _list(config['categories']).map(CategoryInfo.fromJson).toList(),
+      categories: _list(
+        config['categories'],
+      ).map(CategoryInfo.fromJson).toList(),
       scheduler: SchedulerHealth.fromJson(_map(j['scheduler'])),
-        watchdogMinutesSince: _map(j['watchdog'])?['minutesSince'] is num
-            ? (_map(j['watchdog'])!['minutesSince'] as num).toInt()
-            : null,
+      watchdogMinutesSince: _map(j['watchdog'])?['minutesSince'] is num
+          ? (_map(j['watchdog'])!['minutesSince'] as num).toInt()
+          : null,
     );
   }
 }
@@ -800,7 +834,10 @@ Map<String, dynamic>? _map(dynamic v) =>
     v is Map ? v.map((k, value) => MapEntry('$k', value)) : null;
 
 List<Map<String, dynamic>> _list(dynamic v) => v is List
-    ? v.whereType<Map>().map((m) => m.map((k, value) => MapEntry('$k', value))).toList()
+    ? v
+          .whereType<Map>()
+          .map((m) => m.map((k, value) => MapEntry('$k', value)))
+          .toList()
     : const [];
 
 const _structureLabels = {

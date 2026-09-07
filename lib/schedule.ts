@@ -115,11 +115,7 @@ export function parseHhMm(hhmm: string): { hour: number; minute: number } {
  * stops a just-completed cycle from immediately re-qualifying as due.
  */
 export function nextDailyRun(timezone: string, hhmm: string, from: Date = new Date()): Date {
-  const now = localClock(timezone, from);
-  const target = parseHhMm(hhmm);
-  let deltaMinutes = target.hour * 60 + target.minute - (now.hour * 60 + now.minute);
-  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
-  return new Date(from.getTime() + deltaMinutes * 60_000);
+  return nextSlotRun(timezone, hhmm, 127, from)!;
 }
 
 // ------------------------------------------------------------------ weekdays
@@ -172,17 +168,27 @@ export function nextSlotRun(
   from: Date = new Date(),
 ): Date | null {
   const mask = parseDaysMask(daysMask);
-  const now = localClock(timezone, from);
+  const zone = safeTimeZone(timezone);
+  const now = localClock(zone, from);
   const target = parseHhMm(hhmm);
 
-  let deltaMinutes = target.hour * 60 + target.minute - (now.hour * 60 + now.minute);
-  // Strictly future: asking at exactly the slot time gives the next allowed day,
-  // which is what stops a just-completed run immediately re-qualifying as due.
-  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
-
-  for (let addDays = 0; addDays < 8; addDays++) {
-    const candidate = new Date(from.getTime() + (deltaMinutes + addDays * 24 * 60) * 60_000);
-    if (isDayEnabled(mask, localClock(timezone, candidate).weekday)) return candidate;
+  const midnight = Date.parse(`${now.date}T00:00:00Z`);
+  for (let day = 0; day < 9; day++) {
+    const calendar = new Date(midnight + day * 86400000);
+    if (!isDayEnabled(mask, calendar.getUTCDay())) continue;
+    const date = calendar.toISOString().slice(0,10);
+    const desired = calendar.getTime() + (target.hour * 60 + target.minute) * 60000;
+    const offsets = new Set<number>();
+    for (const delta of [-86400000,0,86400000]) {
+      const instant = new Date(desired + delta);
+      const l = localClock(zone,instant);
+      offsets.add(Date.parse(`${l.date}T00:00:00Z`) + (l.hour*60+l.minute)*60000 - instant.getTime());
+    }
+    const possible = [...offsets].map(o=>new Date(desired-o)).sort((a,b)=>a.getTime()-b.getTime());
+    const exact = possible.filter(t=> {const l=localClock(zone,t);return l.date===date&&l.hour===target.hour&&l.minute===target.minute;});
+    // Repeated times run once at the earlier instant; missing times move forward by the DST gap.
+    const candidate = exact[0] ?? possible.find(t=> {const l=localClock(zone,t);return l.date===date&&l.hour*60+l.minute>target.hour*60+target.minute;});
+    if (candidate && candidate.getTime()>from.getTime()) return candidate;
   }
   return null;
 }

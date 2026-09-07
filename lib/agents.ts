@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import type { CategoryId } from "./categories";
-import { ALL_CATEGORY_IDS, describeCategories, parseCategories, sameCategorySet } from "./categories";
+import { LEGACY_CATEGORY_IDS as ALL_CATEGORY_IDS, describeCategories, parseCategories, sameCategorySet } from "./categories";
 import { query } from "./db";
 import { MAX_AUTO_CAP } from "./distribute";
 import { expandPersona, type PersonaRecord } from "./persona";
@@ -148,7 +148,7 @@ export async function refreshPersonaIfStale(agentId: string): Promise<boolean> {
     }>("SELECT name, persona_json, categories_json FROM agents WHERE id = $1", [agentId]);
     const record = rows[0]?.persona_json;
     // Not expanded yet — that is expandStoredPersona's job, not this one's.
-    if (!record?.identity) return false;
+    if (!record?.identity || (record as unknown as {managed?:boolean}).managed) return false;
 
     const parsed = parseCategories(rows[0].categories_json);
     const categories = parsed.length > 0 ? parsed : ALL_CATEGORY_IDS;
@@ -248,7 +248,7 @@ export async function getAgentSettings(agentId: string): Promise<AgentSettings |
 /** The single agent this installation drives. Null before init has run. */
 export async function getPrimaryAgent(): Promise<AgentSettings | null> {
   const rows = await query<SettingsRow>(
-    `SELECT ${SETTINGS_COLUMNS} FROM agents WHERE active ORDER BY created_at LIMIT 1`,
+    `SELECT ${SETTINGS_COLUMNS} FROM agents WHERE active AND owner_id IS NULL ORDER BY created_at LIMIT 1`,
   );
   return rows[0] ? toSettings(rows[0]) : null;
 }
@@ -322,6 +322,10 @@ export async function updateAgentSettings(
     // chips with every music category switched off. The full identity is
     // rebuilt later, by refreshPersonaIfStale at the top of the next cycle.
     push("domain", describeCategories(categories));
+    // Managed profiles keep the author's voice and examples, while their
+    // scope follows the currently selected subjects in the same transaction.
+    params.push(describeCategories(categories));
+    sets.push(`persona_json = CASE WHEN persona_json->>'managed'='true' THEN jsonb_set(persona_json,'{input,domain}',to_jsonb($${params.length}::text)) ELSE persona_json END`);
   }
   if (patch.timezone) push("timezone", patch.timezone);
   if (patch.postTimeLocal !== undefined) {

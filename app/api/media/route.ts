@@ -13,7 +13,8 @@
  */
 import { NextResponse } from "next/server";
 import { getUsableToken } from "../../../lib/accounts";
-import { getPrimaryAgent } from "../../../lib/agents";
+
+import { getRequestAgent } from "../../../lib/request-agent";
 import { query } from "../../../lib/db";
 import { initializeImageUpload, uploadImageBytes } from "../../../lib/linkedin";
 
@@ -25,7 +26,7 @@ const MAX_BYTES = 4 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/gif"]);
 
 export async function POST(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   const token = await getUsableToken(agent.agentId);

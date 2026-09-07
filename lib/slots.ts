@@ -23,6 +23,7 @@
  */
 import { type CategoryId, parseCategories } from "./categories";
 import { getPool, query } from "./db";
+import { migrateTimetable } from './unified-timetable';
 import {
   MASK_WEEKDAYS,
   localClock,
@@ -195,12 +196,12 @@ async function syncAutoCap(agentId: string): Promise<void> {
 }
 
 /** Recompute when this slot next fires. Called after any change that moves it. */
-export async function rescheduleSlot(slot: PostSlot, timezone: string): Promise<void> {
+export async function rescheduleSlot(slot: PostSlot, timezone: string, after: Date = new Date()): Promise<void> {
   if (!slot.enabled) {
     await query("UPDATE post_slots SET next_run_at = NULL WHERE id = $1", [slot.id]);
     return;
   }
-  const next = nextSlotRun(safeTimeZone(timezone), slot.localTime, slot.daysMask);
+  const next = nextSlotRun(safeTimeZone(timezone), slot.localTime, slot.daysMask, after);
   await query("UPDATE post_slots SET next_run_at = $2 WHERE id = $1", [
     slot.id,
     next?.toISOString() ?? null,
@@ -311,6 +312,35 @@ export async function deleteSlot(agentId: string, slotId: string): Promise<boole
   return true;
 }
 
+/** Resize the timetable itself, rather than changing an unrelated send cap. */
+export async function setSlotCount(agentId:string,timezone:string,count:number) {
+  if(!Number.isInteger(count)||count<1||count>MAX_SLOTS)throw new Error('Choose 1–5 posting times.');
+  await migrateTimetable(agentId);
+  const c=await getPool()!.connect();
+  try {
+    await c.query('BEGIN');
+    const agent=await c.query('SELECT id FROM agents WHERE id=$1 FOR UPDATE',[agentId]);
+    if(!agent.rowCount)throw new Error('Account unavailable.');
+    const saved=await c.query('SELECT * FROM post_slots WHERE agent_id=$1 ORDER BY position,local_time FOR UPDATE',[agentId]);
+    const keep=saved.rows.slice(0,count);
+    for(const removed of saved.rows.slice(count))await c.query('DELETE FROM post_slots WHERE id=$1',[removed.id]);
+    const used=new Set<string>(keep.map(s=>s.local_time));
+    const firstTime=(keep[0]?.local_time??'09:00').split(':').map(Number);
+    const firstMinutes=firstTime[0]*60+firstTime[1];
+    for(let i=keep.length;i<count;i++) {
+      let minutes=(firstMinutes+i*150)%(24*60);
+      let time='';
+      do {time=`${Math.floor(minutes/60).toString().padStart(2,'0')}:${(minutes%60).toString().padStart(2,'0')}`;minutes=(minutes+30)%(24*60);}while(used.has(time));
+      used.add(time);
+      const mask=keep[0]?.days_mask??127;
+      await c.query(`INSERT INTO post_slots(agent_id,local_time,days_mask,lead_minutes,auto_publish,position,next_run_at)
+        VALUES($1,$2,$3,15,false,$4,$5)`,[agentId,time,mask,i,nextSlotRun(timezone,time,mask)]);
+    }
+    await c.query(`UPDATE agents SET auto_publish_cap=GREATEST(1,(SELECT count(*) FROM post_slots WHERE agent_id=$1 AND enabled)) WHERE id=$1`,[agentId]);
+    await c.query('COMMIT');
+  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+}
+
 /**
  * Give an agent its first slot from the legacy single post time.
  *
@@ -327,7 +357,10 @@ export async function ensureSlotsMigrated(
   timezone: string,
   autoPublish: boolean,
 ): Promise<PostSlot[]> {
+  await migrateTimetable(agentId);
   const existing = await listSlots(agentId);
+  const native = await query('SELECT 1 FROM agents WHERE id=$1 AND owner_id IS NOT NULL', [agentId]);
+  if (native.length) return existing;
   // Returned, not discarded: /api/status used to call this and then call
   // listSlots again for the same rows — a second network round trip for data
   // it already had in hand.
@@ -379,6 +412,9 @@ export async function listDueSlots(): Promise<DueSlot[]> {
        JOIN agents a ON a.id = s.agent_id
       WHERE s.enabled AND a.active AND NOT a.paused
         AND s.next_run_at IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM slot_runs r WHERE r.slot_id=s.id
+          AND r.run_date=(s.next_run_at AT TIME ZONE a.timezone)::date
+          AND (r.post_seq IS NOT NULL OR r.retry_at>now()))
         -- lead + buffer, so the draft is READY when the review window opens
         -- rather than only starting to be written then. See
         -- GENERATION_BUFFER_MINUTES.
@@ -409,7 +445,7 @@ export async function listDueSlots(): Promise<DueSlot[]> {
  * reason: the primary key does the concurrency control, so overlapping cron
  * ticks collapse into one generation rather than racing.
  */
-export async function claimSlotRun(due: DueSlot): Promise<boolean> {
+export async function claimSlotRun(due: DueSlot, manual=false): Promise<boolean> {
   const rows = await query<{ slot_id: string }>(
     // DO UPDATE rather than DO NOTHING, but only for a run that FAILED and
     // whose send time has not yet passed.
@@ -426,11 +462,15 @@ export async function claimSlotRun(due: DueSlot): Promise<boolean> {
     `INSERT INTO slot_runs (slot_id, run_date, scheduled_for, outcome)
      VALUES ($1, $2, $3, 'pending')
      ON CONFLICT (slot_id, run_date) DO UPDATE
-        SET outcome = 'pending', detail = NULL
-      WHERE slot_runs.outcome = 'failed'
-        AND slot_runs.scheduled_for > now()
+        SET outcome = 'pending', detail = NULL,stage='discovering',generated_at=NULL,
+          attempts=slot_runs.attempts+1,retry_at=now()+interval '10 minutes'
+      WHERE slot_runs.post_seq IS NULL
+        AND slot_runs.outcome IN ('failed','silent','missed','pending')
+        AND slot_runs.retry_at<=now()
+        AND (slot_runs.outcome<>'pending' OR slot_runs.retry_at<now()-interval '10 minutes')
+        AND ($4 OR (slot_runs.attempts<3 AND slot_runs.scheduled_for > now()))
      RETURNING slot_id`,
-    [due.slot.id, due.runDate, due.scheduledFor.toISOString()],
+    [due.slot.id, due.runDate, due.scheduledFor.toISOString(),manual],
   );
   return rows.length > 0;
 }
@@ -444,7 +484,8 @@ export async function settleSlotRun(
   await query(
     `UPDATE slot_runs
         SET outcome = $3, generated_at = COALESCE(generated_at, now()),
-            post_seq = COALESCE($4, post_seq), detail = $5
+            post_seq = COALESCE($4, post_seq), detail = $5,retry_at=now()+interval '10 minutes',
+            stage=CASE WHEN $4::int IS NOT NULL THEN 'ready' ELSE stage END
       WHERE slot_id = $1 AND run_date = $2`,
     [slotId, runDate, outcome, fields.postSeq ?? null, fields.detail?.slice(0, 300) ?? null],
   );

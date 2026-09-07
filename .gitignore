@@ -36,3 +36,8 @@ dist/
 
 # Verification builds go here, never into .next — see scripts/build-check.mjs
 .next-verify/
+
+# Isolated ByLine development data and output
+.byline-local/
+.next-byline/
+.next-byline-live/

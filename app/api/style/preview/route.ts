@@ -10,13 +10,14 @@
  *
  * It rewrites the author's most recent post rather than inventing a story,
  * because the interesting question is "what would MY posts look like in this
- * voice", not "can the model write something". Falls back to a built-in sample
- * on a fresh install with an empty archive.
+ * voice", not "can the model write something". Uses a reviewed setup sample or
+ * an author-supplied example when the archive is empty.
  *
  * Costs one LLM call, so it is button-triggered and never runs on keystroke.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../../lib/agents";
+import { getPersona, voiceReferencesFor } from "../../../../lib/agents";
+import { getRequestAgent } from "../../../../lib/request-agent";
 import { query } from "../../../../lib/db";
 import { assemblePost, checkLength, hookOf } from "../../../../lib/format";
 import { parseStyle } from "../../../../lib/style";
@@ -26,11 +27,8 @@ export const dynamic = "force-dynamic";
 // polishCustomPost, plus a possible repair call.
 export const maxDuration = 120;
 
-/** Used only when the archive is empty — deliberately plain, so the style does the work. */
-const SAMPLE = `I spent the weekend replacing a hand-rolled retry loop with a proper backoff library, and the incident rate on that service dropped to zero. The original loop retried three times with no jitter, so every client in the fleet retried in lockstep and turned a two-second blip into a thundering herd. The fix was twelve lines shorter than what it replaced. Most reliability work looks like this: not clever, just correcting an assumption nobody revisited.`;
-
 export async function POST(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   const [persona, voice] = await Promise.all([
@@ -45,6 +43,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Check your preview settings.'},{status:400});
 
   // Merge the candidate over the SAVED style, matching how PATCH /api/settings
   // applies a patch — otherwise the preview shows a different voice than the
@@ -63,10 +62,12 @@ export async function POST(request: Request) {
     );
     if (recent[0]) {
       source = recent[0].text;
-      sourceLabel = `your most recent post (${recent[0].id})`;
+      sourceLabel = 'your most recent post';
     } else {
-      source = SAMPLE;
-      sourceLabel = "a built-in sample (your archive is empty)";
+      const [setup]=await query<{text:string}>(`SELECT o.preview->>'text' AS text FROM onboarding o JOIN agents a ON a.owner_id=o.user_id WHERE a.id=$1 AND o.accepted_revision=o.preview_revision AND o.preview IS NOT NULL`,[agent.agentId]);
+      source = setup?.text || voice.samples[0]?.text || '';
+      sourceLabel = setup?.text ? 'your reviewed setup sample' : 'your writing sample';
+      if (!source) return NextResponse.json({error:'preview_source_required',detail:'Add a writing sample or save a draft to preview your voice.'},{status:409});
     }
   }
 
@@ -80,10 +81,7 @@ export async function POST(request: Request) {
 
   // Show it exactly as LinkedIn would receive it, hashtags and all — the
   // hashtag count is one of the settings being previewed.
-  const sampleTags = ["MusicTech", "AudioDev", "DSP", "Engineering", "BuildingInPublic"].slice(
-    0,
-    style.hashtagCount,
-  );
+  const sampleTags = (result.data.hashtags ?? []).slice(0, style.hashtagCount);
   const assembled = assemblePost({
     body: result.data.text,
     hashtags: sampleTags,

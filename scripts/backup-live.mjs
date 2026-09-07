@@ -1,0 +1,14 @@
+import {mkdirSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {liveEnv} from './live-env.mjs';
+const env=liveEnv();
+const bin=process.env.PG_BIN??'C:/Program Files/PostgreSQL/18/bin';
+const folder=resolve('.byline-local/backups');mkdirSync(folder,{recursive:true});
+const file=join(folder,`byline-${new Date().toISOString().replace(/[:.]/g,'-')}.dump`);
+const dump=spawnSync(join(bin,'pg_dump.exe'),['--format=custom','--file',file,'--dbname',env.DATABASE_URL],{windowsHide:true,encoding:'utf8'});
+if(dump.status!==0)throw new Error('ByLine backup failed. Check the local database connection.');
+const verify=spawnSync(join(bin,'pg_restore.exe'),['--list',file],{windowsHide:true,encoding:'utf8'});
+if(verify.status!==0)throw new Error('Backup archive validation failed.');
+console.log(`Local ByLine backup saved: ${file}`);
+console.log('Contains private account data. Keep it private, together with the matching .env.byline-live encryption key.');

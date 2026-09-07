@@ -16,12 +16,13 @@
  * route. The post going out matters; being told about it does not.
  */
 import { query } from "./db";
+import { readFile } from 'node:fs/promises';
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
 export function pushConfigured(): boolean {
-  return !!(process.env.FCM_PROJECT_ID && process.env.FCM_CLIENT_EMAIL && process.env.FCM_PRIVATE_KEY);
+  return !!(process.env.FCM_PROJECT_ID && ((process.env.FCM_CLIENT_EMAIL && process.env.FCM_PRIVATE_KEY)||process.env.FCM_ACCESS_TOKEN_FILE));
 }
 
 // ------------------------------------------------------------ access tokens
@@ -64,6 +65,10 @@ function base64url(input: string | Uint8Array): string {
 }
 
 async function mintAccessToken(): Promise<string | null> {
+  if(process.env.FCM_ACCESS_TOKEN_FILE) {
+    const saved=JSON.parse(await readFile(process.env.FCM_ACCESS_TOKEN_FILE,'utf8'));
+    return typeof saved.accessToken==='string'&&saved.expiresAt>Date.now()+60_000?saved.accessToken:null;
+  }
   const clientEmail = process.env.FCM_CLIENT_EMAIL;
   // Env vars cannot carry real newlines, so the key is stored with them escaped
   // and restored here. Getting this wrong produces an opaque "invalid key"
@@ -139,7 +144,7 @@ export async function checkCredentials(): Promise<{ ok: boolean; detail: string 
     // not that a token minted an hour ago is still valid.
     const token = await mintAccessToken();
     return token
-      ? { ok: true, detail: "credentials accepted by Google" }
+      ? { ok: true, detail: process.env.FCM_ACCESS_TOKEN_FILE ? "Operator access token is available; send a test notification to verify delivery." : "credentials accepted by Google" }
       : { ok: false, detail: "Google refused the credentials — see the logs for the exchange error" };
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
@@ -343,7 +348,7 @@ async function withinCooldown(agentId: string, kind: PushEvent["kind"]): Promise
  * Returns how many devices it reached, which is only useful for tests and logs
  * — no caller should branch on it. Never throws.
  */
-export async function notify(agentId: string, event: PushEvent): Promise<number> {
+export async function notify(agentId: string, event: PushEvent, deviceToken?: string): Promise<number> {
   try {
     if (!pushConfigured()) return 0;
     if (await withinCooldown(agentId, event.kind)) {
@@ -351,7 +356,8 @@ export async function notify(agentId: string, event: PushEvent): Promise<number>
       return 0;
     }
 
-    const tokens = await devicesFor(agentId);
+    const registered = await devicesFor(agentId);
+    const tokens = deviceToken ? registered.filter(token => token === deviceToken) : registered;
     if (tokens.length === 0) return 0;
 
     const bearer = await accessToken();
@@ -373,7 +379,7 @@ export async function notify(agentId: string, event: PushEvent): Promise<number>
             token,
             notification: { title, body },
             // Strings only — FCM rejects a data payload with non-string values.
-            data: { kind: event.kind, tab },
+            data: { kind: event.kind, tab, ...('seq' in event ? {seq:String(event.seq)} : {}) },
             android: {
               priority: urgent ? "HIGH" : "NORMAL",
               notification: {

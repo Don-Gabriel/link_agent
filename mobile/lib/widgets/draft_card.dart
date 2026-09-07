@@ -21,6 +21,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/models.dart';
 import '../theme.dart';
@@ -55,9 +56,11 @@ String hhmm(DateTime t) =>
 /// on every card is noise.
 String whenLabel(DateTime t) {
   final now = DateTime.now();
-  final days = DateTime(t.year, t.month, t.day)
-      .difference(DateTime(now.year, now.month, now.day))
-      .inDays;
+  final days = DateTime(
+    t.year,
+    t.month,
+    t.day,
+  ).difference(DateTime(now.year, now.month, now.day)).inDays;
   return switch (days) {
     0 => hhmm(t),
     1 => 'tomorrow ${hhmm(t)}',
@@ -81,8 +84,9 @@ String _weekday(int w) => _weekdays[(w - 1) % 7];
 /// the finest thing said is minutes, and a one-second timer there would ask
 /// Flutter to rebuild sixty times for every frame that could differ — once per
 /// scheduled post on screen.
-Duration countdownTick(Duration remaining) =>
-    remaining.abs().inHours < 1 ? const Duration(seconds: 1) : const Duration(seconds: 20);
+Duration countdownTick(Duration remaining) => remaining.abs().inHours < 1
+    ? const Duration(seconds: 1)
+    : const Duration(seconds: 20);
 
 /// "in 12 min", "in 3h 40m", "2 min ago" — coarse on purpose above an hour.
 String countdownWords(Duration d) {
@@ -91,10 +95,10 @@ String countdownWords(Duration d) {
   final label = total.inMinutes < 1
       ? 'less than a minute'
       : total.inMinutes < 60
-          ? '${total.inMinutes} min'
-          : total.inHours < 24
-              ? '${total.inHours}h ${total.inMinutes % 60}m'
-              : '${total.inDays}d ${total.inHours % 24}h';
+      ? '${total.inMinutes} min'
+      : total.inHours < 24
+      ? '${total.inHours}h ${total.inMinutes % 60}m'
+      : '${total.inDays}d ${total.inHours % 24}h';
   return late ? '$label ago' : 'in $label';
 }
 
@@ -110,7 +114,9 @@ mixin CountdownTicker<W extends StatefulWidget> on State<W> {
 
   void _rearm() {
     final at = deadline;
-    final next = countdownTick(at == null ? Duration.zero : at.difference(DateTime.now()));
+    final next = countdownTick(
+      at == null ? Duration.zero : at.difference(DateTime.now()),
+    );
     if (_interval == next && _ticker != null) return;
     _interval = next;
     _ticker?.cancel();
@@ -228,7 +234,9 @@ class FoldRule extends StatelessWidget {
                     ),
                     const SizedBox(width: S.x1),
                     Icon(
-                      expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                      expanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
                       size: 15,
                       color: C.filament,
                     ),
@@ -251,9 +259,9 @@ class _DashedCut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => CustomPaint(
-        size: const Size(double.infinity, 1),
-        painter: _DashPainter(),
-      );
+    size: const Size(double.infinity, 1),
+    painter: _DashPainter(),
+  );
 }
 
 class _DashPainter extends CustomPainter {
@@ -319,30 +327,30 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
     // Five states, each needing a different action from the reader.
     final (Tone tone, IconData icon, String message) = switch (post) {
       _ when post.isMissed => (
-          Tone.broken,
-          Icons.event_busy,
-          'Missed its ${whenLabel(at)} slot — not sent late.',
-        ),
+        Tone.broken,
+        Icons.event_busy,
+        'Missed its ${whenLabel(at)} slot — not sent late.',
+      ),
       _ when post.isHeld => (
-          Tone.desk,
-          Icons.lock_clock,
-          'Held while you edit. It will not send until you save.',
-        ),
+        Tone.desk,
+        Icons.lock_clock,
+        'Held while you edit. It will not send until you save.',
+      ),
       _ when post.isCleared => (
-          Tone.out,
-          Icons.check_circle_outline,
-          'Cleared — sends ${whenLabel(at)}, ${countdownWords(remaining)}.',
-        ),
+        Tone.out,
+        Icons.check_circle_outline,
+        'Scheduled — publishes ${whenLabel(at)}, ${countdownWords(remaining)}.',
+      ),
       _ when remaining.isNegative => (
-          Tone.desk,
-          Icons.error_outline,
-          'Due ${whenLabel(at)} and not cleared. It will not send until you clear it.',
-        ),
+        Tone.desk,
+        Icons.error_outline,
+        'Due ${whenLabel(at)} and not scheduled for publishing. Choose Schedule post or Publish now.',
+      ),
       _ => (
-          Tone.desk,
-          Icons.schedule,
-          'Sends ${whenLabel(at)}, ${countdownWords(remaining)}. Clear it before then.',
-        ),
+        Tone.desk,
+        Icons.schedule,
+        'Sends ${whenLabel(at)}, ${countdownWords(remaining)}. Schedule it before then.',
+      ),
     };
 
     return Container(
@@ -350,7 +358,9 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
       decoration: BoxDecoration(
         color: tone.wash,
         border: Border(left: BorderSide(color: tone.ink, width: 2)),
-        borderRadius: const BorderRadius.horizontal(right: Radius.circular(R.sm)),
+        borderRadius: const BorderRadius.horizontal(
+          right: Radius.circular(R.sm),
+        ),
       ),
       child: Row(
         children: [
@@ -372,9 +382,11 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
             IconButton(
               onPressed: widget.onRemove,
               icon: const Icon(Icons.timer_off_outlined, size: 17),
-              tooltip: 'Remove the send time',
+              tooltip: 'Remove publish time',
               visualDensity: VisualDensity.compact,
-              style: IconButton.styleFrom(foregroundColor: tone.ink.withValues(alpha: 0.75)),
+              style: IconButton.styleFrom(
+                foregroundColor: tone.ink.withValues(alpha: 0.75),
+              ),
             ),
         ],
       ),
@@ -416,17 +428,21 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
 
     // Cleared posts cool to the send clock: the card stops asking anything of
     // you the moment you have answered it.
-    final urgent = !post.isCleared && remaining.inSeconds > 0 && remaining.inMinutes < 2;
+    final urgent =
+        !post.isCleared && remaining.inSeconds > 0 && remaining.inMinutes < 2;
     final tone = post.isMissed || urgent
         ? Tone.broken
         : post.isCleared
-            ? Tone.out
-            : Tone.desk;
+        ? Tone.out
+        : Tone.desk;
 
     final (String figure, String caption) = switch (post) {
       _ when post.isMissed => ('missed', 'not sent late'),
       _ when post.isHeld => (_figure(remaining), 'held while you edit'),
-      _ when remaining.isNegative => ('overdue', 'not cleared — it will not send'),
+      _ when remaining.isNegative => (
+        'overdue',
+        'not scheduled for publishing',
+      ),
       _ when post.isCleared => (_figure(remaining), 'to send'),
       _ => (_figure(remaining), 'to review'),
     };
@@ -440,11 +456,16 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
           Row(
             children: [
               Text(
-                post.isCleared ? 'CLEARED' : 'NEXT OUT',
+                post.isCleared ? 'SCHEDULED' : 'NEXT OUT',
                 style: T.slug.copyWith(color: tone.ink),
               ),
               const SizedBox(width: S.x3),
-              Expanded(child: Divider(color: tone.ink.withValues(alpha: 0.3), height: 1)),
+              Expanded(
+                child: Divider(
+                  color: tone.ink.withValues(alpha: 0.3),
+                  height: 1,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: S.x3),
@@ -458,7 +479,10 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
           // clock. Up there it sat forty pixels from the countdown in the same
           // weight and the same colour, and two numbers of different kinds that
           // close together read as one thing measured twice.
-          Text('$caption · sends ${whenLabel(at)}'.toUpperCase(), style: T.slug),
+          Text(
+            '$caption · sends ${whenLabel(at)}'.toUpperCase(),
+            style: T.slug,
+          ),
         ],
       ),
     );
@@ -475,7 +499,9 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
     // FULL character advance — at 44pt that is a 26px hole punched through the
     // middle of the number, and it read as two separate figures. The unit
     // letters already do the separating.
-    if (d.inHours >= 1) return '${d.inHours}h${(d.inMinutes % 60).toString().padLeft(2, '0')}m';
+    if (d.inHours >= 1) {
+      return '${d.inHours}h${(d.inMinutes % 60).toString().padLeft(2, '0')}m';
+    }
     return '${d.inMinutes.toString().padLeft(2, '0')}:'
         '${(d.inSeconds % 60).toString().padLeft(2, '0')}';
   }
@@ -509,7 +535,7 @@ class OfferATime extends StatelessWidget {
             const SizedBox(width: S.x2),
             Expanded(
               child: Text(
-                'Send at a set time',
+                'Choose a publish time',
                 style: T.small.copyWith(
                   color: onTap == null ? C.paperFaint : C.paperDim,
                 ),
@@ -594,12 +620,12 @@ class DraftCard extends StatelessWidget {
   final bool hero;
 
   Tone get _tone => switch (post) {
-        _ when post.isMissed => Tone.broken,
-        _ when post.status == 'failed' => Tone.broken,
-        _ when post.isPublished => Tone.out,
-        _ when post.isCleared => Tone.out,
-        _ => Tone.desk,
-      };
+    _ when post.isMissed => Tone.broken,
+    _ when post.status == 'failed' => Tone.broken,
+    _ when post.isPublished => Tone.out,
+    _ when post.isCleared => Tone.out,
+    _ => Tone.desk,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +639,10 @@ class DraftCard extends StatelessWidget {
           _SlugLine(post: post, hero: hero),
           // No divider on the hero: the NEXT OUT rule immediately below does
           // that job, and two hairlines twenty pixels apart is a stutter.
-          if (hero) const SizedBox(height: S.x3) else const Divider(color: C.rule, height: S.x4),
+          if (hero)
+            const SizedBox(height: S.x3)
+          else
+            const Divider(color: C.rule, height: S.x4),
 
           if (post.isScheduled && !post.isPublished && hero) ...[
             HeroClock(post: post, onTap: busy ? null : actions.onSchedule),
@@ -631,6 +660,19 @@ class DraftCard extends StatelessWidget {
           ],
 
           FoldedCopy(post.text),
+          for (final source in post.sources.where(
+            (s) =>
+                Uri.tryParse(s)?.scheme == 'https' ||
+                Uri.tryParse(s)?.scheme == 'http',
+          ))
+            TextButton.icon(
+              onPressed: () => launchUrl(
+                Uri.parse(source),
+                mode: LaunchMode.externalApplication,
+              ),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: Text('Source · ${Uri.parse(source).host}'),
+            ),
 
           if (post.hashtags.isNotEmpty) ...[
             const SizedBox(height: S.x3),
@@ -669,8 +711,8 @@ class DraftCard extends StatelessWidget {
       direction: canSwipeClear && canSwipeDiscard
           ? DismissDirection.horizontal
           : canSwipeClear
-              ? DismissDirection.startToEnd
-              : DismissDirection.endToStart,
+          ? DismissDirection.startToEnd
+          : DismissDirection.endToStart,
       dismissThresholds: const {
         DismissDirection.startToEnd: 0.4,
         DismissDirection.endToStart: 0.4,
@@ -678,7 +720,7 @@ class DraftCard extends StatelessWidget {
       background: const _SwipeHint(
         tone: Tone.out,
         icon: Icons.check,
-        label: 'Clear',
+        label: 'Schedule post',
         alignment: Alignment.centerLeft,
       ),
       secondaryBackground: const _SwipeHint(
@@ -709,7 +751,8 @@ class DraftCard extends StatelessWidget {
     if (scores.isEmpty) return null;
     final rest = scores.entries.where((e) => e.key != 'total').toList();
     if (rest.isEmpty) return null;
-    final mean = rest.fold<double>(0, (a, e) => a + e.value.toDouble()) / rest.length;
+    final mean =
+        rest.fold<double>(0, (a, e) => a + e.value.toDouble()) / rest.length;
     return '${mean.toStringAsFixed(1)} / 10';
   }
 }
@@ -768,9 +811,11 @@ class _SlugLine extends StatelessWidget {
   /// failed to. The reader's word for the first one is "cleared".
   static (String, Tone, IconData?)? _stateWord(Post post) {
     if (post.isPublished) return ('published', Tone.out, Icons.check);
-    if (post.isCleared) return ('cleared', Tone.out, Icons.check);
+    if (post.isCleared && (post.isDraft || post.status == 'approved')) {
+      return ('scheduled', Tone.out, Icons.check);
+    }
     return switch (post.status) {
-      'approved' => ('not sent', Tone.broken, Icons.priority_high),
+      'approved' => ('not sent', Tone.desk, Icons.schedule),
       'failed' => ('send failed', Tone.broken, Icons.priority_high),
       'missed' => ('missed', Tone.broken, Icons.event_busy),
       'unknown' => ('unconfirmed', Tone.broken, Icons.help_outline),
@@ -838,7 +883,11 @@ class _Judgement extends StatelessWidget {
 
 /// One named primary, one named secondary, everything else in a menu.
 class _Actions extends StatelessWidget {
-  const _Actions({required this.post, required this.actions, required this.busy});
+  const _Actions({
+    required this.post,
+    required this.actions,
+    required this.busy,
+  });
 
   final Post post;
   final DraftActions actions;
@@ -848,7 +897,9 @@ class _Actions extends StatelessWidget {
   Widget build(BuildContext context) {
     // A published post has no send controls left, so the follow-up stands on
     // its own — it is the only thing still worth doing with a post that is out.
-    if (actions.onClear == null && actions.onSendNow == null && actions.onFollowUp != null) {
+    if (actions.onClear == null &&
+        actions.onSendNow == null &&
+        actions.onFollowUp != null) {
       return SizedBox(
         width: double.infinity,
         child: OutlinedButton.icon(
@@ -872,58 +923,71 @@ class _Actions extends StatelessWidget {
             // 390pt, "Clear for 16:33" plus Send now plus the menu does not fit
             // on one line, and a two-line primary button on the most-pressed
             // control in the app is not a trade worth making.
-            label: const Text('Clear'),
+            label: const Text('Schedule post'),
           )
         : actions.onSendNow != null
-            ? FilledButton.icon(
-                onPressed: busy ? null : actions.onSendNow,
-                icon: const Icon(Icons.send, size: 17),
-                label: Text(post.isCleared ? 'Send now' : 'Publish'),
-              )
-            : null;
+        ? FilledButton.icon(
+            onPressed: busy ? null : actions.onSendNow,
+            icon: const Icon(Icons.send, size: 17),
+            label: const Text('Publish now'),
+          )
+        : null;
 
     final menu = <PopupMenuEntry<VoidCallback>>[
       if (actions.onEdit != null)
-        PopupMenuItem(value: actions.onEdit, child: const _MenuRow(Icons.edit_outlined, 'Edit')),
+        PopupMenuItem(
+          value: actions.onEdit,
+          child: const _MenuRow(Icons.edit_outlined, 'Edit'),
+        ),
       if (actions.onSchedule != null)
         PopupMenuItem(
           value: actions.onSchedule,
           child: _MenuRow(
             Icons.schedule,
-            post.isScheduled ? 'Change the send time' : 'Set a send time',
+            post.isScheduled ? 'Change publish time' : 'Choose publish time',
           ),
         ),
       if (actions.onUnschedule != null)
         PopupMenuItem(
           value: actions.onUnschedule,
-          child: const _MenuRow(Icons.timer_off_outlined, 'Remove the send time'),
+          child: const _MenuRow(
+            Icons.timer_off_outlined,
+            'Remove publish time',
+          ),
         ),
       if (actions.onFollowUp != null)
         PopupMenuItem(
           value: actions.onFollowUp,
-          child: const _MenuRow(Icons.subdirectory_arrow_right, 'Write a follow-up'),
+          child: const _MenuRow(
+            Icons.subdirectory_arrow_right,
+            'Write a follow-up',
+          ),
         ),
       if (actions.onDiscard != null)
         PopupMenuItem(
           value: actions.onDiscard,
-          child: const _MenuRow(Icons.delete_outline, 'Discard', tone: Tone.broken),
+          child: const _MenuRow(
+            Icons.delete_outline,
+            'Discard',
+            tone: Tone.broken,
+          ),
         ),
     ];
 
-    return Row(
+    return Wrap(
+      spacing: S.x2,
+      runSpacing: S.x2,
       children: [
-        if (primary != null) Expanded(child: primary),
+        ?primary,
         // Both at once only when clearing is primary — then this is the "never
         // mind the schedule" escape hatch.
         if (actions.onClear != null && actions.onSendNow != null) ...[
-          const SizedBox(width: S.x2),
           OutlinedButton(
             onPressed: busy ? null : actions.onSendNow,
-            child: const Text('Send now'),
+            child: const Text('Publish now'),
           ),
         ],
         if (menu.isNotEmpty) ...[
-          const SizedBox(width: S.x2),
           PopupMenuButton<VoidCallback>(
             enabled: !busy,
             tooltip: 'More actions',
@@ -938,7 +1002,9 @@ class _Actions extends StatelessWidget {
               minimumSize: const Size(kMinTouch, kMinTouch),
               side: const BorderSide(color: C.ruleStrong),
               foregroundColor: C.paperDim,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.sm)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(R.sm),
+              ),
             ),
             itemBuilder: (_) => menu,
             onSelected: (action) => action(),
@@ -963,7 +1029,9 @@ class _MenuRow extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: tone == Tone.quiet ? C.paperFaint : colour),
         const SizedBox(width: S.x3),
-        Text(label, style: T.body.copyWith(color: colour)),
+        Flexible(
+          child: Text(label, style: T.body.copyWith(color: colour)),
+        ),
       ],
     );
   }
@@ -985,19 +1053,19 @@ class _SwipeHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        alignment: alignment,
-        padding: const EdgeInsets.symmetric(horizontal: S.x5),
-        decoration: BoxDecoration(
-          color: tone.wash,
-          borderRadius: BorderRadius.circular(R.md),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: tone.ink),
-            const SizedBox(width: S.x2),
-            Text(label.toUpperCase(), style: T.slug.copyWith(color: tone.ink)),
-          ],
-        ),
-      );
+    alignment: alignment,
+    padding: const EdgeInsets.symmetric(horizontal: S.x5),
+    decoration: BoxDecoration(
+      color: tone.wash,
+      borderRadius: BorderRadius.circular(R.md),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: tone.ink),
+        const SizedBox(width: S.x2),
+        Text(label.toUpperCase(), style: T.slug.copyWith(color: tone.ink)),
+      ],
+    ),
+  );
 }

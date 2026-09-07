@@ -1,3 +1,4 @@
+import { ownsMedia } from '../../../lib/media-ownership';
 /**
  * Custom posts: the composer's endpoint.
  *
@@ -7,18 +8,41 @@
  * text came from a person.
  */
 import { NextResponse } from "next/server";
-import { getPersona, getPrimaryAgent, voiceReferencesFor } from "../../../lib/agents";
+import { getPersona, voiceReferencesFor } from "../../../lib/agents";
+import { getRequestAgent } from "../../../lib/request-agent";
 import { isCategoryId } from "../../../lib/categories";
 import { query } from "../../../lib/db";
 import { publishPost } from "../../../lib/distribute";
 import { assemblePost, checkLength, MAX_BODY_CHARS } from "../../../lib/format";
 import { polishCustomPost } from "../../../lib/writer";
+import { MAX_HASHTAGS } from "../../../lib/style";
+import { POST_COLUMNS, serializePost, type PostRow } from "../../../lib/post-view";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+/** Load older published posts without losing them behind the status window. */
+export async function GET(request: Request) {
+  const agent = await getRequestAgent();
+  if (!agent) return NextResponse.json({ error: 'not_initialized' }, { status: 400 });
+  const value = new URL(request.url).searchParams.get('before');
+  const before = value === null ? null : Number(value);
+  if (before !== null && (!Number.isInteger(before) || before < 1)) {
+    return NextResponse.json({ error: 'bad_cursor' }, { status: 400 });
+  }
+  const posts = await query<PostRow>(
+    `SELECT ${POST_COLUMNS} FROM posts
+     WHERE agent_id=$1 AND status='published' AND ($2::int IS NULL OR
+       (published_at,seq) < (SELECT published_at,seq FROM posts WHERE agent_id=$1 AND seq=$2))
+     ORDER BY published_at DESC NULLS LAST, seq DESC LIMIT 21`,
+    [agent.agentId, before],
+  );
+  return NextResponse.json({ posts: posts.slice(0,20).map(serializePost), hasMore: posts.length > 20 },
+    { headers: { 'Cache-Control': 'no-store' } });
+}
+
 export async function POST(request: Request) {
-  const agent = await getPrimaryAgent();
+  const agent = await getRequestAgent();
   if (!agent) return NextResponse.json({ error: "not_initialized" }, { status: 400 });
 
   let body: {
@@ -30,11 +54,21 @@ export async function POST(request: Request) {
     publishNow?: boolean;
     /** ISO instant. Puts a hand-written post on the timetable like any other. */
     scheduledFor?: string;
+    clientRequestId?: string;
   };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+  }
+  if (body.polish && body.publishNow) {
+    return NextResponse.json({ error: 'Save and review the polished draft before publishing it.' }, { status: 409 });
+  }
+  if (body.clientRequestId !== undefined && !/^[A-Za-z0-9_-]{20,100}$/.test(body.clientRequestId)) {
+    return NextResponse.json({ error: 'bad_request_id' }, { status: 400 });
   }
 
   let text = (body.text ?? "").trim();
@@ -76,15 +110,16 @@ export async function POST(request: Request) {
   }
 
   const mediaIds = (body.mediaIds ?? []).filter((id) => typeof id === "string").slice(0, 20);
+  if(!await ownsMedia(agent.agentId,mediaIds))return NextResponse.json({error:'invalid_media'},{status:400});
   const hashtags = [
     ...(body.hashtags ?? []).filter((h) => typeof h === "string"),
-    ...polishedTags,
-  ].slice(0, agent.style.hashtagCount);
+    ...((body.hashtags?.length ?? 0) === 0 ? polishedTags.slice(0, agent.style.hashtagCount) : []),
+  ].slice(0, MAX_HASHTAGS);
   const category = isCategoryId(body.category) ? body.category : null;
 
   // Validate the assembled length now rather than at publish time, so the
   // composer can report it while the text is still on screen.
-  const assembled = assemblePost({ body: text, hashtags, maxHashtags: agent.style.hashtagCount });
+  const assembled = assemblePost({ body: text, hashtags, maxHashtags: MAX_HASHTAGS });
   const length = checkLength(assembled);
   if (!length.withinLimit) {
     return NextResponse.json(
@@ -112,28 +147,33 @@ export async function POST(request: Request) {
     scheduledFor = when;
   }
 
-  const inserted = await query<{ id: string; seq: number }>(
+  const inserted = await query<{ id: string; seq: number; text: string; hashtags_json: string[]; media_json: string[]; status: string }>(
     `INSERT INTO posts (agent_id, seq, text, rationale, sources_json, fingerprint, status, kind,
-                        category, media_json, hashtags_json, scheduled_for, cleared_at)
-     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, '[]'::jsonb, $4, $5, 'custom', $6, $7, $8,
-            $9, CASE WHEN $9::timestamptz IS NULL THEN NULL ELSE now() END
-       FROM posts WHERE agent_id = $1
-     RETURNING id, seq`,
+                        category, media_json, hashtags_json, scheduled_for, cleared_at, client_request_id)
+     SELECT $1, byline_next_seq($1), $2, $3, '[]'::jsonb, $4, $5, 'custom', $6, $7, $8,
+            $9, CASE WHEN $9::timestamptz IS NULL THEN NULL ELSE now() END, $10
+     ON CONFLICT (agent_id,client_request_id) WHERE client_request_id IS NOT NULL
+     DO UPDATE SET client_request_id=EXCLUDED.client_request_id
+     RETURNING id, seq, text, hashtags_json, media_json, status`,
     [
       agent.agentId,
       text,
       polishedBy ? `Written by you, edited for the hook (${polishedBy}).` : "Written by you.",
       `custom post — ${text.slice(0, 80)}`,
-      body.publishNow ? "approved" : "draft",
+      body.publishNow || scheduledFor ? "approved" : "draft",
       category,
       JSON.stringify(mediaIds),
       JSON.stringify(hashtags),
       scheduledFor?.toISOString() ?? null,
+      body.clientRequestId ?? null,
     ],
   );
 
   const post = inserted[0];
   if (!post) return NextResponse.json({ error: "insert_failed" }, { status: 500 });
+  if (post.text !== text || JSON.stringify(post.hashtags_json) !== JSON.stringify(hashtags) || JSON.stringify(post.media_json) !== JSON.stringify(mediaIds)) {
+    return NextResponse.json({ error: 'Your earlier save succeeded. This draft is already in My Posts; review it before saving these newer changes.', seq: post.seq }, { status: 409 });
+  }
 
   if (body.publishNow) {
     const result = await publishPost(agent.agentId, post.seq);
@@ -150,7 +190,7 @@ export async function POST(request: Request) {
     ok: true,
     id: post.id,
     seq: post.seq,
-    status: "draft",
+    status: post.status,
     scheduledFor: scheduledFor?.toISOString() ?? null,
     polishedBy,
   });

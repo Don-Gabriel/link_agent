@@ -1,3 +1,5 @@
+import { completeNativeAuth } from '../../../../lib/native-auth';
+import { nativeCallbackPage } from '../../../../lib/native-callback';
 /**
  * OAuth callback: verify state, exchange the code, resolve the person URN,
  * store the encrypted token.
@@ -25,36 +27,36 @@ export async function GET(request: Request) {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
-  // LinkedIn reports user-side refusal here rather than by omitting the code.
-  const denied = url.searchParams.get("error");
-  if (denied) {
-    return back(request, {
-      error: "linkedin_denied",
-      detail: url.searchParams.get("error_description") ?? denied,
-    });
-  }
-  if (!code || !state) return back(request, { error: "missing_code_or_state" });
+  const flow = state ? await completeNativeAuth(state, code, url.searchParams.has('error')) : null;
+  if (flow) return nativeCallbackPage(flow.ok, flow.returnUri);
+  // Native callbacks must never fall through to the legacy web dashboard.
+  if (state?.startsWith('native-')) return nativeCallbackPage(false);
 
-  // Single-use state: the DELETE ... RETURNING both validates and consumes it,
-  // so a replayed callback finds nothing and is rejected.
-  const claimed = await query<{ agent_id: string }>(
-    "DELETE FROM oauth_states WHERE state = $1 AND created_at > now() - interval '1 hour' RETURNING agent_id",
+
+  if (!state) return nativeCallbackPage(false);
+  // Consume state even on cancellation and keep its native return destination.
+  const claimed = await query<{ agent_id: string; native: boolean; return_uri: string | null }>(
+    "DELETE FROM oauth_states WHERE state = $1 AND created_at > now() - interval '1 hour' RETURNING agent_id, native, return_uri",
     [state],
   );
-  if (claimed.length === 0) return back(request, { error: "invalid_or_expired_state" });
+  if (claimed.length === 0) return nativeCallbackPage(false);
+  const finish = (ok: boolean, params: Record<string, string>) => claimed[0].native
+    ? nativeCallbackPage(ok, claimed[0].return_uri) : back(request, params);
+  if (url.searchParams.has('error')) return finish(false, { error: 'linkedin_denied' });
+  if (!code) return finish(false, { error: 'missing_code_or_state' });
   const agentId = claimed[0].agent_id;
 
   const grant = await exchangeCode(code, redirectUriFor(request));
-  if (!grant.ok) return back(request, { error: "token_exchange_failed", detail: grant.reason });
+  if (!grant.ok) return finish(false, { error: "token_exchange_failed", detail: grant.reason });
 
   const identity = await getMemberIdentity(grant.data.accessToken);
-  if (!identity.ok) return back(request, { error: "identity_failed", detail: identity.reason });
+  if (!identity.ok) return finish(false, { error: "identity_failed", detail: identity.reason });
 
   try {
     await saveAccount(agentId, grant.data, identity.data);
   } catch (err) {
     // Almost always a missing or malformed TOKEN_ENCRYPTION_KEY.
-    return back(request, {
+    return finish(false, {
       error: "store_failed",
       detail: String((err as Error)?.message ?? err).slice(0, 160),
     });
@@ -64,5 +66,5 @@ export async function GET(request: Request) {
     `[linkedin] agent=${agentId} connected as ${identity.data.personUrn}` +
       `${grant.data.refreshToken ? " (with refresh token)" : " (no refresh token — 60-day re-auth)"}`,
   );
-  return back(request, { connected: "1" });
+  return finish(true, { connected: "1" });
 }
