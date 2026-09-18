@@ -132,7 +132,7 @@ export async function expandPersona(
 export function personaBlock(p: PersonaRecord): string {
   const i = p.identity;
   return [
-    `PERSONA: ${p.input.name} — domain: ${p.input.domain}`,
+    `PERSONA: The author — domain: ${p.input.domain}`,
     `Voice: ${i.voice}`,
     `Stable interests: ${i.interests.join("; ")}`,
     `Held opinions: ${i.opinions.join("; ")}`,

@@ -1,5 +1,7 @@
 # Deploying
 
+> Historical single-operator setup. For the public client pilot with per-user Gemini keys, use [DEPLOY-RENDER.md](DEPLOY-RENDER.md). Vercel Hobby is not the selected commercial hosting path.
+
 Everything here only runs while `npm run dev` is up on a laptop. Deploying is
 what removes that — no dev server, no adb, no PowerShell tick loop.
 

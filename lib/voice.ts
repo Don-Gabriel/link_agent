@@ -200,6 +200,11 @@ export async function deriveEditNotes(pairs: EditPair[]): Promise<string | null>
  * a publish.
  */
 export async function refreshEditNotes(agentId: string): Promise<boolean> {
+  const {withAgentUsage}=await import('./ai-usage');
+  return withAgentUsage(agentId,()=>refreshOwnedEditNotes(agentId)).catch(()=>false);
+}
+
+async function refreshOwnedEditNotes(agentId: string): Promise<boolean> {
   try {
     const pairs = await query<{ original_text: string; text: string }>(
       `SELECT original_text, text FROM posts

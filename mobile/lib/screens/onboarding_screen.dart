@@ -12,6 +12,7 @@ import '../widgets/experience.dart';
 import '../widgets/form_select.dart';
 import '../widgets/editorial.dart';
 import '../widgets/writing_preferences.dart';
+import 'gemini_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -37,6 +38,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _busy = false;
   String? _error;
   Timer? _poll;
+  bool _aiGate = false;
   bool get _test => _data['testMode'] == true;
   bool get _connected =>
       (_data['account'] as Map?)?['connected'] == true &&
@@ -54,6 +56,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void initState() {
     super.initState();
     _data = widget.initial;
+    _aiGate = !_test && (_data['ai'] as Map?)?['connected'] != true;
     _config = Map<String, dynamic>.from(_data['config'] as Map);
     final samples = List<String>.from(_config['samples'] as List);
     for (var i = 0; i < samples.length; i++) {
@@ -213,6 +216,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   );
   @override
   Widget build(BuildContext context) {
+    if (_aiGate) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const ByLineMark(),
+          actions: [
+            TextButton(
+              onPressed: () => context.read<AppState>().signOut(),
+              child: const Text('Sign out'),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: GeminiConnectionForm(
+              initial: (_data['ai'] as Map?)?.cast<String, dynamic>(),
+              onConnected: (ai) => setState(() {
+                _data['ai'] = ai;
+                _aiGate = false;
+              }),
+            ),
+          ),
+        ),
+      );
+    }
     final titles = [
       'Connect LinkedIn',
       'What do you talk about?',

@@ -1,4 +1,5 @@
 import java.util.Base64
+import java.util.Properties
 import com.google.gms.googleservices.GoogleServicesTask
 
 plugins {
@@ -16,6 +17,16 @@ val localPreview = (project.findProperty("dart-defines") as? String).orEmpty().s
 }
 val liveClient = (project.findProperty("dart-defines") as? String).orEmpty().split(",").any {
     runCatching { String(Base64.getDecoder().decode(it)) == "BYLINE_APP_VARIANT=live" }.getOrDefault(false)
+}
+val publicRelease = (project.findProperty("dart-defines") as? String).orEmpty().split(",").any {
+    runCatching { String(Base64.getDecoder().decode(it)) == "BYLINE_PUBLIC_RELEASE=true" }.getOrDefault(false)
+}
+val signingFile = rootProject.file("key.properties")
+val releaseSigning = Properties().apply {
+    if (signingFile.exists()) signingFile.inputStream().use { load(it) }
+}
+if (publicRelease && !signingFile.exists()) {
+    throw GradleException("Public releases require the private Android signing key. Run scripts/build-release-android.ps1.")
 }
 if (localPreview) {
     tasks.matching { it.name.endsWith("GoogleServices") }.configureEach { enabled = false }
@@ -46,20 +57,23 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["bylineLabel"] = if (liveClient) "ByLine Live" else if (localPreview) "ByLine Preview" else "ByLine"
+        manifestPlaceholders["bylineLabel"] = if (publicRelease) "ByLine" else if (liveClient) "ByLine Live" else if (localPreview) "ByLine Preview" else "ByLine"
+        manifestPlaceholders["bylineCleartext"] = (!publicRelease).toString()
     }
 
+    signingConfigs {
+        if (signingFile.exists()) {
+            create("bylineRelease") {
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+                storeFile = file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+            }
+        }
+    }
     buildTypes {
         release {
-            // Debug keys, deliberately. This app is installed by cable onto one
-            // phone and is not distributed, so a release keystore would be a
-            // secret to manage for no benefit — and it must never live in the
-            // repository, which is the usual way that goes wrong.
-            //
-            // Publishing to Play Store one day means generating a keystore,
-            // keeping it OUT of git, and referencing it from key.properties.
-            // Until then this keeps `flutter run --release` working.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (publicRelease) signingConfigs.getByName("bylineRelease") else signingConfigs.getByName("debug")
         }
     }
 }

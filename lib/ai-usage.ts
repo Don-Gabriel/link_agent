@@ -1,19 +1,26 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { query } from './db';
-import { sessionIdentity } from './auth';
+import { verifySession } from './auth';
 const context=new AsyncLocalStorage<string>();
 export async function withAgentUsage<T>(agentId:string,work:()=>Promise<T>) {
   const [agent]=await query<{owner_id:string|null}>('SELECT owner_id FROM agents WHERE id=$1',[agentId]);
-  return context.run(agent?.owner_id??agentId,work);
+  if (!agent) throw new Error('AI account is unavailable.');
+  return context.run(agent.owner_id ?? 'legacy-owner',work);
+}
+export function withUserUsage<T>(userId:string,work:()=>Promise<T>) {
+  return context.run(userId,work);
 }
 export async function usageOwner() {
   if(context.getStore())return context.getStore()!;
   try {
+    const {requestIdentity}=await import('./request-agent');
+    const identity=await requestIdentity();
+    if(identity)return identity.userId;
     const {headers}=await import('next/headers');
     const h=await headers();
     const token=h.get('authorization')?.replace(/^Bearer /,'')??h.get('cookie')?.split(';').map(x=>x.trim()).find(x=>x.startsWith('lc_session='))?.slice(11);
-    return (await sessionIdentity(token))?.userId??'legacy-owner';
-  }catch{return 'legacy-owner';}
+    return token && !token.startsWith('v2.') && await verifySession(token) ? 'legacy-owner' : 'unattributed';
+  }catch{return 'unattributed';}
 }
 export async function reserveUserCall(owner:string,day:string) {
   const configured=Number(process.env.BYLINE_AI_CALLS_PER_USER_DAY);
@@ -22,10 +29,11 @@ export async function reserveUserCall(owner:string,day:string) {
     ON CONFLICT(owner,day) DO UPDATE SET requests=ai_user_days.requests+1 WHERE ai_user_days.requests<$3 RETURNING owner`,[owner,day,cap]);
   return rows.length>0;
 }
-export async function reserveProviderCall(model:string,day:string,cap:number) {
-  const [slot]=await query<{next_at:Date}>(`INSERT INTO ai_provider_days(model,day,attempts,next_at) VALUES($1,$2,1,now()+interval '4 seconds')
-    ON CONFLICT(model,day) DO UPDATE SET attempts=ai_provider_days.attempts+1,next_at=GREATEST(now(),ai_provider_days.next_at)+interval '4 seconds'
-    WHERE ai_provider_days.attempts<$3 AND ai_provider_days.next_at<now()+interval '15 seconds' RETURNING next_at`,[model,day,Math.max(1,Math.floor(cap*.9))]);
+export async function reserveProviderCall(model:string,day:string,cap:number,owner?:string) {
+  owner ??= await usageOwner();
+  const [slot]=await query<{next_at:Date}>(`INSERT INTO ai_scoped_provider_days(owner,model,day,attempts,next_at) VALUES($1,$2,$3,1,now()+interval '4 seconds')
+    ON CONFLICT(owner,model,day) DO UPDATE SET attempts=ai_scoped_provider_days.attempts+1,next_at=GREATEST(now(),ai_scoped_provider_days.next_at)+interval '4 seconds'
+    WHERE ai_scoped_provider_days.attempts<$4 AND ai_scoped_provider_days.next_at<now()+interval '15 seconds' RETURNING next_at`,[owner,model,day,Math.max(1,Math.floor(cap*.9))]);
   if(!slot)return false;
   const wait=slot.next_at.getTime()-Date.now()-4000;
   if(wait>0)await new Promise(r=>setTimeout(r,wait));

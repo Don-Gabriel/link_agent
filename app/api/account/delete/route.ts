@@ -35,6 +35,7 @@ export async function POST(request:Request) {
     }
     await c.query('DELETE FROM ai_usage WHERE owner=$1 OR owner=ANY($2::text[])',[user.userId,ids]);
     await c.query('DELETE FROM ai_user_days WHERE owner=$1 OR owner=ANY($2::text[])',[user.userId,ids]);
+    await c.query('DELETE FROM ai_scoped_provider_days WHERE owner=$1',[user.userId]);
     for(const table of ['byline_sessions','native_auth','onboarding'])await c.query(`DELETE FROM ${table} WHERE user_id=$1`,[user.userId]);
     await c.query('DELETE FROM agents WHERE owner_id=$1',[user.userId]);
     await c.query('DELETE FROM byline_users WHERE id=$1',[user.userId]);

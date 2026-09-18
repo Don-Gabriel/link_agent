@@ -1,5 +1,7 @@
 # ByLine: product readiness and client onboarding report
 
+> Historical recommendation. The AI ownership decision below was superseded on 18 September 2026: clients now bring their own Gemini keys. See [the current deployment guide](../DEPLOY-RENDER.md).
+
 Audit date: 6 September 2026. Repository snapshot: `42cd070`.
 
 ## 1. Recommendation

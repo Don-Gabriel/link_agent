@@ -41,7 +41,9 @@ String _imageSubtype(String path) {
 ///
 /// Generous rather than snappy on purpose: /api/status assembles the whole
 /// dashboard and takes ~9s against a cold Neon free-tier database.
-const Duration _kTimeout = Duration(seconds: 30);
+const Duration _kTimeout = Duration(
+  seconds: 90,
+); // Includes a free host's cold start.
 
 /// For requests that sit in front of a language model.
 ///
@@ -83,7 +85,8 @@ class ApiException implements Exception {
       return 'ByLine is temporarily unavailable. Please try again shortly.';
     }
     if (status == 429) {
-      return 'You have reached the current allowance. Please try again later.';
+      return detail ??
+          'You have reached the current allowance. Please try again later.';
     }
     if (detail != null &&
         detail!.isNotEmpty &&
@@ -107,6 +110,7 @@ class ApiClient {
 
   static const _kBaseUrl = 'base_url';
   static const _kCookie = 'session_cookie';
+  static const publicRelease = bool.fromEnvironment('BYLINE_PUBLIC_RELEASE');
 
   /// The Android emulator reaches the host machine on this address; `localhost`
   /// inside the emulator is the emulated device itself. Getting this wrong is
@@ -176,11 +180,18 @@ class ApiClient {
     await _prefs.remove('pending:$baseUrl');
   }
 
-  String get baseUrl => _prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
+  String get baseUrl => publicRelease
+      ? defaultBaseUrl
+      : _prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
   Future<void> setBaseUrl(String value) async {
     var v = value.trim();
     while (v.endsWith('/')) {
       v = v.substring(0, v.length - 1);
+    }
+    if (publicRelease && v != defaultBaseUrl) {
+      throw ArgumentError(
+        'This installation connects to its configured ByLine service.',
+      );
     }
     if (v != baseUrl) await clearSession();
     await _prefs.setString(_kBaseUrl, v);
@@ -195,7 +206,18 @@ class ApiClient {
     if (_token == null && _cookie != null) 'Cookie': _cookie!,
   };
 
-  Uri _uri(String path) => Uri.parse('$baseUrl$path');
+  Uri _uri(String path) {
+    final uri = Uri.parse('$baseUrl$path');
+    if (publicRelease &&
+        (uri.scheme != 'https' ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty)) {
+      throw StateError(
+        'A public installation requires a secure ByLine address.',
+      );
+    }
+    return uri;
+  }
 
   /// Pull `lc_session` out of Set-Cookie and keep only the name=value pair —
   /// the attributes (Path, HttpOnly, SameSite) are instructions for a browser
@@ -242,9 +264,7 @@ class ApiClient {
         0,
         'timeout',
         detail:
-            'No response from $baseUrl after ${limit.inSeconds}s. '
-            'On a real phone use http://localhost:3000 with `adb reverse tcp:3000 tcp:3000` '
-            '— 10.0.2.2 only works on an emulator.',
+            'ByLine took too long to respond. The free server may be waking up; please try again.',
       );
     } on Exception catch (e) {
       // Connection-level failures are the common case during setup (wrong host,

@@ -27,6 +27,11 @@ class AppState extends ChangeNotifier {
   AuthPhase phase = AuthPhase.unknown;
   AppStatus? status;
   Map<String, dynamic>? reviewDelivery;
+  Map<String, dynamic>? aiConnection;
+  void updateAiConnection(Map<String, dynamic> value) {
+    aiConnection = value;
+    notifyListeners();
+  }
 
   /// Set while a full refresh is in flight, so screens can show a spinner
   /// without every button needing its own flag.
@@ -186,6 +191,7 @@ class AppState extends ChangeNotifier {
     phase = AuthPhase.signedOut;
     status = null;
     reviewDelivery = null;
+    aiConnection = null;
     error = null;
     notifyListeners();
   }
@@ -205,6 +211,9 @@ class AppState extends ChangeNotifier {
       final json = await _api.get('/api/status');
       if (revision != _refreshRevision) return;
       status = AppStatus.fromJson(json as Map<String, dynamic>);
+      aiConnection = json['ai'] is Map
+          ? Map<String, dynamic>.from(json['ai'] as Map)
+          : null;
       reviewDelivery = json['reviewDelivery'] is Map
           ? Map<String, dynamic>.from(json['reviewDelivery'] as Map)
           : null;
@@ -220,6 +229,7 @@ class AppState extends ChangeNotifier {
         phase = AuthPhase.signedOut;
         status = null;
         reviewDelivery = null;
+        aiConnection = null;
         editing = null;
         composeSeed = null;
         composeSeedHashtags = const [];

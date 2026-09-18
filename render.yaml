@@ -1,0 +1,42 @@
+# Only one free web service. No paid databases, workers, disks, or Render cron.
+services:
+  - type: web
+    name: byline-client-pilot
+    runtime: node
+    plan: free
+    region: ohio
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:hosted
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: '1'
+      - key: BYLINE_ALLOW_LEGACY_AUTH
+        value: 'false'
+      - key: BYLINE_REGISTRATION_MODE
+        value: invite
+      - key: BYLINE_GEMINI_MODELS
+        value: gemini-3.5-flash-lite
+      - key: BYLINE_AI_CALLS_PER_USER_DAY
+        value: '60'
+      - key: LINKEDIN_LIVE
+        value: 'false'
+      - key: DATABASE_URL
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: APP_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: BYLINE_SUPPORT_EMAIL
+        sync: false

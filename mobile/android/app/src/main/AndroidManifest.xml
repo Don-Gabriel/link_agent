@@ -9,6 +9,7 @@
     <application
         android:label="${bylineLabel}"
         android:allowBackup="false"
+        android:usesCleartextTraffic="${bylineCleartext}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

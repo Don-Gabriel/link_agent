@@ -11,6 +11,7 @@ import '../widgets/preparation_progress.dart';
 import 'composer_screen.dart';
 import 'draft_commands.dart';
 import 'timetable_screen.dart';
+import 'gemini_screen.dart';
 
 /// Home follows the timetable: one occurrence and one draft per enabled time.
 class TodayScreen extends StatefulWidget {
@@ -166,6 +167,28 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
         children: [
+          if (state.aiConnection != null &&
+              (state.aiConnection!['connected'] != true ||
+                  state.aiConnection!['error'] != null))
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('Check your Gemini connection'),
+                subtitle: Text(
+                  state.aiConnection!['message'] as String? ??
+                      'Add your Gemini key to prepare AI drafts.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const GeminiScreen(),
+                    ),
+                  );
+                  if (mounted) await state.refresh(quiet: true);
+                },
+              ),
+            ),
           OutlinedButton.icon(
             onPressed: () => openComposer(context),
             icon: const Icon(Icons.edit_outlined),

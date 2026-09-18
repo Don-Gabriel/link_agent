@@ -5,12 +5,16 @@
  * Provider is chosen by LLM_PROVIDER (default "gemini"). An "anthropic"
  * branch is stubbed behind the same interface so switching is one env var.
  *
- * Free-tier design (see DEPLOY.md for the measured dashboard limits):
+ * Native clients use their own encrypted key and selected model, with account
+ * quotas and database-backed pacing. No environment-key fallback is allowed.
+ * The cascade below is retained only for the private legacy installation.
+ * Its historically configured model limits are local safeguards, not a claim
+ * about the current quota granted by Google to any client's project.
+ * Legacy design (see DEPLOY.md for the measured dashboard limits):
  * - CASCADE: primary GEMINI_MODEL -> GEMINI_FALLBACK_MODEL ->
  *   GEMINI_LAST_RESORT_MODEL. On 429/RESOURCE_EXHAUSTED the SAME request is
  *   retried on the next model; quotas are per model, so they stack.
- * - RPM: all calls are serialized with a minimum 4s gap (15 RPM ceiling on
- *   the Flash Lites; the spacing alone mathematically caps us at 15/min).
+ * - RPM: database reservations space each account/model's calls by 4s.
  * - RPD: per-model daily counters persisted in Postgres (llm_calls), keyed
  *   by Pacific-time day because Google resets free-tier quotas at midnight
  *   Pacific. A model at >=90% of its cap is skipped in the cascade.
@@ -26,6 +30,7 @@ import { query } from "./db";
 import { usageOwner, reserveUserCall, reserveProviderCall, recordAiUsage } from './ai-usage';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { readAiCredential, aiErrorCode, setAiError } from './ai-credentials';
 
 export interface CompleteArgs {
   system: string;
@@ -39,9 +44,6 @@ export interface CompleteArgs {
 export type CompleteResult =
   | { ok: true; text: string; model: string }
   | { ok: false; reason: string };
-
-const MIN_GAP_MS = 4_000;
-const DEFAULT_RPD: Record<string, number> = {}; // filled per call from env
 
 function cascade(): string[] {
   return [
@@ -61,24 +63,6 @@ function rpdCap(model: string): number {
 
 function isGemma(model: string): boolean {
   return model.startsWith("gemma");
-}
-
-// ---- pacing: serialize every call, >=4s apart, across the whole instance
-let chain: Promise<void> = Promise.resolve();
-let lastCallAt = 0;
-
-function paced<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(async () => {
-    const wait = lastCallAt + MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastCallAt = Date.now();
-    return fn();
-  });
-  chain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
 }
 
 // ---- per-model daily counters (Pacific day, matching Google's quota reset)
@@ -105,26 +89,18 @@ async function bumpCount(model: string): Promise<void> {
 /** Today's per-model call counts, for the UI and checkpoint reporting. */
 export async function getTodayCalls(): Promise<{ model: string; calls: number; cap: number }[]> {
   const rows = await query<{ model: string; call_count: number }>(
-    "SELECT model, call_count FROM llm_calls WHERE day = $1 ORDER BY model",
-    [pacificToday()],
+    `SELECT model, count(*)::int AS call_count FROM ai_usage
+      WHERE owner=$1 AND (created_at AT TIME ZONE 'America/Los_Angeles')::date=$2::date GROUP BY model ORDER BY model`,
+    [await usageOwner(), pacificToday()],
   );
   return rows.map((r) => ({ model: r.model, calls: r.call_count, cap: rpdCap(r.model) }));
 }
 
 // ---- gemini call
-let genai: GoogleGenAI | null = null;
-function client(): GoogleGenAI {
-  if (!genai) genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  return genai;
-}
 
-function is429(err: unknown): boolean {
-  const s = String((err as Error)?.message ?? err);
-  return /429|RESOURCE_EXHAUSTED|quota/i.test(s);
-}
-
-async function callGemini(model: string, args: CompleteArgs): Promise<string> {
-  if(!await reserveProviderCall(model,pacificToday(),rpdCap(model)))throw new Error('provider_allowance_or_pacing_limit');
+async function callGemini(model: string, args: CompleteArgs, apiKey: string, owner: string): Promise<string> {
+  if(!await reserveUserCall(owner,pacificToday()))throw new Error('daily_ai_allowance_reached');
+  if(!await reserveProviderCall(model,pacificToday(),rpdCap(model),owner))throw new Error('provider_allowance_or_pacing_limit');
   const userText = isGemma(model) && args.compactUser ? args.compactUser : args.user;
   const jsonNudge = args.jsonMode
     ? "\n\nRespond with ONLY valid JSON. No markdown fences, no commentary."
@@ -147,9 +123,8 @@ async function callGemini(model: string, args: CompleteArgs): Promise<string> {
         },
       };
 
-  const owner=await usageOwner();
   let res;
-  try {res=await client().models.generateContent(request);}
+  try {res=await new GoogleGenAI({apiKey,httpOptions:{timeout:60_000,retryOptions:{attempts:1}}}).models.generateContent(request);}
   catch(e){await recordAiUsage(owner,model,false).catch(()=>{});throw e;}
   await recordAiUsage(owner,model,true,res.usageMetadata?.promptTokenCount,res.usageMetadata?.candidatesTokenCount).catch(()=>{});
   const text = res.text;
@@ -157,11 +132,12 @@ async function callGemini(model: string, args: CompleteArgs): Promise<string> {
   return text;
 }
 
-async function completeGemini(args: CompleteArgs): Promise<CompleteResult> {
-  for (const model of cascade()) {
+async function completeGemini(args: CompleteArgs, apiKey:string, owner:string, models:string[]): Promise<CompleteResult> {
+  let failure='ai_provider_unavailable';
+  for (const model of models) {
     // Skip models at >=90% of their daily cap rather than erroring into 429s.
     try {
-      const used = await todayCount(model);
+      const used = owner==='legacy-owner' ? await todayCount(model) : 0;
       if (used >= rpdCap(model) * 0.9) {
         console.warn(`[llm] ${model} at ${used}/${rpdCap(model)} daily calls — skipping`);
         continue;
@@ -173,26 +149,42 @@ async function completeGemini(args: CompleteArgs): Promise<CompleteResult> {
     // One retry on transient (non-429) errors, then cascade onward.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const text = await paced(() => callGemini(model, args));
-        await bumpCount(model).catch(() => {});
+        const text = await callGemini(model, args, apiKey, owner);
+        if(owner==='legacy-owner')await bumpCount(model).catch(() => {});
+        await setAiError(owner,null).catch(()=>{});
         console.log(`[llm] served by ${model}`);
         return { ok: true, text, model };
       } catch (err) {
-        if (is429(err)) {
-          console.warn(`[llm] ${model} rate-limited — cascading to next model`);
-          break; // next model in cascade
+        const raw=(err as Error)?.message;
+        failure = raw==='daily_ai_allowance_reached' || raw==='provider_allowance_or_pacing_limit' ? 'ai_quota_exhausted' : aiErrorCode(err);
+        await setAiError(owner,failure).catch(()=>{});
+        if(failure!=='ai_provider_unavailable') {
+          if(owner!=='legacy-owner')return {ok:false,reason:failure};
+          break;
         }
-        console.warn(`[llm] ${model} attempt ${attempt + 1} failed:`, String((err as Error)?.message ?? err));
+        console.warn(`[llm] ${model} attempt ${attempt + 1} failed: ${failure}`);
         if (attempt === 0) await new Promise((r) => setTimeout(r, 1_000));
       }
     }
   }
-  return { ok: false, reason: "all_models_failed_or_exhausted" };
+  return { ok: false, reason: failure };
 }
 
 /** The single entry point. Never throws. */
 export async function complete(args: CompleteArgs): Promise<CompleteResult> {
   if(process.env.BYLINE_TEST_MODE === "true") return {ok:false, reason:"local_test_ai_disabled"};
+  const owner=await usageOwner();
+  if(owner==='unattributed')return {ok:false,reason:'ai_key_required'};
+  // Native users always bring their own key. Missing, invalid, or exhausted
+  // credentials must never fall back to the operator's environment key.
+  if(owner!=='legacy-owner') {
+    try {
+      const credential=await readAiCredential(owner);
+      if(!credential)return {ok:false,reason:'ai_key_required'};
+      return await completeGemini(args,credential.apiKey,owner,[credential.model]);
+    } catch {return {ok:false,reason:'ai_configuration_unavailable'};}
+  }
+  if(process.env.BYLINE_ALLOW_LEGACY_AUTH==='false')return {ok:false,reason:'ai_key_required'};
   if(process.env.BYLINE_ZERO_BUDGET_STATE_FILE) {
     try {
       const guard=JSON.parse(await readFile(process.env.BYLINE_ZERO_BUDGET_STATE_FILE,'utf8'));
@@ -207,10 +199,9 @@ export async function complete(args: CompleteArgs): Promise<CompleteResult> {
   }
   if (!process.env.GEMINI_API_KEY) return { ok: false, reason: "missing_gemini_api_key" };
   try {
-    if(!await reserveUserCall(await usageOwner(),pacificToday()))return {ok:false,reason:'daily_ai_allowance_reached'};
-    return await completeGemini(args);
+    return await completeGemini(args,process.env.GEMINI_API_KEY,owner,cascade());
   } catch (err) {
-    return { ok: false, reason: String((err as Error)?.message ?? err) };
+    return { ok: false, reason: aiErrorCode(err) };
   }
 }
 

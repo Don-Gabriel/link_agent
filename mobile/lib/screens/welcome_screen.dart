@@ -22,6 +22,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   String? _error;
   bool _busy = false;
   int _attempt = 0;
+  final _invite = TextEditingController();
+  @override
+  void dispose() {
+    _attempt++;
+    _invite.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -43,7 +51,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       if (mounted) {
         setState(
           () => _error =
-              'Cannot reach ByLine. Check that your local server is running.',
+              'Cannot reach ByLine. Check your internet connection and try again. The server may take a moment to wake up.',
         );
       }
     }
@@ -71,6 +79,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             await state.api.post('/api/native-auth', {
                   'provider': provider,
                   'verifier': verifier,
+                  'inviteCode': _invite.text.trim(),
                   'returnUri': ?returnUri,
                 })
                 as Map,
@@ -142,6 +151,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     style: T.body,
                   ),
                   const SizedBox(height: 28),
+                  if (_providers?['invitationRequired'] == true) ...[
+                    TextField(
+                      controller: _invite,
+                      enabled: !_busy,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Invitation code',
+                        helperText:
+                            'Required for new accounts. Existing clients can leave this blank.',
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                   if (_providers?['google'] == true)
                     FilledButton(
                       onPressed: _busy ? null : () => _signIn('google'),
@@ -195,16 +217,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     style: T.small,
                     textAlign: TextAlign.center,
                   ),
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const GateScreen(),
+                  if (_providers?['legacyLogin'] != false)
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const GateScreen(),
+                              ),
                             ),
-                          ),
-                    child: const Text('Existing installation'),
-                  ),
+                      child: const Text('Existing installation'),
+                    ),
                 ],
               ),
             ),

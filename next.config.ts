@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Deployed on Vercel (Hobby, serverless functions). No standalone output;
-  // the cycle driver is /api/cron/tick with maxDuration 300.
+  // Standard Node hosting. Render's pilot uses start:hosted; the cycle driver
+  // is /api/cron/tick, triggered through /api/cron/wake.
   //
   // The build directory is overridable so a verification build can be run
   // WITHOUT clobbering a dev server that is already running.

@@ -51,20 +51,22 @@ export function hasEncryptionKey(): boolean {
   }
 }
 
-export function encrypt(plaintext: string): string {
+export function encrypt(plaintext: string, context?: string): string {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGO, key(), iv);
+  if (context) cipher.setAAD(Buffer.from(context));
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return PREFIX + Buffer.concat([iv, cipher.getAuthTag(), ct]).toString("base64");
 }
 
-export function decrypt(payload: string): string {
+export function decrypt(payload: string, context?: string): string {
   if (!payload.startsWith(PREFIX)) {
     throw new Error("ciphertext is not in the expected v1 format");
   }
   const buf = Buffer.from(payload.slice(PREFIX.length), "base64");
   if (buf.length <= IV_BYTES + TAG_BYTES) throw new Error("ciphertext is truncated");
   const decipher = createDecipheriv(ALGO, key(), buf.subarray(0, IV_BYTES));
+  if (context) decipher.setAAD(Buffer.from(context));
   decipher.setAuthTag(buf.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
   return Buffer.concat([
     decipher.update(buf.subarray(IV_BYTES + TAG_BYTES)),

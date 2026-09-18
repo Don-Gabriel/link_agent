@@ -1,30 +1,17 @@
 /**
- * Liveness + keep-alive. One capped query, always 200, no secrets.
- *
- * Neon's free tier autosuspends after ~5 idle minutes, so a scheduled ping
- * here keeps the dashboard's first load warm instead of cold-starting the
- * database.
+ * Process liveness only. Frequent host probes must not wake the database.
+ * Database readiness is verified by the hosted startup migration.
  */
 import { NextResponse } from "next/server";
-import { getPool } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  let db = "unconfigured";
-  try {
-    const pool = getPool();
-    if (pool) {
-      await pool.query("SELECT 1");
-      db = "ok";
-    }
-  } catch (err) {
-    db = `error: ${String((err as Error)?.message ?? err).slice(0, 120)}`;
-  }
   return NextResponse.json({
     ok: true,
-    db,
-    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    // Liveness must not continuously wake a metered free-tier database or expose DB errors.
+    db: 'not_probed',
+    commit: (process.env.RENDER_GIT_COMMIT??process.env.VERCEL_GIT_COMMIT_SHA)?.slice(0, 7) ?? "local",
     at: new Date().toISOString(),
   });
 }

@@ -8,7 +8,9 @@
 /// answer are answered without opening anything.
 library;
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -24,6 +26,7 @@ import 'timetable_screen.dart';
 import 'voice_screen.dart';
 import 'delivery_settings_screen.dart';
 import 'delete_account_screen.dart';
+import 'gemini_screen.dart';
 
 /// Fallback labels, used only when the server has not sent its categories yet —
 /// a cold start, or a backend too old to serve them. The live list comes from
@@ -200,6 +203,18 @@ class SettingsScreen extends StatelessWidget {
           title: 'Account',
           child: Column(
             children: [
+              if (state.api.isNativeSession) ...[
+                NavRow(
+                  label: 'Gemini',
+                  icon: Icons.auto_awesome_outlined,
+                  value: state.aiConnection?['connected'] == true
+                      ? ((state.aiConnection?['message'] as String?) ??
+                            'Connected · ${state.aiConnection?['model']}')
+                      : 'Connect your own AI key',
+                  onTap: () => _open(context, const GeminiScreen()),
+                ),
+                const Divider(),
+              ],
               NavRow(
                 label: 'LinkedIn',
                 icon: status.account.usable ? Icons.link : Icons.link_off,
@@ -222,6 +237,56 @@ class SettingsScreen extends StatelessWidget {
                 title: const Text('Sign out'),
                 onTap: state.signOut,
               ),
+              if (state.api.isNativeSession)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('Export account data'),
+                  onTap: () async {
+                    try {
+                      final data = await state.api.get('/api/account/export');
+                      if (!context.mounted) return;
+                      final text = const JsonEncoder.withIndent(
+                        '  ',
+                      ).convert(data);
+                      await showDialog<void>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Your account export'),
+                          content: SizedBox(
+                            width: 600,
+                            child: SingleChildScrollView(
+                              child: SelectableText(text),
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              child: const Text('Close'),
+                            ),
+                            FilledButton(
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: text),
+                                );
+                                if (dialogContext.mounted) {
+                                  Navigator.pop(dialogContext);
+                                }
+                              },
+                              child: const Text('Copy JSON'),
+                            ),
+                          ],
+                        ),
+                      );
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(e.toString())));
+                      }
+                    }
+                  },
+                ),
               if (state.api.isNativeSession)
                 ListTile(
                   contentPadding: EdgeInsets.zero,

@@ -16,6 +16,7 @@ const PUBLIC_PATHS = new Set([
   "/api/native-auth/callback",
   "/api/linkedin/callback", // single-use server-side OAuth state authenticates this navigation
   "/api/cron/tick", // authenticated by the X-Cron-Secret header instead
+  "/api/cron/wake", // same secret; acknowledges before a long tick
   // Same X-Cron-Secret, same reason: it is called by a machine that has no
   // session and never will. Both answer 404 rather than 401 on a bad secret,
   // so neither confirms it exists to anyone without it.

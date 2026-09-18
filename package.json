@@ -7,6 +7,9 @@
     "build": "next build",
     "build:check": "node scripts/build-check.mjs",
     "start": "next start",
+    "start:hosted": "node scripts/hosted-start.mjs",
+    "invite": "tsx scripts/create-invite.ts",
+    "test:byok": "node scripts/run-byok-tests.mjs",
     "test": "tsx scripts/selftest.ts",
     "test:db": "tsx scripts/dbtest.ts",
     "test:catalogue": "tsx scripts/catalogue-test.ts",
@@ -22,10 +25,13 @@
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
-    "next": "^15.4.5",
+    "next": "15.5.25",
     "pg": "^8.13.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
+  },
+  "overrides": {
+    "postcss": "8.5.28"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

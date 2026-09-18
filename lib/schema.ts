@@ -436,4 +436,25 @@ END $$;
 CREATE TABLE IF NOT EXISTS ai_user_days(owner TEXT NOT NULL,day DATE NOT NULL,requests INT NOT NULL,PRIMARY KEY(owner,day));
 CREATE TABLE IF NOT EXISTS ai_provider_days(model TEXT NOT NULL,day DATE NOT NULL,attempts INT NOT NULL,next_at TIMESTAMPTZ NOT NULL,PRIMARY KEY(model,day));
 CREATE TABLE IF NOT EXISTS ai_usage(id BIGSERIAL PRIMARY KEY,owner TEXT NOT NULL,model TEXT NOT NULL,success BOOLEAN NOT NULL,input_tokens INT,output_tokens INT,created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS byline_ai_credentials (
+  user_id UUID PRIMARY KEY REFERENCES byline_users(id) ON DELETE CASCADE,
+  key_enc TEXT NOT NULL, key_hint TEXT NOT NULL, model TEXT NOT NULL,
+  data_policy TEXT NOT NULL CHECK(data_policy IN ('free','paid')),
+  validated_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS ai_scoped_provider_days (
+  owner TEXT NOT NULL, model TEXT NOT NULL, day DATE NOT NULL,
+  attempts INT NOT NULL, next_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY(owner,model,day)
+);
+CREATE TABLE IF NOT EXISTS ai_key_checks (
+  user_id UUID PRIMARY KEY REFERENCES byline_users(id) ON DELETE CASCADE,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT now(), attempts INT NOT NULL,
+  next_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS byline_invites (
+  code_hash TEXT PRIMARY KEY, remaining_uses INT NOT NULL DEFAULT 1,
+  expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE native_auth ADD COLUMN IF NOT EXISTS invite_hash TEXT;
 `;

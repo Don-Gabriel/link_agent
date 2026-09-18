@@ -1,5 +1,7 @@
 # ByLine
 
+Client deployment and assisted onboarding: [Render pilot with per-user Gemini keys](DEPLOY-RENDER.md).
+
 A writing workspace for LinkedIn: discover relevant stories, prepare posts in
 your voice, and review them before publishing. Choose from **1,112 subjects**
 across 55 specialist groups, combine industries, and add your own editorial focus.

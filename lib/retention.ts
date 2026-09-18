@@ -40,6 +40,10 @@ export const RETENTION: { table: string; column: string; days: number }[] = [
   { table: "rejections", column: "created_at", days: 90 },
   { table: "push_log", column: "sent_at", days: 30 },
   { table: "llm_calls", column: "day", days: 90 },
+  { table: "ai_usage", column: "created_at", days: 90 },
+  { table: "ai_user_days", column: "day", days: 90 },
+  { table: "ai_scoped_provider_days", column: "day", days: 90 },
+  { table: "byline_invites", column: "expires_at", days: 7 },
   { table: "slot_runs", column: "run_date", days: 180 },
 ];
 

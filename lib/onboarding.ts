@@ -1,4 +1,5 @@
 import { query } from './db';
+import { aiStatus, AI_MESSAGES } from './ai-credentials';
 import { getAccountStatus } from './accounts';
 import { CATEGORIES, ALL_CATEGORY_IDS, isCategoryId, MAX_SELECTED_CATEGORIES, describeCategories, type CategoryId } from './categories';
 import { SUBJECT_GROUPS, subjectId } from './category-catalogue';
@@ -69,12 +70,12 @@ export async function generateSetupSample(c:SetupConfig, name = 'The author'):Pr
   const persona=setupPersona(c,name);
   const memory={facts:[],source:'none' as const,degraded:false};
   const judged=await judgeCandidates(persona,categories,candidates,memory,[]);
-  if (!judged.ok) throw new Error('We could not prepare a relevant sample right now. Your preferences are saved; please try again.');
+  if (!judged.ok) throw new Error(AI_MESSAGES[judged.reason] ?? 'We could not prepare a relevant sample right now. Your preferences are saved; please try again.');
   const source=judged.data.scored.find(s=>s.total>=PUBLISH_THRESHOLD);
   if (!source) throw new Error('No source closely matches your subjects yet. Your preferences are saved; try again later or adjust your subjects.');
   const style=setupStyle(c);
   const r=await writePost({persona,style,winner:source,runnersUp:[],memory,priorPosts:[],samples:c.samples.map(text=>({text,origin:'corpus'}))});
-  if(!r.ok) throw new Error('The writer is temporarily unavailable. Your settings are saved; please try again.');
+  if(!r.ok) throw new Error(AI_MESSAGES[r.reason] ?? 'The writer is temporarily unavailable. Your settings are saved; please try again.');
   const text=r.data.text.trim();
   if(critique(text,style,{hashtags:r.data.hashtags,usedQuote:r.data.used_quote}).length) throw new Error('The sample needs another pass to match your writing preferences. Please try again.');
   return {text: text + (r.data.hashtags.length ? '\n\n' + r.data.hashtags.map(tag=>'#'+tag).join(' ') : ''),sources:[source.url],title:source.title,testMode:false};
@@ -88,7 +89,7 @@ export async function setupStatus(userId:string) {
     row.next_delivery_at=next?.at??null;
   }
   const config={...defaultSetup,...row.config};
-  return {...row,config,nextDeliveryLabel:row.next_delivery_at?`${localClock(config.timezone,row.next_delivery_at).date} at ${config.time} (${config.timezone})`:null,account:await getAccountStatus(agent.id),industries:INDUSTRIES,voices:VOICES,categories:ALL_CATEGORY_IDS.map(id=>CATEGORIES[id]),testMode:localTestMode()};
+  return {...row,config,ai:await aiStatus(userId),nextDeliveryLabel:row.next_delivery_at?`${localClock(config.timezone,row.next_delivery_at).date} at ${config.time} (${config.timezone})`:null,account:await getAccountStatus(agent.id),industries:INDUSTRIES,voices:VOICES,categories:ALL_CATEGORY_IDS.map(id=>CATEGORIES[id]),testMode:localTestMode()};
 }
 export function firstDelivery(c:SetupConfig, now=new Date()) {
   // Tomorrow in the author's calendar, even if today's time has not passed.

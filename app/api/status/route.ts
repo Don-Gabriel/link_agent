@@ -6,7 +6,8 @@
 import { NextResponse } from "next/server";
 import { getAccountStatus } from "../../../lib/accounts";
 
-import { getRequestAgent } from "../../../lib/request-agent";
+import { getRequestAgent, requestIdentity } from "../../../lib/request-agent";
+import { aiStatus } from '../../../lib/ai-credentials';
 import { ALL_CATEGORY_IDS, CATEGORIES } from "../../../lib/categories";
 import { hasEncryptionKey } from "../../../lib/crypto";
 import { query } from "../../../lib/db";
@@ -127,6 +128,7 @@ export async function GET() {
     const [review] = await query<{next_delivery_at:Date|null;config:unknown}>(`SELECT o.next_delivery_at,o.config FROM onboarding o JOIN agents a ON a.owner_id=o.user_id WHERE a.id=$1`,[agent.agentId]);
     const [dailyPost] = review ? await query<PostRow>(`SELECT ${POST_COLUMNS} FROM posts WHERE agent_id=$1 AND review_date=$2`,[agent.agentId,localClock(agent.timezone).date]) : [];
     return NextResponse.json({
+      ai: await requestIdentity().then(u=>u?aiStatus(u.userId):null),
       reviewDelivery: review ? {nextDeliveryAt:review.next_delivery_at?.toISOString()??null,config:review.config,post:dailyPost ? serializePost(dailyPost) : null,testMode:process.env.BYLINE_TEST_MODE==='true'} : null,
       initialized: true,
       agent,

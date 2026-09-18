@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {complete} from '../lib/llm';
+import {withUserUsage} from '../lib/ai-usage';
 async function main(){
  mkdirSync('.byline-local',{recursive:true});
  process.env.GEMINI_API_KEY='not-a-real-key';
@@ -15,7 +16,7 @@ async function main(){
   {keyHash:hash,billingEnabled:false},
  ]) {
   writeFileSync(process.env.BYLINE_ZERO_BUDGET_STATE_FILE,JSON.stringify(state));
-  assert.deepEqual(await complete({system:'test',user:'test'}),{ok:false,reason:'free_tier_verification_required'});
+  assert.deepEqual(await withUserUsage('legacy-owner',()=>complete({system:'test',user:'test'})),{ok:false,reason:'free_tier_verification_required'});
  }
  console.log('4 zero-budget fail-closed checks passed without making any AI request.');
 }

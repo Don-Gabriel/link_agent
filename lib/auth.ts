@@ -45,7 +45,7 @@ async function sign(payload: string, secret: string): Promise<string> {
 }
 
 export function authConfigured(): boolean {
-  return !!process.env.APP_PASSWORD && !!process.env.APP_SECRET;
+  return process.env.BYLINE_ALLOW_LEGACY_AUTH !== 'false' && !!process.env.APP_PASSWORD && !!process.env.APP_SECRET;
 }
 
 export async function createSession(): Promise<{ value: string; maxAge: number }> {
@@ -60,6 +60,7 @@ export async function verifySession(cookie: string | undefined): Promise<boolean
   const secret = process.env.APP_SECRET;
   if (!secret || !cookie) return false;
   if (cookie.startsWith('v2.')) return (await sessionIdentity(cookie)) !== null;
+  if (process.env.BYLINE_ALLOW_LEGACY_AUTH === 'false') return false;
   if (cookie.split('.').length !== 2) return false;
   const [expiry, mac] = cookie.split(".");
   if (!expiry || !mac) return false;
