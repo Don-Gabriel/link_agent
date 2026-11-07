@@ -1,18 +1,24 @@
 # ByLine
 
+<img src="mobile/assets/branding/byline-logo.png" alt="ByLine pen and byline logo" width="128" />
+
 ## Download for Android
 
-**[Download ByLine 1.0.5 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
+**[Download ByLine 1.0.6 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
 
 Open this link on your phone, download the APK, then open it to install or update.
 Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
-· [Release verification](reports/ByLine-timezone-picker-2026-11-07.md)
+· [Release verification](reports/ByLine-reliability-release-2026-11-07.md)
 
-Timezone selection uses a searchable offline list in setup and Settings → Timetable.
+**1.0.6** adds the new ByLine logo and makes posting times follow your selected
+timezone, including individual post scheduling and daylight-saving changes. Automatic
+draft alerts follow the review window; manually requested drafts notify when ready.
+The scheduler checks every minute. Drafts that still need a style edit are saved
+with clear review notes and wait for approval instead of disappearing into retries.
+
+Timezone selection uses a searchable offline list in setup and Me → Timetable.
 New accounts default to the device timezone; saved choices can be changed anytime.
-
-First-time sample generation has a [backend fix](reports/ByLine-first-sample-fix-2026-11-07.md)
-for short drafts and misleading availability errors; it works with this APK.
+See the [logo assets](mobile/assets/branding/README.md) and [release checks](reports/ByLine-reliability-release-2026-11-07.md).
 
 **Start here:** [Complete project handbook (PDF)](output/pdf/ByLine-Complete-Project-Handbook.pdf)
 | [Download Android APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)

@@ -13,7 +13,7 @@
 		{"name":"byline-content","binding":"CONTENT","class_name":"ContentWorkflow"},
 		{"name":"byline-maintenance","binding":"MAINTENANCE","class_name":"MaintenanceWorkflow"}
 	],
-	"triggers": {"crons":["*/5 * * * *"]},
+	"triggers": {"crons":["* * * * *"]},
 	"account_id": "b79d736758ce155523d91c41c43f2ccc",
 	"d1_databases": [
 		{

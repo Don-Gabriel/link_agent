@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 
 import '../api/models.dart';
 import '../state/app_state.dart';
+import '../timezones.dart';
 import '../theme.dart';
 import '../widgets/draft_card.dart';
 import 'composer_screen.dart';
@@ -76,7 +77,7 @@ Future<void> clearForItsTime(BuildContext context, Post post) async {
     SnackBar(
       content: Text(
         error ??
-            'Scheduled — publishes ${at == null ? "at its time" : whenLabel(at)}.',
+            'Scheduled — publishes ${at == null ? "at its time" : whenLabel(at, timezone: state.agent?.timezone)}.',
       ),
       action: error != null
           ? null
@@ -104,7 +105,7 @@ Future<void> sendNow(BuildContext context, Post post) async {
         !live
             ? 'Live mode is off, so nothing will actually reach LinkedIn.'
             : scheduled != null
-            ? 'This posts to your profile immediately, instead of ${whenLabel(scheduled)}. '
+            ? 'This posts to your profile immediately, instead of ${whenLabel(scheduled, timezone: state.agent?.timezone)}. '
                   'It cannot be unpublished from here.'
             : 'This posts to your profile now. It cannot be unpublished from here.',
         style: T.small,
@@ -137,19 +138,16 @@ Future<void> sendNow(BuildContext context, Post post) async {
 /// tomorrow, because nobody picking 07:00 at midnight means seven hours ago.
 Future<void> pickSendTime(BuildContext context, Post post) async {
   final state = context.read<AppState>();
-  final existing = post.scheduledFor;
+  final zone = state.agent?.timezone ?? 'UTC';
+  final existing = Timezones.at(post.scheduledFor ?? DateTime.now(), zone);
   final picked = await showTimePicker(
     context: context,
-    initialTime: existing != null
-        ? TimeOfDay(hour: existing.hour, minute: existing.minute)
-        : TimeOfDay.now(),
-    helpText: 'SEND THIS POST AT',
+    initialTime: TimeOfDay(hour: existing.hour, minute: existing.minute),
+    helpText: 'SEND TIME · $zone',
   );
   if (picked == null || !context.mounted) return;
 
-  final now = DateTime.now();
-  var when = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
-  if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
+  final when = Timezones.nextTime(zone, picked.hour, picked.minute);
 
   final messenger = ScaffoldMessenger.of(context);
   final error = await state.reschedule(post.seq, when);
@@ -157,7 +155,7 @@ Future<void> pickSendTime(BuildContext context, Post post) async {
     SnackBar(
       content: Text(
         error ??
-            'Sends ${whenLabel(when)}. Schedule it before then or publish it manually.',
+            'Sends ${whenLabel(when, timezone: zone)}. Schedule it before then or publish it manually.',
       ),
     ),
   );

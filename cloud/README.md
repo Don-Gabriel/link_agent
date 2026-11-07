@@ -12,7 +12,7 @@ From `cloud/`: `npm ci`, `npm run types`, `npm run typecheck`, `npm test`. Tests
 
 `scripts/prepare-secrets.mjs` writes ignored `../.byline-local/cloud-secrets.json` from the owner's private `.env` and dedicated Firebase service account. Signing/encryption keys are preserved across runs. FCM is verified with a validate-only request. Never commit, print or embed secrets in an APK. Back up keys securely; losing the encryption key prevents reading stored LinkedIn grants.
 
-After verifying the intended account and database in `wrangler.jsonc`, apply `npx wrangler d1 migrations apply byline --remote`, then deploy with `npx wrangler deploy --secrets-file ../.byline-local/cloud-secrets.json`. Keep `LINKEDIN_LIVE=false` during initial verification. Author accounts also start paused with auto-publishing off.
+After verifying the intended account and database in `wrangler.jsonc`, apply `npx wrangler d1 migrations apply byline --remote`, then deploy with `npx wrangler deploy --keep-vars`. For the first deployment only, use the prepared private secrets file; routine releases preserve existing secrets and live-mode settings. Keep `LINKEDIN_LIVE=false` during initial verification. Author accounts also start paused with auto-publishing off.
 
 1. Verify `/api/health` succeeds and protected routes reject unauthenticated requests.
 2. With publishing disabled, set `BYLINE_CLOUD_ORIGIN` to the approved HTTPS origin and run `npx tsx scripts/remote-smoke.ts`. It creates one disposable author, generates a real preview/background draft, then removes that author. It consumes a few AI requests, without publishing or sending notifications.
@@ -42,3 +42,22 @@ This is bounded free hosting, not unlimited capacity or guaranteed availability.
 A total Cloudflare outage also stops its timer. Independent monitoring and tested off-provider backups remain launch requirements for paying customers. Existing Neon data is quota-paused and has not been migrated. The Vercel website still uses its original backend.
 
 References: [Cron propagation](https://developers.cloudflare.com/workers/configuration/cron-triggers/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Workflows pricing](https://developers.cloudflare.com/workflows/reference/pricing/), [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing).
+
+## Scheduling and draft recovery (1.0.6)
+
+The cron trigger runs every minute in UTC. Selected IANA timezones are converted
+into absolute posting instants, including DST gaps/folds and fractional offsets.
+Automatic draft notifications are eligible at the local review window; a manual
+Prepare request notifies immediately on completion. Delivery timestamps record
+FCM acceptance, not proof that a phone displayed the message.
+
+Migration `0003_draft_review.sql` adds review notes, a per-post review guard and
+per-device notification receipts. A failed style repair retains the best draft
+with visible notes; such a draft cannot bypass review through automatic publishing.
+Editing, rescheduling or undoing approval also sets the review guard. The platform
+length limit remains enforced at publishing. No source/relevance gate is removed.
+
+Timezone changes move unconsumed timetable drafts and pending alerts atomically.
+Published/in-flight posts and individually rescheduled posts retain their instants.
+An occurrence that becomes past due is unscheduled for manual review. The scheduler
+advances consumed occurrences so they cannot starve the next batch of authors.

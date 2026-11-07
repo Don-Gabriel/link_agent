@@ -1,4 +1,4 @@
-import { nextSlotRun, normalizeHhMm, localClock, describeDays, formatInZone } from '../../lib/schedule';
+import { nextSlotRun, slotOnDate, normalizeHhMm, localClock, describeDays, formatInZone } from '../../lib/schedule';
 import { isCategoryId, MAX_SELECTED_CATEGORIES } from '../../lib/categories';
 import { body,json,HttpError } from './http';
 import { loadAgent, postView, type CloudPost } from './models';
@@ -77,14 +77,13 @@ export async function timetable(db:D1Database,owner:Owner) {
     const discarded=saved?.status==='rejected',p=discarded?undefined:saved;
     const active=run?.outcome==='pending'&&Date.parse(run.retry_at)>Date.now()-20*60000;
     const completed=Math.max(0,['discovering','judging','writing','saving'].indexOf(run?.stage??''));
-    const from=new Date(Date.now()-36*3600000);
-    let occurrence=nextSlotRun(a.timezone,s.local_time,s.days_mask,from)!;
-    if(localClock(a.timezone,occurrence).date!==today.date)occurrence=nextSlotRun(a.timezone,s.local_time,s.days_mask,occurrence)!;
+    const occurrence=slotOnDate(a.timezone,s.local_time,today.date)!;
+    const retryPlanned=!!run&&run.attempts<3&&occurrence.getTime()>Date.now()-45*60000&&s.next_run_at===occurrence.toISOString();
     return {slotId:s.id,time:s.local_time,scheduledFor:occurrence.toISOString(),post:p?postView(p):null,
       progress:p?{state:'ready',stage:'ready',completed:4,total:4}:discarded?{state:'paused',completed:4,total:4,message:'You discarded this draft. Your next posting time is unchanged.'}:active?{state:'working',stage:run?.stage??'discovering',completed,total:4}
         :a.paused?{state:'paused',completed,total:4,message:'Resume ByLine in Settings to prepare posts.'}
-        :run?{state:run.attempts<3?'waiting':'paused',stage:run.stage,completed,total:4,message:run.detail??'No suitable story was found. Your preferences are saved.'}:{state:'idle',completed:0,total:4},
-      canPrepare:!a.paused&&!p&&!discarded&&!active&&(!run||Date.parse(run.retry_at)<=Date.now())};
+        :run?{state:retryPlanned?'waiting':'attention',stage:run.stage,completed,total:4,message:(run.detail??'Preparation did not finish.')+(retryPlanned?' ByLine will retry automatically.':run.attempts>=3?' Automatic attempts have finished for this posting time. You can prepare a separate draft in My posts.':' This posting time has passed. Tap Prepare this post to try again; it will be saved for review.')}:{state:'idle',completed:0,total:4},
+      canPrepare:!a.paused&&!p&&!discarded&&!active&&(!run||(run.attempts<3&&Date.parse(run.retry_at)<=Date.now()))};
   }).sort((x,y)=>x.time.localeCompare(y.time));
   const assigned=new Set(entries.flatMap(e=>e.post?[e.post.seq]:[]));
   return {date:today.date,timezone:a.timezone,paused:a.paused,entries,posts:posts.filter(p=>p.status!=='rejected'&&!assigned.has(p.seq)&&localClock(a.timezone,new Date(p.created_at!)).date===today.date).map(postView),total:entries.length,ready:entries.filter(e=>e.post).length};

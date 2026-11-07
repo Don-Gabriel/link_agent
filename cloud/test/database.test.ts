@@ -11,8 +11,9 @@ import type { AppEnv } from '../src/env.ts';
 import {reconcileJobs,failJob} from '../src/jobs.ts';
 import {generationError} from '../src/generation-errors.ts';
 import {drainNotifications} from '../src/notifications.ts';
-import {recentCoverage,generatePreview} from '../src/generation.ts';
-import {defaultSetup} from '../../lib/setup-config';
+import {recentCoverage,generatePreview,generateJob,directly} from '../src/generation.ts';
+import {defaultSetup,setupPersona,setupStyle} from '../../lib/setup-config';
+import {scanSchedule} from '../src/maintenance';
 
 const runtime = new Miniflare(convertV4MiniflareOptions({
   modules: true,
@@ -30,6 +31,52 @@ before(async () => {
   }
 });
 after(async () => { await runtime.dispose(); });
+
+test('already prepared future occurrences advance instead of blocking the scheduler’s limited batch',async()=>{
+  const a=await provisionIdentity(db,{provider:'linkedin',subject:'consumed-slot',name:'Consumed slot'});
+  await db.prepare("UPDATE agents SET paused=0,timezone='UTC' WHERE id=?").bind(a.agentId).run();
+  const at=new Date(Date.now()+10*60000),time=at.toISOString().slice(11,16),date=at.toISOString().slice(0,10),slot=crypto.randomUUID();
+  await db.prepare('INSERT INTO post_slots(id,agent_id,local_time,days_mask,lead_minutes,next_run_at) VALUES(?,?,?,127,15,?)').bind(slot,a.agentId,time,at.toISOString()).run();
+  const seq=await saveDraft(db,{agentId:a.agentId,requestId:'consumed-slot-post',text:'This occurrence is already prepared.',rationale:'test',fingerprint:'consumed',sources:[],slotId:slot,slotDate:date,scheduledFor:at.toISOString()});
+  await db.prepare("INSERT INTO slot_runs(slot_id,run_date,scheduled_for,post_seq,outcome) VALUES(?,?,?,?,'drafted')").bind(slot,date,at.toISOString(),seq).run();
+  await scanSchedule({DB:db} as AppEnv);
+  const next=await db.prepare('SELECT next_run_at FROM post_slots WHERE id=?').bind(slot).first<{next_run_at:string}>();
+  assert.ok(Date.parse(next!.next_run_at)>at.getTime()+23*3600000);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM generation_jobs WHERE agent_id=?').bind(a.agentId).first())?.n,0);
+  await db.prepare('UPDATE agents SET paused=1 WHERE id=?').bind(a.agentId).run();
+});
+
+test('one-topic generation keeps a reviewable draft when bounded style repairs remain short',async()=>{
+  const a=await provisionIdentity(db,{provider:'linkedin',subject:'short-draft-retention',name:'Retention test'});
+  const config={...defaultSetup,categories:['ai-ml'],topics:['AI research'],voice:'inspirational',style:{minWords:200,maxWords:300,hashtagCount:15}};
+  await db.prepare('UPDATE agents SET paused=0,categories_json=?,persona_json=?,style_json=? WHERE id=?')
+    .bind(JSON.stringify(config.categories),JSON.stringify(setupPersona(config,'Retention test')),JSON.stringify(setupStyle(config)),a.agentId).run();
+  const id=crypto.randomUUID(),payload={kind:'manual' as const,agentId:a.agentId,userId:a.userId,agentRevision:0};
+  await db.prepare('INSERT INTO generation_jobs(id,agent_id,payload) VALUES(?,?,?)').bind(id,a.agentId,JSON.stringify(payload)).run();
+  const original=globalThis.fetch;let calls=0;
+  globalThis.fetch=async(url,init)=>{
+    if(!String(url).includes('generativelanguage.googleapis.com'))return new Response('<rss><channel><item><title>New research improves model evaluation</title><link>https://example.com/evaluation</link><description>Researchers compare evaluation methods and explain their limitations.</description></item></channel></rss>');
+    const prompt=JSON.parse(String(init?.body));
+    const value=calls++===0?[{index:0,category:'ai-ml',persona_fit:8,category_fit:9,novelty:8,timeliness:8,non_duplication:9,reason:'Relevant evaluation evidence'}]
+      :prompt.systemInstruction.parts[0].text.includes('ONLY {"addition"')?{addition:'One limitation remains.'}
+      :{text:'A clear opening. '+Array(97).fill('evidence').join(' '),rationale:'This research offers evidence about evaluation while clearly describing its limitations for practitioners.',fingerprint:'Evaluation research and practical limitations',continuity:null,used_quote:false,hashtags:Array.from({length:15},(_,i)=>`Topic${i}`)};
+    return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(value)}]}}]});
+  };
+  try {
+    const result=await generateJob({DB:db,GEMINI_API_KEY:'test'} as AppEnv,id,payload,directly);
+    assert.ok('seq' in result,JSON.stringify(result));assert.equal(calls,4);
+    const post=await db.prepare('SELECT text,review_notes_json,cleared_at FROM posts WHERE agent_id=?').bind(a.agentId).first<{text:string;review_notes_json:string;cleared_at:string|null}>();
+    assert.ok(post!.text.startsWith('A clear opening.'));assert.match(post!.review_notes_json,/200–300/);assert.equal(post!.cleared_at,null);
+    assert.equal((await db.prepare('SELECT state FROM generation_jobs WHERE id=?').bind(id).first())?.state,'completed');
+    const notice=await db.prepare('SELECT payload FROM notification_outbox WHERE dedupe_key=?').bind(`draft:${a.agentId}:1`).first<{payload:string}>();
+    assert.equal(JSON.parse(notice!.payload).kind,'draft_ready');assert.match(JSON.parse(notice!.payload).detail,/saved/);
+    // A first-run sample also remains available for an explicit review.
+    calls=0;
+    const firstRun=await provisionIdentity(db,{provider:'linkedin',subject:'retained-first-sample',name:'Sample retention'});
+    const sample=await generatePreview({DB:db,GEMINI_API_KEY:'test'} as AppEnv,firstRun.userId,'Sample retention',config);
+    assert.ok(sample.text.startsWith('A clear opening.'));assert.match(sample.reviewNotes.join(' '),/200–300/);
+  }finally{globalThis.fetch=original;}
+});
 
 test('retrying setup excludes the previous sample and includes its category in editorial history',async()=>{
   const a=await provisionIdentity(db,{provider:'linkedin',subject:'preview-diversity',name:'Preview test'});
@@ -95,6 +142,9 @@ test('notification batches stay bounded and each author receives only their own 
     return Response.json({name:'test-message'});
   };
   try {
+    await db.prepare('UPDATE notification_outbox SET retry_at=? WHERE dedupe_key=?').bind(new Date(Date.now()+60000).toISOString(),'push-test:3').run();
+    await drainNotifications(env,'push-test:3');assert.equal(requests,0);
+    await db.prepare("UPDATE notification_outbox SET retry_at='2020-01-01T00:00:00.000Z' WHERE dedupe_key='push-test:3'").run();
     await drainNotifications(env,'push-test:3');
     assert.equal(requests,11);assert.equal(recipients.size,10);
     assert.ok([...recipients].every(token=>token.startsWith('push-3-')));
@@ -102,6 +152,21 @@ test('notification batches stay bounded and each author receives only their own 
     await drainNotifications(env);
     assert.equal(requests,33);assert.equal(recipients.size,30);
     assert.equal((await db.prepare('SELECT count(*) AS n FROM notification_outbox WHERE delivered_at IS NULL').first())?.n,0);
+    await drainNotifications(env);assert.equal(requests,33);
+    await db.prepare('INSERT INTO notification_outbox(agent_id,payload,dedupe_key) VALUES(?,?,?)').bind(accounts[0].agentId,JSON.stringify({kind:'test'}),'partial-delivery').run();
+    let fail=true;const tries:string[]=[];
+    globalThis.fetch=async(url,init)=>{
+      if(String(url)==='https://oauth2.googleapis.com/token')return Response.json({access_token:'test'});
+      const token=JSON.parse(String(init?.body)).message.token as string;tries.push(token);
+      return token==='push-0-device-7'&&fail?new Response('temporary',{status:503}):Response.json({name:'accepted'});
+    };
+    await drainNotifications(env,'partial-delivery');assert.equal(tries.length,10);
+    const partial=await db.prepare("SELECT delivered_at,delivered_tokens_json FROM notification_outbox WHERE dedupe_key='partial-delivery'").first<{delivered_at:string|null;delivered_tokens_json:string}>();
+    assert.equal(partial!.delivered_at,null);assert.equal(JSON.parse(partial!.delivered_tokens_json).length,9);
+    fail=false;
+    await db.prepare("UPDATE notification_outbox SET retry_at='2020-01-01T00:00:00.000Z' WHERE dedupe_key='partial-delivery'").run();
+    await drainNotifications(env,'partial-delivery');assert.equal(tries.length,11);assert.equal(tries.at(-1),'push-0-device-7');
+    assert.ok((await db.prepare("SELECT delivered_at FROM notification_outbox WHERE dedupe_key='partial-delivery'").first())?.delivered_at);
   }finally{globalThis.fetch=original;}
 });
 

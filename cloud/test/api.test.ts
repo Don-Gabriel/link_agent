@@ -10,6 +10,7 @@ import {saveDraft} from '../src/drafts';
 import {publish,resolveSend} from '../src/publish';
 import {encryptToken} from '../src/crypto';
 import type {AppEnv} from '../src/env';
+import {slotOnDate,localClock} from '../../lib/schedule';
 
 const secret='test-api-session-secret-at-least-32-characters';
 const runtime=new Miniflare(convertV4MiniflareOptions({
@@ -35,6 +36,59 @@ async function author(name:string) {
 async function call(token:string,path:string,method='GET',payload?:unknown) {
   return runtime.dispatchFetch(`https://byline.example${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(payload===undefined?{}:{body:JSON.stringify(payload)})});
 }
+
+test('timezone changes move prepared timetable drafts, revoke approvals and preserve custom times',async()=>{
+  const a=await author('prepared-timezone');
+  const slot=(await (await call(a.token,'/api/slots','POST',{localTime:'09:00'})).json() as {slot:{id:string}}).slot;
+  const date=new Date(Date.now()+3*86400000).toISOString().slice(0,10),old=slotOnDate('UTC','09:00',date)!.toISOString();
+  const seq=await saveDraft(db,{agentId:a.agentId,requestId:'prepared-zone',text:'A prepared timetable draft.',rationale:'test',fingerprint:'timezone',sources:[],slotId:slot.id,slotDate:date,scheduledFor:old,cleared:true});
+  await db.prepare("INSERT INTO slot_runs(slot_id,run_date,scheduled_for,post_seq,outcome) VALUES(?,?,?,?,'drafted')").bind(slot.id,date,old,seq).run();
+  await db.prepare('INSERT INTO notification_outbox(agent_id,payload,dedupe_key,retry_at) VALUES(?,?,?,?)').bind(a.agentId,JSON.stringify({kind:'draft_ready',seq}),`draft:${a.agentId}:${seq}`,old).run();
+  const custom=await saveDraft(db,{agentId:a.agentId,requestId:'custom-zone',text:'A custom scheduled draft.',rationale:'test',fingerprint:'custom',sources:[],scheduledFor:old,cleared:true});
+  const change=await call(a.token,'/api/settings','PATCH',{timezone:'Asia/Kathmandu'});assert.equal(change.status,200);
+  const p=await db.prepare('SELECT scheduled_for,cleared_at FROM posts WHERE agent_id=? AND seq=?').bind(a.agentId,seq).first();
+  assert.equal(p!.scheduled_for,slotOnDate('Asia/Kathmandu','09:00',date)!.toISOString());assert.equal(p!.cleared_at,null);
+  assert.equal((await db.prepare('SELECT scheduled_for FROM slot_runs WHERE slot_id=?').bind(slot.id).first())?.scheduled_for,p!.scheduled_for);
+  assert.equal((await db.prepare('SELECT retry_at FROM notification_outbox WHERE dedupe_key=?').bind(`draft:${a.agentId}:${seq}`).first())?.retry_at,new Date(Date.parse(String(p!.scheduled_for))-15*60000).toISOString());
+  const c=await db.prepare('SELECT scheduled_for,cleared_at FROM posts WHERE agent_id=? AND seq=?').bind(a.agentId,custom).first();
+  assert.equal(c!.scheduled_for,old);assert.ok(c!.cleared_at);
+});
+
+test('today’s timetable uses its exact local date and never promises a retry for an expired occurrence',async()=>{
+  const a=await author('expired-preparation');
+  await db.prepare('UPDATE agents SET timezone=?,paused=0 WHERE id=?').bind('Pacific/Kiritimati',a.agentId).run();
+  const slot=(await (await call(a.token,'/api/slots','POST',{localTime:'00:00'})).json() as {slot:{id:string}}).slot;
+  const date=localClock('Pacific/Kiritimati').date,at=slotOnDate('Pacific/Kiritimati','00:00',date)!.toISOString();
+  await db.prepare("INSERT INTO slot_runs(slot_id,run_date,scheduled_for,outcome,attempts,retry_at,detail) VALUES(?,?,?,'failed',1,'2020-01-01T00:00:00.000Z','Preparation stopped.')").bind(slot.id,date,at).run();
+  const day=await (await call(a.token,'/api/review-delivery')).json() as {date:string;entries:{scheduledFor:string;progress:{state:string};canPrepare:boolean}[]};
+  assert.equal(day.date,date);assert.equal(day.entries[0].scheduledFor,at);assert.equal(day.entries[0].progress.state,'attention');assert.equal(day.entries[0].canPrepare,true);
+});
+
+test('style review blocks automatic sends until explicit approval; timezone dates govern daily sends',async()=>{
+  const a=await author('quality-hold'),env=await runtime.getBindings<AppEnv>();env.DB=db;env.LINKEDIN_LIVE='true';
+  await db.prepare("UPDATE agents SET paused=0,auto_publish=1,timezone='Pacific/Kiritimati' WHERE id=?").bind(a.agentId).run();
+  const slot=(await (await call(a.token,'/api/slots','POST',{localTime:'09:00',autoPublish:true})).json() as {slot:{id:string}}).slot;
+  await db.prepare('INSERT INTO linkedin_accounts(agent_id,member_urn,access_token_enc,expires_at) VALUES(?,?,?,?)').bind(a.agentId,'urn:li:person:test',await encryptToken(env.TOKEN_ENCRYPTION_KEY,'test'),'2099-01-01T00:00:00.000Z').run();
+  const at=new Date(Date.now()-1000).toISOString();
+  const seq=await saveDraft(db,{agentId:a.agentId,requestId:'quality-held',text:'A saved draft for a human to review.',rationale:'test',fingerprint:'quality',sources:[],slotId:slot.id,slotDate:localClock('Pacific/Kiritimati').date,scheduledFor:at,reviewNotes:['Check the word count.']});
+  const original=globalThis.fetch;let sent=0;
+  globalThis.fetch=async()=>{sent++;return new Response(null,{status:201,headers:{'x-restli-id':'urn:li:share:test'}});};
+  try {
+    await assert.rejects(publish(env,a.agentId,seq,'auto'));assert.equal(sent,0);
+    const status=await (await call(a.token,'/api/status')).json() as {queue:{reviewNotes:string[]}[]};assert.deepEqual(status.queue[0].reviewNotes,['Check the word count.']);
+    assert.equal((await call(a.token,`/api/posts/${seq}`,'PATCH',{action:'clear',reviewed:{text:'A saved draft for a human to review.',hashtags:[],media:[]}})).status,200);
+    await db.prepare('UPDATE posts SET scheduled_for=? WHERE agent_id=? AND seq=?').bind(new Date(Date.now()+60000).toISOString(),a.agentId,seq).run();
+    await assert.rejects(publish(env,a.agentId,seq,'auto'));assert.equal(sent,0);
+    await db.prepare('UPDATE posts SET scheduled_for=? WHERE agent_id=? AND seq=?').bind(at,a.agentId,seq).run();
+    assert.equal((await call(a.token,`/api/posts/${seq}`,'PATCH',{action:'unclear'})).status,200);
+    // Even a perfect draft must not bypass the author's Undo via slot auto-publish.
+    await db.prepare("UPDATE posts SET review_notes_json='[]' WHERE agent_id=? AND seq=?").bind(a.agentId,seq).run();
+    await assert.rejects(publish(env,a.agentId,seq,'auto'));assert.equal(sent,0);
+    assert.equal((await call(a.token,`/api/posts/${seq}`,'PATCH',{action:'clear'})).status,200);
+    assert.equal((await publish(env,a.agentId,seq,'auto')).ok,true);assert.equal(sent,1);
+    assert.equal((await db.prepare('SELECT send_day FROM distributions WHERE agent_id=?').bind(a.agentId).first())?.send_day,localClock('Pacific/Kiritimati').date);
+  }finally{globalThis.fetch=original;}
+});
 
 test('status exposes only the owner’s latest job and saved notification preference',async()=>{
   const a=await author('job-owner'),b=await author('other-job-owner');

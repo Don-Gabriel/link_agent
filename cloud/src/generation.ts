@@ -2,13 +2,14 @@ import { discover, type Candidate } from '../../lib/discovery-core';
 import { judgeCandidates } from '../../lib/judge-core';
 import { writePost, type PriorPost } from '../../lib/writer-core';
 import { parseSetup,setupCategories,setupPersona,setupStyle,type SetupConfig } from '../../lib/setup-config';
-import { critique } from '../../lib/critique';
+import { critique, countWords, reviewNotes } from '../../lib/critique';
 import { nextSlotRun } from '../../lib/schedule';
 import { pickSamples } from '../../lib/voice-prompt';
 import { completion,durableCompletion } from './ai';
 import { loadAgent } from './models';
 import { saveDraft } from './drafts';
 import { failJob,type GenerationJob } from './jobs';
+import { draftNoticeTime } from './notifications';
 import type { AppEnv } from './env';
 import type { SlotRow } from './slots';
 import { generationError } from './generation-errors';
@@ -56,12 +57,11 @@ export async function generatePreview(env:AppEnv,userId:string,name:string,confi
   if(!source)throw new Error('No source closely matches your subjects yet. Try again later or adjust your subjects.');
   const draft=await writePost(complete,{persona,style,winner:source,runnersUp:[],memory,priorPosts:[],repairAttempts:2,samples:config.samples.map(text=>({text,origin:'corpus'}))});
   if(!draft.ok)throw new Error(draft.reason);
-  const violations=critique(draft.data.text,style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote});
+  const violations=critique(draft.data.text,style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote,sourceUrl:source.url});
   if(violations.length){
-    console.warn(JSON.stringify({event:'preview_quality_failed',rules:violations.map(v=>v.rule),words:draft.data.text.trim().split(/\s+/).length,minWords:style.minWords,maxWords:style.maxWords}));
-    throw new Error('The sample needs another pass to match your writing preferences.');
+    console.warn(JSON.stringify({event:'preview_saved_for_review',rules:violations.map(v=>v.rule),words:countWords(draft.data.text),minWords:style.minWords,maxWords:style.maxWords}));
   }
-  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,testMode:false};
+  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,reviewNotes:reviewNotes(violations,draft.data.text,style),testMode:false};
 }
 export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,step:RunStep) {
   const complete=durableCompletion(completion(env,payload.userId));
@@ -100,18 +100,17 @@ export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,ste
     if(!draft.ok)throw new Error(draft.reason);
     const violations=critique(draft.data.text,context.settings.style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote,sourceUrl:winner.url});
     if(violations.length){
-      console.warn(JSON.stringify({event:'draft_quality_failed',job:id,rules:violations.map(v=>v.rule)}));
-      throw new Error('The draft needs another pass to match your writing preferences.');
+      console.warn(JSON.stringify({event:'draft_saved_for_review',job:id,rules:violations.map(v=>v.rule),words:countWords(draft.data.text),minWords:context.settings.style.minWords,maxWords:context.settings.style.maxWords}));
     }
     await step('stage-save',()=>stage('saving'));
     const seq=await step('save-draft',()=>saveDraft(env.DB,{agentId:payload.agentId,requestId:id,text:draft.data.text.trim(),rationale:draft.data.rationale,
       fingerprint:draft.data.fingerprint,sources:[winner.url],category:winner.category,hashtags:draft.data.hashtags,scores:winner.scores,continuity:draft.data.continuity,
       usedQuote:draft.data.used_quote,slotId:payload.slotId,slotDate:payload.runDate,agentRevision:payload.agentRevision,slotRevision:payload.slotRevision,
-      avoidUsedSources:true,scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
+      avoidUsedSources:true,reviewNotes:reviewNotes(violations,draft.data.text,context.settings.style),scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
     await step('settle',async()=>{
       const now=new Date().toISOString();
       const queries=[env.DB.prepare("UPDATE slot_runs SET post_seq=?,generated_at=?,outcome='drafted',stage='ready' WHERE job_id=? AND post_seq IS NULL").bind(seq,now,id),
-        env.DB.prepare(`INSERT INTO notification_outbox(agent_id,payload,dedupe_key) VALUES(?,?,?) ON CONFLICT DO NOTHING`).bind(payload.agentId,JSON.stringify({kind:'draft_ready',seq}),`draft:${payload.agentId}:${seq}`),
+        env.DB.prepare(`INSERT INTO notification_outbox(agent_id,payload,dedupe_key,retry_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING`).bind(payload.agentId,JSON.stringify({kind:'draft_ready',seq,...(violations.length?{detail:'Your draft is saved. Review the highlighted writing preferences before publishing.'}:{})}),`draft:${payload.agentId}:${seq}`,draftNoticeTime(payload,context.slot?.lead_minutes??15)),
         env.DB.prepare(`INSERT INTO scheduler_state(agent_id,last_run_at,cycle_count) SELECT ?,?,1 WHERE EXISTS(SELECT 1 FROM generation_jobs WHERE id=? AND state!='completed') ON CONFLICT(agent_id) DO UPDATE SET last_run_at=excluded.last_run_at,cycle_count=cycle_count+1`).bind(payload.agentId,now,id)];
       if(context.slot)queries.push(env.DB.prepare('UPDATE post_slots SET next_run_at=? WHERE id=? AND revision=?').bind(nextSlotRun(context.settings.timezone,context.slot.local_time,context.slot.days_mask,new Date(Math.max(Date.now(),Date.parse(payload.scheduledFor!))))!.toISOString(),context.slot.id,context.slot.revision));
       queries.push(env.DB.prepare("UPDATE generation_jobs SET state='completed',stage='ready',updated_at=? WHERE id=? AND state!='completed'").bind(now,id));

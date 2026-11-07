@@ -31,7 +31,7 @@ export async function publish(env:AppEnv,agentId:string,seq:number,source:'manua
   const now=new Date().toISOString(),day=localClock(agent.timezone).date,key=`linkedin:${agentId}:${seq}`;
   const eligible=`p.status IN ('draft','approved','failed','missed') AND p.text=? AND p.hashtags_json=? AND p.media_json=? AND a.active=1
     AND (?='manual' OR (a.paused=0 AND p.scheduled_for<=? AND p.scheduled_for>=?
-      AND (p.hold_until IS NULL OR p.hold_until<=?) AND (p.cleared_at IS NOT NULL OR (a.auto_publish=1 AND s.auto_publish=1 AND s.enabled=1))))`;
+      AND (p.hold_until IS NULL OR p.hold_until<=?) AND (p.cleared_at IS NOT NULL OR (a.auto_publish=1 AND s.auto_publish=1 AND s.enabled=1 AND p.review_notes_json='[]' AND p.requires_review=0))))`;
   const claim=await env.DB.prepare(`INSERT INTO distributions(agent_id,seq,idempotency_key,source,send_day,status,attempts)
     SELECT p.agent_id,p.seq,?,?,?,'in_flight',1 FROM posts p JOIN agents a ON a.id=p.agent_id LEFT JOIN post_slots s ON s.id=p.slot_id
     WHERE p.agent_id=? AND p.seq=? AND ${eligible}

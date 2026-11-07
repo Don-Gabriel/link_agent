@@ -1,16 +1,4 @@
-/**
- * Daily cadence maths, done with Intl rather than a date library.
- *
- * The agent posts once a day at a local wall-clock time. The cron ticks every
- * 15 minutes in UTC, so the only question this module answers is "when, in
- * UTC, is the next occurrence of HH:MM in the operator's timezone?".
- *
- * Known limitation, stated rather than hidden: this computes the offset from
- * the CURRENT local time, so on the two DST-transition days per year the post
- * can land an hour early or late. Asia/Kolkata — the default — has no DST at
- * all, and for a once-daily post an hour of drift twice a year is not worth a
- * dependency.
- */
+/** Local wall-clock scheduling with DST gap and repeated-time handling. */
 
 export interface LocalClock {
   hour: number;
@@ -156,8 +144,7 @@ export function describeDays(daysMask: number): string {
  *
  * Generalises nextDailyRun. The loop re-derives the local clock for each
  * candidate day rather than assuming 24-hour days, so a DST transition shifts
- * the answer by an hour instead of landing on the wrong weekday — the same
- * tolerance the rest of this module documents.
+ * the UTC offset while preserving the chosen local posting time.
  *
  * Returns null only if the mask is empty, which parseDaysMask makes impossible.
  */
@@ -170,24 +157,13 @@ export function nextSlotRun(
   const mask = parseDaysMask(daysMask);
   const zone = safeTimeZone(timezone);
   const now = localClock(zone, from);
-  const target = parseHhMm(hhmm);
 
   const midnight = Date.parse(`${now.date}T00:00:00Z`);
   for (let day = 0; day < 9; day++) {
     const calendar = new Date(midnight + day * 86400000);
     if (!isDayEnabled(mask, calendar.getUTCDay())) continue;
     const date = calendar.toISOString().slice(0,10);
-    const desired = calendar.getTime() + (target.hour * 60 + target.minute) * 60000;
-    const offsets = new Set<number>();
-    for (const delta of [-86400000,0,86400000]) {
-      const instant = new Date(desired + delta);
-      const l = localClock(zone,instant);
-      offsets.add(Date.parse(`${l.date}T00:00:00Z`) + (l.hour*60+l.minute)*60000 - instant.getTime());
-    }
-    const possible = [...offsets].map(o=>new Date(desired-o)).sort((a,b)=>a.getTime()-b.getTime());
-    const exact = possible.filter(t=> {const l=localClock(zone,t);return l.date===date&&l.hour===target.hour&&l.minute===target.minute;});
-    // Repeated times run once at the earlier instant; missing times move forward by the DST gap.
-    const candidate = exact[0] ?? possible.find(t=> {const l=localClock(zone,t);return l.date===date&&l.hour*60+l.minute>target.hour*60+target.minute;});
+    const candidate = slotOnDate(zone,hhmm,date);
     if (candidate && candidate.getTime()>from.getTime()) return candidate;
   }
   return null;
@@ -206,4 +182,21 @@ export function formatInZone(date: Date, timezone: string): string {
   } catch {
     return date.toISOString().slice(0, 16).replace("T", " ") + " UTC";
   }
+}
+
+/** One local calendar date: ambiguous times use the first occurrence; gaps move forward. */
+export function slotOnDate(timezone:string,hhmm:string,date:string):Date|null {
+  const zone=safeTimeZone(timezone),target=parseHhMm(hhmm);
+  const desired = Date.parse(`${date}T00:00:00Z`) + (target.hour * 60 + target.minute) * 60000;
+  const offsets = new Set<number>();
+  for (const delta of [-86400000,0,86400000]) {
+    const instant = new Date(desired + delta);
+    const l = localClock(zone,instant);
+    offsets.add(Date.parse(`${l.date}T00:00:00Z`) + (l.hour*60+l.minute)*60000 - instant.getTime());
+  }
+  const possible = [...offsets].map(o=>new Date(desired-o)).sort((a,b)=>a.getTime()-b.getTime());
+  const exact = possible.filter(t=> {const l=localClock(zone,t);return l.date===date&&l.hour===target.hour&&l.minute===target.minute;});
+  // Repeated times run once at the earlier instant; missing times move forward by the DST gap.
+  const candidate = exact[0] ?? possible.find(t=> {const l=localClock(zone,t);return l.date===date&&l.hour*60+l.minute>target.hour*60+target.minute;});
+  return candidate??null;
 }

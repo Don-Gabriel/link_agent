@@ -48,17 +48,13 @@ class ByLineMark extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: C.filament,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.edit_note_rounded,
-            color: Colors.white,
-            size: 28,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.asset(
+            'assets/branding/byline-logo.png',
+            width: 40,
+            height: 40,
+            excludeFromSemantics: true,
           ),
         ),
         const SizedBox(width: 12),

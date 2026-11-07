@@ -19,6 +19,7 @@ export interface DraftInput {
   slotRevision?:number;
   /** Generated stories cannot reuse a source saved by a concurrent job. */
   avoidUsedSources?:boolean;
+  reviewNotes?:string[];
 }
 
 /** Allocation and insert commit together; retries return the original draft. */
@@ -39,12 +40,12 @@ export async function saveDraft(db: D1Database, draft: DraftInput) {
       ON CONFLICT(agent_id) DO UPDATE SET value=MAX(post_counters.value+1,excluded.value)`)
       .bind(draft.agentId, draft.agentId, ...priorArgs,...guardArgs),
     db.prepare(`INSERT INTO posts(agent_id,seq,text,rationale,sources_json,fingerprint,status,kind,client_request_id,slot_id,slot_date,
-      category,hashtags_json,media_json,scores_json,continuity,used_quote,scheduled_for,cleared_at)
-      SELECT ?,value,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,? FROM post_counters WHERE agent_id=? AND NOT EXISTS(${prior}) AND ${guard}`)
+      category,hashtags_json,media_json,scores_json,continuity,used_quote,scheduled_for,cleared_at,review_notes_json,requires_review)
+      SELECT ?,value,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM post_counters WHERE agent_id=? AND NOT EXISTS(${prior}) AND ${guard}`)
       .bind(draft.agentId, draft.text, draft.rationale, JSON.stringify(draft.sources), draft.fingerprint,
         draft.slotId ? 'auto' : 'custom', draft.requestId, draft.slotId ?? null, draft.slotDate ?? null,
         draft.category??null,JSON.stringify(draft.hashtags??[]),JSON.stringify(draft.media??[]),draft.scores?JSON.stringify(draft.scores):null,
-        draft.continuity??null,draft.usedQuote?1:0,draft.scheduledFor??null,draft.cleared?new Date().toISOString():null,draft.agentId, ...priorArgs,...guardArgs),
+        draft.continuity??null,draft.usedQuote?1:0,draft.scheduledFor??null,draft.cleared?new Date().toISOString():null,JSON.stringify(draft.reviewNotes??[]),draft.reviewNotes?.length?1:0,draft.agentId, ...priorArgs,...guardArgs),
     db.prepare(prior).bind(...priorArgs),
   ]);
   const row = result[2].results[0] as { seq: number } | undefined;

@@ -4,6 +4,7 @@ import { normalizeHhMm,isValidTimeZone,nextSlotRun } from '../../lib/schedule';
 import { loadAgent,accountStatus } from './models';
 import { listSlots } from './slots';
 import { body,json,HttpError } from './http';
+import { rescheduleSlotDrafts } from './reschedule';
 import type { Owner } from './auth';
 
 export async function settingsRoute(request:Request,db:D1Database,owner:Owner) {
@@ -27,8 +28,12 @@ export async function settingsRoute(request:Request,db:D1Database,owner:Owner) {
     WHERE id=? AND revision=? RETURNING id`).bind(JSON.stringify(categories),describeCategories(categories),zone,time,(b.autoPublish??a.autoPublish)?1:0,(b.paused??a.paused)?1:0,
       b.autoPublishCap??a.autoPublishCap,JSON.stringify(style),JSON.stringify(b.corpus??a.corpus),JSON.stringify(persona),nonce,a.agentId,c.row.revision)];
   // A timezone change and its timetable updates commit together and are guarded by the same revision.
-  if(zone!==a.timezone)for(const slot of await listSlots(db,a.agentId))statements.push(db.prepare(`UPDATE post_slots SET next_run_at=?,revision=revision+1 WHERE id=? AND agent_id=?
-    AND EXISTS(SELECT 1 FROM agents WHERE id=? AND edit_token=?)`).bind(slot.enabled?nextSlotRun(zone,slot.local_time,slot.days_mask)!.toISOString():null,slot.id,a.agentId,a.agentId,nonce));
+  if(zone!==a.timezone)for(const slot of await listSlots(db,a.agentId)) {
+    statements.push(db.prepare(`UPDATE post_slots SET next_run_at=?,revision=revision+1 WHERE id=? AND agent_id=?
+      AND EXISTS(SELECT 1 FROM agents WHERE id=? AND edit_token=?)`).bind(slot.enabled?nextSlotRun(zone,slot.local_time,slot.days_mask)!.toISOString():null,slot.id,a.agentId,a.agentId,nonce));
+    statements.push(...await rescheduleSlotDrafts(db,a.agentId,slot.id,zone,slot.local_time,!!slot.enabled,slot.lead_minutes,
+      'EXISTS(SELECT 1 FROM agents WHERE id=? AND edit_token=?)',[a.agentId,nonce]));
+  }
   statements.push(db.prepare(`UPDATE onboarding SET config=json_set(config,'$.timezone',?) WHERE user_id=? AND EXISTS(SELECT 1 FROM agents WHERE id=? AND edit_token=?)`).bind(zone,owner.userId,a.agentId,nonce));
   const result=await db.batch(statements);
   if(!result[0].meta.changes)throw new HttpError(409,'Settings changed on another device. Reload and try again.');

@@ -335,6 +335,7 @@ class Post {
     required this.slotId,
     required this.clearedAt,
     required this.heldUntil,
+    this.reviewNotes = const [],
   });
 
   final String id;
@@ -369,6 +370,7 @@ class Post {
   /// mid-edit. Already expiry-filtered by the server — if it is non-null here,
   /// the hold is genuinely in effect.
   final DateTime? heldUntil;
+  final List<String> reviewNotes;
 
   bool get isDraft => status == 'draft';
   bool get isPublished => status == 'published';
@@ -410,6 +412,7 @@ class Post {
     slotId: j['slotId'] as String?,
     clearedAt: DateTime.tryParse(_str(j['clearedAt'], ''))?.toLocal(),
     heldUntil: DateTime.tryParse(_str(j['heldUntil'], ''))?.toLocal(),
+    reviewNotes: _strList(j['reviewNotes']),
   );
 }
 

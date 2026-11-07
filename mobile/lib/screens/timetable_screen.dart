@@ -92,7 +92,7 @@ class TimetableScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'One post per enabled time on its selected days. Timetable changes affect future drafts. Change an existing post’s time on its card. Reducing the number removes the last times; saved posts stay in My posts.',
+          'One post per enabled time on its selected days. Changing timezone also moves upcoming timetable drafts and clears their approval. Other timetable changes affect future drafts; change an existing post’s time on its card. Saved posts stay in My posts.',
           style: T.small,
         ),
         const SizedBox(height: 20),
@@ -104,8 +104,7 @@ class TimetableScreen extends StatelessWidget {
           ),
         ),
         Text(
-          'Each posting time has a draft waiting for you before it goes out, so you '
-          'always get the review window you asked for.',
+          'Preparation starts before your selected time. You are notified when the draft is ready. Publishing is checked every minute; phone delivery also depends on notification permissions and connectivity.',
           style: T.micro,
         ),
         const SizedBox(height: S.x4),

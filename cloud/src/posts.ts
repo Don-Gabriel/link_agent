@@ -2,7 +2,7 @@ import { assemblePost,checkLength,MAX_BODY_CHARS,hookOf } from '../../lib/format
 import { rewriteDraft,writeFollowUp,polishCustomPost } from '../../lib/writer-core';
 import { parseStyle } from '../../lib/style';
 import { pickSamples } from '../../lib/voice-prompt';
-import { critique } from '../../lib/critique';
+import { critique,reviewNotes } from '../../lib/critique';
 import { isCategoryId } from '../../lib/categories';
 import { body,json,text,HttpError } from './http';
 import { loadAgent,postView,type CloudPost } from './models';
@@ -83,16 +83,18 @@ export async function postAction(request:Request,env:AppEnv,owner:Owner,seq:numb
     if(value.length<20)throw new HttpError(400,'Write at least 20 characters.');
     await ownedImages(env.DB,owner.agentId,media);
     if(!checkLength(assemblePost({body:value,hashtags,maxHashtags:15,sourceUrl:(media as string[]).length?undefined:JSON.parse(post.sources_json??'[]')[0]})).withinLimit)throw new HttpError(400,'The post exceeds LinkedIn’s text limit.');
-    set="original_text=COALESCE(original_text,text),text=?,hashtags_json=?,media_json=?,status='draft',cleared_at=NULL";args=[value,JSON.stringify(hashtags),JSON.stringify(media)];
+    const {settings:agent}=await loadAgent(env.DB,owner.agentId);
+    const notes=reviewNotes(critique(value,agent.style,{hashtags,sourceUrl:(media as string[]).length?undefined:JSON.parse(post.sources_json??'[]')[0]}),value,agent.style);
+    set="original_text=COALESCE(original_text,text),text=?,hashtags_json=?,media_json=?,review_notes_json=?,status='draft',cleared_at=NULL,requires_review=1";args=[value,JSON.stringify(hashtags),JSON.stringify(media),JSON.stringify(notes)];
   }else if(b.action==='clear') {
     if(!post.scheduled_for)throw new HttpError(409,'Choose a send time or publish manually.');
     const r=reviewed(b.reviewed);
     if(r&&(r.text!==post.text||JSON.stringify(r.hashtags)!==post.hashtags_json||JSON.stringify(r.media)!==post.media_json))throw new HttpError(409,'The post changed. Refresh and review it again.');
     set="cleared_at=?,hold_until=NULL,status='approved'";args=[new Date().toISOString()];
-  }else if(b.action==='unclear')set="cleared_at=NULL,status='draft'";
+  }else if(b.action==='unclear')set="cleared_at=NULL,requires_review=1,status='draft'";
   else if(b.action==='hold'){set='hold_until=?';args=[new Date(Date.now()+15*60000).toISOString()];}
   else if(b.action==='release')set='hold_until=NULL';
-  else if(b.action==='reschedule'){set="scheduled_for=?,cleared_at=NULL,status='draft'";args=[future(b.scheduledFor)];}
+  else if(b.action==='reschedule'){set="scheduled_for=?,cleared_at=NULL,requires_review=1,status='draft'";args=[future(b.scheduledFor)];}
   else if(b.action==='discard')set="status='rejected',cleared_at=NULL,scheduled_for=NULL";
   else throw new HttpError(400,'Unknown post action.');
   // The condition and mutation are one statement: a publish cannot start between a check and an edit.

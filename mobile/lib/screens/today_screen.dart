@@ -84,6 +84,7 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
           .toSet();
       if (after.difference(before).isNotEmpty) await state.refresh(quiet: true);
     } catch (e) {
+      if (!mounted || state.agent?.agentId != id) return;
       if (e is ApiException && e.isUnauthorized) {
         await state.signOut();
         return;

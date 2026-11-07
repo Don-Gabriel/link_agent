@@ -188,6 +188,7 @@ class AppState extends ChangeNotifier {
     status = null;
     reviewDelivery = null;
     generation = null;
+    loading = false;
     error = null;
     notifyListeners();
   }
@@ -304,11 +305,15 @@ class AppState extends ChangeNotifier {
   /// [mutate]: the server recomputes every slot's next occurrence, and those
   /// live outside the agent object.
   Future<String?> mutateAgent(Future<dynamic> Function() action) async {
+    final owner = agent?.agentId;
     _refreshRevision++;
     loading = true;
     notifyListeners();
     try {
       final json = await action();
+      if (agent?.agentId != owner) {
+        return 'The account changed. Reload this page.';
+      }
       final updated = json is Map<String, dynamic>
           ? json['agent'] as Map<String, dynamic>?
           : null;
@@ -321,6 +326,9 @@ class AppState extends ChangeNotifier {
         return null;
       }
     } on ApiException catch (e) {
+      if (agent?.agentId != owner) {
+        return 'The account changed. Reload this page.';
+      }
       loading = false;
       error = e.toString();
       notifyListeners();

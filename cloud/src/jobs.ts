@@ -1,7 +1,8 @@
 import type { AppEnv } from './env';
 import { HttpError } from './http';
 import { type SlotRow } from './slots';
-export interface GenerationJob {kind:'slot'|'manual';agentId:string;userId:string;agentRevision:number;slotRevision?:number;slotId?:string;runDate?:string;scheduledFor?:string}
+import { draftNoticeTime } from './notifications';
+export interface GenerationJob {kind:'slot'|'manual';agentId:string;userId:string;agentRevision:number;slotRevision?:number;slotId?:string;runDate?:string;scheduledFor?:string;requested?:boolean}
 /** Persist failure and its notification together; replay cannot duplicate it. */
 export async function failJob(db:D1Database,id:string,agentId:string,reason:string) {
   const detail=reason.slice(0,200);
@@ -13,9 +14,9 @@ export async function failJob(db:D1Database,id:string,agentId:string,reason:stri
       .bind(agentId,JSON.stringify({kind:'draft_failed',detail}),`generation-failed:${id}`,id,agentId),
   ]);
 }
-export async function enqueueSlot(db:D1Database,slot:SlotRow,userId:string,agentRevision:number,date:string,scheduledFor:string) {
+export async function enqueueSlot(db:D1Database,slot:SlotRow,userId:string,agentRevision:number,date:string,scheduledFor:string,requested=false) {
   const id=crypto.randomUUID(),now=new Date().toISOString();
-  const payload:GenerationJob={kind:'slot',agentId:slot.agent_id,userId,agentRevision,slotRevision:slot.revision,slotId:slot.id,runDate:date,scheduledFor};
+  const payload:GenerationJob={kind:'slot',agentId:slot.agent_id,userId,agentRevision,slotRevision:slot.revision,slotId:slot.id,runDate:date,scheduledFor,requested};
   const results=await db.batch([
     db.prepare(`INSERT INTO slot_runs(slot_id,run_date,scheduled_for,job_id,stage) SELECT ?,?,?,?,'discovering'
       WHERE EXISTS(SELECT 1 FROM agents WHERE id=? AND paused=0 AND active=1 AND revision=?)
@@ -53,18 +54,20 @@ export async function dispatchJobs(env:AppEnv) {
 
 /** A runtime failure can prevent the workflow's catch block from recording its outcome. */
 export async function reconcileJobs(env:AppEnv) {
-  const stale=(await env.DB.prepare("SELECT id,agent_id FROM generation_jobs WHERE state='working' AND updated_at<? ORDER BY updated_at LIMIT 5")
-    .bind(new Date(Date.now()-5*60000).toISOString()).all<{id:string;agent_id:string}>()).results;
+  const stale=(await env.DB.prepare("SELECT id,agent_id,payload FROM generation_jobs WHERE state='working' AND updated_at<? ORDER BY updated_at LIMIT 5")
+    .bind(new Date(Date.now()-5*60000).toISOString()).all<{id:string;agent_id:string;payload:string}>()).results;
   for(const job of stale) {
     try {
       const state=await (await env.CONTENT.get(job.id)).status();
       if(!['errored','terminated','complete'].includes(state.status))continue;
       const saved=await env.DB.prepare('SELECT seq,created_at,status FROM posts WHERE agent_id=? AND client_request_id=?').bind(job.agent_id,job.id).first<{seq:number;created_at:string;status:string}>();
       if(saved) {
+        const payload=JSON.parse(job.payload) as GenerationJob;
+        const slot=payload.slotId?await env.DB.prepare('SELECT lead_minutes FROM post_slots WHERE id=? AND agent_id=?').bind(payload.slotId,job.agent_id).first<{lead_minutes:number}>():null;
         await env.DB.batch([
           env.DB.prepare("UPDATE generation_jobs SET state='completed',stage='ready',error=NULL,updated_at=? WHERE id=? AND state='working'").bind(new Date().toISOString(),job.id),
           env.DB.prepare('UPDATE slot_runs SET post_seq=?,generated_at=?,outcome=?,stage=\'ready\' WHERE job_id=? AND post_seq IS NULL').bind(saved.seq,saved.created_at,saved.status==='published'?'published':'drafted',job.id),
-          env.DB.prepare('INSERT INTO notification_outbox(agent_id,payload,dedupe_key) VALUES(?,?,?) ON CONFLICT DO NOTHING').bind(job.agent_id,JSON.stringify({kind:'draft_ready',seq:saved.seq}),`draft:${job.agent_id}:${saved.seq}`),
+          env.DB.prepare('INSERT INTO notification_outbox(agent_id,payload,dedupe_key,retry_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING').bind(job.agent_id,JSON.stringify({kind:'draft_ready',seq:saved.seq}),`draft:${job.agent_id}:${saved.seq}`,draftNoticeTime(payload,slot?.lead_minutes??15)),
         ]);
         continue;
       }

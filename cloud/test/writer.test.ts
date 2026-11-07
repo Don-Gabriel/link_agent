@@ -62,7 +62,9 @@ test('long drafts receive enough output budget and a second bounded repair can f
   const result=await writePost(async request=>{
     assert.equal(request.maxOutputTokens,writerOutputBudget(style));
     assert.ok(request.maxOutputTokens!>1536);
-    return {ok:true,text:JSON.stringify(draft([330,380,420][calls++])),model:'test'};
+    const response=calls===2?{addition:Array(40).fill('code').join(' ')}:draft([330,380][calls]);
+    calls++;
+    return {ok:true,text:JSON.stringify(response),model:'test'};
   },args);
   assert.equal(calls,3);
   assert.ok(result.ok);
@@ -75,4 +77,13 @@ test('unsuccessful repairs stay bounded and preserve the better draft',async()=>
   assert.equal(calls,3);
   assert.ok(result.ok);
   assert.equal(result.data.text,draft(380).text);
+});
+
+test('a repair outage retains already written text instead of restarting the whole job',async()=>{
+  let calls=0;
+  const result=await writePost(async()=>{
+    if(calls++)throw new Error('provider_unavailable');
+    return {ok:true,text:JSON.stringify(draft(380)),model:'test'};
+  },args);
+  assert.ok(result.ok);assert.equal(result.data.text,draft(380).text);assert.equal(calls,2);
 });

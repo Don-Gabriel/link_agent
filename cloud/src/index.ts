@@ -67,7 +67,7 @@ export default {
     }
   },
   async scheduled(event:ScheduledController,env:AppEnv) {
-    const id=`tick-${Math.floor(event.scheduledTime/300000)}`;
+    const id=`minute-${Math.floor(event.scheduledTime/60000)}`;
     await env.MAINTENANCE.createBatch([{id,params:{cleanup:new Date(event.scheduledTime).getUTCMinutes()===0}}]);
   },
 } satisfies ExportedHandler<AppEnv>;

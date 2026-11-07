@@ -22,9 +22,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:provider/provider.dart';
 
 import '../api/models.dart';
 import '../theme.dart';
+import '../timezones.dart';
+import '../state/app_state.dart';
 import 'primitives.dart';
 
 /// Matches FOLD_CHARS in lib/format.ts. Keep the two in step.
@@ -54,19 +57,24 @@ String hhmm(DateTime t) =>
 ///
 /// Says nothing extra for today, because most posts go out today and "today"
 /// on every card is noise.
-String whenLabel(DateTime t) {
-  final now = DateTime.now();
-  final days = DateTime(
+String whenLabel(DateTime t, {String? timezone, DateTime? now}) {
+  now ??= DateTime.now();
+  if (timezone != null) {
+    t = Timezones.at(t, timezone);
+    now = Timezones.at(now, timezone);
+  }
+  final days = DateTime.utc(
     t.year,
     t.month,
     t.day,
-  ).difference(DateTime(now.year, now.month, now.day)).inDays;
-  return switch (days) {
+  ).difference(DateTime.utc(now.year, now.month, now.day)).inDays;
+  final label = switch (days) {
     0 => hhmm(t),
     1 => 'tomorrow ${hhmm(t)}',
     -1 => 'yesterday ${hhmm(t)}',
     _ => '${_weekday(t.weekday)} ${hhmm(t)}',
   };
+  return timezone == null ? label : '$label · $timezone';
 }
 
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -322,6 +330,7 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
   Widget build(BuildContext context) {
     final post = widget.post;
     final at = post.scheduledFor!;
+    final zone = context.watch<AppState?>()?.agent?.timezone;
     final remaining = at.difference(DateTime.now());
 
     // Five states, each needing a different action from the reader.
@@ -329,7 +338,7 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
       _ when post.isMissed => (
         Tone.broken,
         Icons.event_busy,
-        'Missed its ${whenLabel(at)} slot — not sent late.',
+        'Missed its ${whenLabel(at, timezone: zone)} slot — not sent late.',
       ),
       _ when post.isHeld => (
         Tone.desk,
@@ -339,17 +348,17 @@ class _ClockStripState extends State<ClockStrip> with CountdownTicker {
       _ when post.isCleared => (
         Tone.out,
         Icons.check_circle_outline,
-        'Scheduled — publishes ${whenLabel(at)}, ${countdownWords(remaining)}.',
+        'Scheduled — publishes ${whenLabel(at, timezone: zone)}, ${countdownWords(remaining)}.',
       ),
       _ when remaining.isNegative => (
         Tone.desk,
         Icons.error_outline,
-        'Due ${whenLabel(at)} and not scheduled for publishing. Choose Schedule post or Publish now.',
+        'Due ${whenLabel(at, timezone: zone)} and not scheduled for publishing. Choose Schedule post or Publish now.',
       ),
       _ => (
         Tone.desk,
         Icons.schedule,
-        'Sends ${whenLabel(at)}, ${countdownWords(remaining)}. Schedule it before then.',
+        'Sends ${whenLabel(at, timezone: zone)}, ${countdownWords(remaining)}. Schedule it before then.',
       ),
     };
 
@@ -480,7 +489,8 @@ class _HeroClockState extends State<HeroClock> with CountdownTicker {
           // weight and the same colour, and two numbers of different kinds that
           // close together read as one thing measured twice.
           Text(
-            '$caption · sends ${whenLabel(at)}'.toUpperCase(),
+            '$caption · sends ${whenLabel(at, timezone: context.watch<AppState?>()?.agent?.timezone)}'
+                .toUpperCase(),
             style: T.slug,
           ),
         ],
@@ -659,6 +669,16 @@ class DraftCard extends StatelessWidget {
             const SizedBox(height: S.x4),
           ],
 
+          if (post.reviewNotes.isNotEmpty && !post.isPublished) ...[
+            Notice(
+              tone: Tone.broken,
+              icon: Icons.edit_note,
+              title: 'Draft saved · review needed',
+              body:
+                  '${post.reviewNotes.join('\n')}\n${post.isCleared ? 'You approved this draft for its scheduled time.' : 'Automatic publishing waits for your review. Edit the draft or explicitly approve it.'}',
+            ),
+            const SizedBox(height: S.x3),
+          ],
           FoldedCopy(post.text),
           for (final source in post.sources.where(
             (s) =>

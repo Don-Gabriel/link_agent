@@ -24,12 +24,12 @@ type JsonPostKeys='scores_json'|'sources_json'|'media_json'|'hashtags_json';
 type DatePostKeys='created_at'|'published_at'|'scheduled_for'|'cleared_at'|'hold_until';
 export type CloudPost=Omit<PostRow,JsonPostKeys|DatePostKeys|'used_quote'> & {
   [K in JsonPostKeys]:string|null;
-} & {[K in DatePostKeys]:string|null} & {used_quote:number};
+} & {[K in DatePostKeys]:string|null} & {used_quote:number;review_notes_json?:string};
 export function postView(r:CloudPost) {
-  return serializePost({...r,scores_json:r.scores_json?JSON.parse(r.scores_json):null,
+  return {...serializePost({...r,scores_json:r.scores_json?JSON.parse(r.scores_json):null,
     sources_json:JSON.parse(r.sources_json??'[]'),media_json:JSON.parse(r.media_json??'[]'),hashtags_json:JSON.parse(r.hashtags_json??'[]'),
     used_quote:!!r.used_quote,created_at:new Date(r.created_at!),published_at:r.published_at?new Date(r.published_at):null,
-    scheduled_for:r.scheduled_for?new Date(r.scheduled_for):null,cleared_at:r.cleared_at?new Date(r.cleared_at):null,hold_until:r.hold_until?new Date(r.hold_until):null});
+    scheduled_for:r.scheduled_for?new Date(r.scheduled_for):null,cleared_at:r.cleared_at?new Date(r.cleared_at):null,hold_until:r.hold_until?new Date(r.hold_until):null}),reviewNotes:JSON.parse(r.review_notes_json??'[]') as string[]};
 }
 export async function accountStatus(db:D1Database,agentId:string) {
   const row=await db.prepare(`SELECT member_urn,member_name,member_picture,expires_at,last_ok_at,last_error,refresh_token_enc IS NOT NULL AS refresh FROM linkedin_accounts WHERE agent_id=?`)

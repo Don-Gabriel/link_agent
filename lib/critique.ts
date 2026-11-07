@@ -259,3 +259,21 @@ export function repairInstruction(violations: Violation[]): string {
 export function summarize(violations: Violation[]): string {
   return violations.map((v) => v.rule).join(", ");
 }
+
+/** Reader-facing notes; preserve the draft without hiding unmet preferences. */
+export function reviewNotes(violations:Violation[],text:string,style:StyleConfig):string[] {
+  const labels:Record<string,string>={
+    too_short:`This draft has ${countWords(text)} words; your preference is ${style.minWords}–${style.maxWords}.`,
+    too_long:`This draft has ${countWords(text)} words; your preference is ${style.minWords}–${style.maxWords}.`,
+    linkedin_length:'Shorten this draft before publishing: its complete text exceeds the length limit.',
+    hashtag_count:`Check the hashtags: your preference is exactly ${style.hashtagCount}.`,
+    banned_phrase:'A phrase you excluded remains in this draft.',
+    missing_bullets:'Your preferred bullet structure needs an edit.',
+    unexpected_bullets:'Remove the bullets to match your preferred structure.',
+    hook_past_fold:'Shorten the opening sentence so it fits before “see more”.',
+    unexpected_signature:'Remove the signature quote to match your preferences.',
+    url_in_body:'Remove the repeated URL from the body; the source is attached below.',
+    hashtag_in_body:'Remove hashtags from the body; they are attached separately.',
+  };
+  return [...new Set(violations.map(v=>labels[v.rule]??(v.rule.startsWith('emoji_')?'Adjust the emoji to match your preference.':'Remove Markdown formatting before publishing.')))];
+}

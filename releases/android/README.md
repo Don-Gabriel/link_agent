@@ -21,8 +21,23 @@ GitHub repository access is required if the repository is private.
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
 
-Version **1.0.5 (build 6)** replaces timezone typing with a searchable list of
-597 IANA timezones in initial setup and **Me → Timetable → Timezone**. Search by
+Version **1.0.6 (build 7)** includes the new ByLine logo and fixes scheduling,
+generation recovery and notifications:
+
+- Timetable and individual post times use your selected timezone, including DST.
+- Changing timezone moves upcoming timetable drafts and their pending review alerts.
+  Existing approvals are cleared. Posts with individually chosen send times keep those instants.
+- Automatic draft alerts wait for the review window; manually requested drafts alert
+  when ready. Publishing is checked every minute. Android delivery also depends on
+  connectivity and notification permissions.
+- The best generated draft/sample is retained when style repairs cannot finish.
+  Remaining mismatches are visible. Automatic publishing waits for an explicit review.
+- Undoing approval, editing or rescheduling a draft prevents slot auto-publishing
+  from bypassing your review. Notification retries target only undelivered devices.
+
+[Full release verification](../../reports/ByLine-reliability-release-2026-11-07.md).
+
+Includes the **1.0.5 (build 6)** timezone picker: 597 IANA timezones in initial setup and **Me → Timetable → Timezone**. Search by
 city, region or UTC offset, or choose **Use device timezone**. Tap **Apply** to
 save the selection. New setups default to the phone's timezone; saved choices
 are preserved. The list and current UTC offsets work offline and account for

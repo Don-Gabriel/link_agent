@@ -607,6 +607,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               ],
               if (_step == 3) ...[
                 if (_data['preview'] != null) ...[
+                  if (((_data['preview'] as Map)['reviewNotes'] as List? ?? [])
+                      .isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        'Sample saved for your review.\n${((_data['preview'] as Map)['reviewNotes'] as List).join('\n')}\nYou can regenerate or edit your voice settings. Accepting this sample does not publish it.',
+                        style: T.small,
+                      ),
+                    ),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(24),

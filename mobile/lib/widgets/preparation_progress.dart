@@ -25,6 +25,7 @@ class PreparationProgress extends StatelessWidget {
         : switch (state) {
             'ready' => 'Your post is ready',
             'waiting' => 'Waiting for another attempt',
+            'attention' => 'Preparation needs attention',
             'paused' => 'Preparation paused',
             _ => switch (stage) {
               'discovering' => 'Finding sources',
