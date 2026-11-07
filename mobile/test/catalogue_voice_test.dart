@@ -203,6 +203,7 @@ void main() {
               format: ui.ImageByteFormat.png,
             );
             final file = File('../.byline-local/voice-setup-390.png');
+            await file.parent.create(recursive: true);
             await file.writeAsBytes(bytes!.buffer.asUint8List());
             image.dispose();
           });

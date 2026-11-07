@@ -42,6 +42,13 @@ updates only account status so delayed responses cannot revert saved setup revis
   visibility queries and the ByLine return link. All three compiled Dart libraries
   contain the expected cloud API origin.
 
+The first remote mobile CI run passed 176 tests and exposed an existing screenshot
+test's assumption that the ignored `.byline-local` directory already existed. That
+test now creates its output directory before writing the image, making it runnable
+from a fresh checkout. This follow-up changes tests and documentation only; the
+verified release APK's application code is unchanged. Remote backend build and
+PostgreSQL integration jobs passed on the application release commit.
+
 New Flutter coverage checks the intact OAuth URL reaching the native bridge, unsafe
 URL rejection, browser unavailable/platform failure without a provider-app fallback,
 fresh sign-in exchanging the original verifier and storing its session, and failed

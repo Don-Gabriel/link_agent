@@ -2,12 +2,12 @@
   "date": "7 November 2026",
   "files_catalogued": 332,
   "full_text_files": 282,
-  "source_lines": 41820,
+  "source_lines": 41828,
   "edition": "condensed",
   "source_listings_location": "docs/generated-reference.md",
-  "pages": 116,
-  "pdf_bytes": 518342,
-  "pdf_sha256": "d7cf8e44f60a502b7697f39cd5557a90e7b47873d403293698e5a4f63d8ac81f",
-  "baseline_commit": "16e79599979fcc927b63897b580fd2f25199b609",
+  "pages": 117,
+  "pdf_bytes": 519322,
+  "pdf_sha256": "9e41f9cd5252291da0f44ad65da0cd5ef0d6400f7315f0da8a6cb65d4ec51e22",
+  "baseline_commit": "549747aef4ed2ef8ff8930bd289937ba5b698b4e",
   "source_inventory": "docs/repository-inventory.json"
 }

@@ -1832,7 +1832,7 @@ Imports: dart:io, package:flutter_test/flutter_test.dart, package:linkdin_mobile
 
 Flutter widget/transport regression suite: catalogue voice. Exact test titles and assertions appear below.
 
-8473 bytes; 235 lines; SHA-256 b049d8c6664db5a1ceb3d845bf1243c232d7fc7da39864e5cd6fac99ae796746
+8529 bytes; 236 lines; SHA-256 1dfedda1c2dc37326df5324e821b946de62a912026ede9ce6b1155c651a9381d
 
 Imports: dart:convert, dart:io, dart:ui, onboarding_test.dart, package:flutter/material.dart, package:flutter/rendering.dart, package:flutter/services.dart, package:flutter_test/flutter_test.dart, package:http/http.dart, package:http/testing.dart, package:linkdin_mobile/api/client.dart, package:linkdin_mobile/screens/onboarding_screen.dart, package:linkdin_mobile/state/app_state.dart, package:linkdin_mobile/theme.dart, package:linkdin_mobile/widgets/form_select.dart, package:linkdin_mobile/widgets/writing_preferences.dart, package:provider/provider.dart, package:shared_preferences/shared_preferences.dart
 
@@ -2122,7 +2122,7 @@ Dated project evidence, plan or verification record: UX v2 plan. Historical clai
 
 Dated project evidence, plan or verification record: auth onboarding fix 2026 11 07. Historical claims retain their original date.
 
-6269 bytes; 102 lines; SHA-256 bf2f2049a54ef0d6c8827d7222cbedb6b473719caae958e7c6a4b80b9fb30f0a
+6748 bytes; 109 lines; SHA-256 5114ad9525b460f48da523ca6f63c33ba299cbe9c2de32afd8dc0e30f4bfe27d
 
 ### reports/ByLine-build-status-2026-09-06.md
 
@@ -38840,6 +38840,7 @@ void main() {
               format: ui.ImageByteFormat.png,
             );
             final file = File('../.byline-local/voice-setup-390.png');
+            await file.parent.create(recursive: true);
             await file.writeAsBytes(bytes!.buffer.asUint8List());
             image.dispose();
           });
@@ -43370,6 +43371,13 @@ updates only account status so delayed responses cannot revert saved setup revis
   certificate SHA-256 as the previous release. The merged manifest contains browser
   visibility queries and the ByLine return link. All three compiled Dart libraries
   contain the expected cloud API origin.
+
+The first remote mobile CI run passed 176 tests and exposed an existing screenshot
+test's assumption that the ignored `.byline-local` directory already existed. That
+test now creates its output directory before writing the image, making it runnable
+from a fresh checkout. This follow-up changes tests and documentation only; the
+verified release APK's application code is unchanged. Remote backend build and
+PostgreSQL integration jobs passed on the application release commit.
 
 New Flutter coverage checks the intact OAuth URL reaching the native bridge, unsafe
 URL rejection, browser unavailable/platform failure without a provider-app fallback,
