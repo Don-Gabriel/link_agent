@@ -44,6 +44,7 @@ jobs:
             cloud/package-lock.json
       - run: npm ci
       - run: npm ci --prefix cloud
+      - run: npm run types --prefix cloud
       - run: npm run typecheck --prefix cloud
       - run: npm test --prefix cloud
 
