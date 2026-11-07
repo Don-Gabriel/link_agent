@@ -97,6 +97,12 @@ void main() {
       if (outcome == 'failure') {
         expect(find.textContaining('temporarily unavailable'), findsOneWidget);
         expect(find.text('Prepare today’s posts'), findsOneWidget);
+      } else if (outcome == 'rejected') {
+        expect(
+          find.textContaining('Ableton 12.2 ships MIDI generators'),
+          findsNothing,
+        );
+        expect(find.textContaining('Planned post'), findsNothing);
       } else {
         expect(find.text('Prepare today’s posts'), findsNothing);
         await tester.scrollUntilVisible(
@@ -113,6 +119,87 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       state.dispose();
     });
+  }
+
+  for (final scheduled in [true, false]) {
+    testWidgets(
+      'discard hides ${scheduled ? "scheduled" : "manual"} Home draft even with stale polling and failed refresh',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final fixture = statusFixture();
+        final post = Map<String, dynamic>.from(
+          (fixture['queue'] as List).first as Map,
+        );
+        var deleted = false;
+        final api = await ApiClient.create(
+          httpClient: MockClient((r) async {
+            if (r.method == 'PATCH') {
+              deleted = true;
+              return http.Response('{"ok":true}', 200);
+            }
+            if (r.url.path == '/api/status' && deleted) {
+              return http.Response('{"error":"refresh failed"}', 400);
+            }
+            return http.Response(
+              jsonEncode(
+                r.url.path == '/api/review-delivery'
+                    ? {
+                        'timezone': 'UTC',
+                        'entries': scheduled
+                            ? [
+                                {
+                                  'slotId': 's1',
+                                  'time': '09:00',
+                                  'post': post,
+                                  'canPrepare': false,
+                                  'progress': {
+                                    'state': 'ready',
+                                    'completed': 4,
+                                  },
+                                },
+                              ]
+                            : [],
+                        'posts': scheduled ? [] : [post],
+                      }
+                    : fixture,
+              ),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        );
+        await api.saveNativeSession('test-session');
+        final state = AppState(api)..status = AppStatus.fromJson(fixture);
+        await tester.pumpWidget(
+          ChangeNotifierProvider.value(
+            value: state,
+            child: MaterialApp(
+              theme: buildTheme(),
+              home: const Scaffold(body: TodayScreen()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final card = find.byKey(ValueKey('home-${post['seq']}'));
+        await tester.scrollUntilVisible(
+          card,
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(card, findsOneWidget);
+        await state.discard(post['seq'] as int);
+        await tester.pumpAndSettle();
+        expect(card, findsNothing);
+        expect(state.status!.queue.any((p) => p.seq == post['seq']), isFalse);
+        expect(find.textContaining('Planned post'), findsNothing);
+        expect(find.textContaining('Preparation paused'), findsNothing);
+        await tester.pump(const Duration(seconds: 16));
+        await tester.pumpAndSettle();
+        expect(card, findsNothing);
+        await tester.pumpWidget(const SizedBox());
+        state.dispose();
+      },
+    );
   }
 
   testWidgets(

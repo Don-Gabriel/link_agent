@@ -150,15 +150,16 @@ test('discard removes manual and timetable drafts from every feed without affect
   const input={text:'A draft that its author can choose to discard.',rationale:'test',fingerprint:'discard-test',sources:[]};
   const manual=await saveDraft(db,{...input,agentId:a.agentId,requestId:'manual-discard'});
   const scheduled=await saveDraft(db,{...input,agentId:a.agentId,requestId:'scheduled-discard',slotId:slot.id,slotDate:day});
+  await db.prepare("INSERT INTO slot_runs(slot_id,run_date,scheduled_for,post_seq,outcome) VALUES(?,?,?,?,'drafted')").bind(slot.id,day,new Date().toISOString(),scheduled).run();
   await saveDraft(db,{...input,agentId:b.agentId,requestId:'other-author'});
   const before=await (await call(a.token,'/api/review-delivery')).json() as any;
   assert.equal(before.posts[0].seq,manual);assert.equal(before.entries[0].post.seq,scheduled);
   for(const seq of [manual,scheduled])assert.equal((await call(a.token,`/api/posts/${seq}`,'PATCH',{action:'discard'})).status,200);
   for(let reload=0;reload<2;reload++) {
     const home=await (await call(a.token,'/api/review-delivery')).json() as any;
-    assert.deepEqual(home.posts,[]);assert.equal(home.entries[0].post,null);
-    assert.equal(home.ready,0);assert.equal(home.entries[0].canPrepare,false);
-    assert.match(home.entries[0].progress.message,/discarded/);
+    assert.deepEqual(home.posts,[]);assert.deepEqual(home.entries,[]);
+    assert.equal(home.ready,0);
+    assert.deepEqual((await (await call(a.token,'/api/status')).json() as any).timeline,[]);
     assert.deepEqual((await (await call(a.token,'/api/status')).json() as any).queue,[]);
   }
   assert.equal((await (await call(b.token,'/api/status')).json() as any).queue.length,1);

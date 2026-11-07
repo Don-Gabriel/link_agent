@@ -26,6 +26,10 @@ class AppState extends ChangeNotifier {
 
   AuthPhase phase = AuthPhase.unknown;
   AppStatus? status;
+  final Map<String, Set<int>> _discardedPosts = {};
+  bool isDiscarded(int seq) =>
+      _discardedPosts[agent?.agentId]?.contains(seq) ?? false;
+
   Map<String, dynamic>? reviewDelivery;
   Map<String, dynamic>? generation;
   bool get preparingDraft =>
@@ -208,6 +212,7 @@ class AppState extends ChangeNotifier {
       final json = await _api.get('/api/status');
       if (revision != _refreshRevision) return;
       status = AppStatus.fromJson(json as Map<String, dynamic>);
+      status = status!.withoutPosts(_discardedPosts[agent?.agentId] ?? {});
       reviewDelivery = json['reviewDelivery'] is Map
           ? Map<String, dynamic>.from(json['reviewDelivery'] as Map)
           : null;
@@ -634,8 +639,17 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> discard(int seq) =>
-      mutate(() => _api.patch('/api/posts/$seq', {'action': 'discard'}));
+  Future<String?> discard(int seq) {
+    final owner = agent?.agentId;
+    return mutate(() async {
+      await _api.patch('/api/posts/$seq', {'action': 'discard'});
+      if (owner == null || agent?.agentId != owner) return;
+      (_discardedPosts[owner] ??= {}).add(seq);
+      status = status?.withoutPosts({seq});
+      if (editing?.seq == seq) editing = null;
+      notifyListeners();
+    });
+  }
 
   Future<String?> editPost(
     int seq,

@@ -711,6 +711,30 @@ class AppStatus {
     watchdogMinutesSince: watchdogMinutesSince,
   );
 
+  AppStatus withoutPosts(Set<int> removed) => AppStatus(
+    initialized: initialized,
+    agent: agent,
+    account: account,
+    liveMode: liveMode,
+    maxAutoCap: maxAutoCap,
+    maxHashtags: maxHashtags,
+    presets: presets,
+    queue: queue.where((p) => !removed.contains(p.seq)).toList(),
+    history: history.where((p) => !removed.contains(p.seq)).toList(),
+    rejections: rejections,
+    llm: llm,
+    budget: budget,
+    nextRunLocal: nextRunLocal,
+    cycleCount: cycleCount,
+    ambiguousCount: ambiguousCount,
+    slots: slots,
+    timeline: timeline.where((e) => !removed.contains(e.postSeq)).toList(),
+    slotLimits: slotLimits,
+    categories: categories,
+    scheduler: scheduler,
+    watchdogMinutesSince: watchdogMinutesSince,
+  );
+
   final bool initialized;
   final Agent? agent;
   final Account account;

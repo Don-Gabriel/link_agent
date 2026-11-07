@@ -4,11 +4,14 @@
 
 ## Download for Android
 
-**[Download ByLine 1.0.6 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
+**[Download ByLine 1.0.7 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
 
 Open this link on your phone, download the APK, then open it to install or update.
 Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
-· [Release verification](reports/ByLine-reliability-release-2026-11-07.md)
+· [Release verification](reports/ByLine-draft-deletion-2026-11-07.md)
+
+**1.0.7** fixes draft deletion across Home and My posts. Deleted drafts no longer leave a
+completed preparation card or a “waiting on you” entry. Future timetable slots remain intact.
 
 **1.0.6** adds the new ByLine logo and makes posting times follow your selected
 timezone, including individual post scheduling and daylight-saving changes. Automatic

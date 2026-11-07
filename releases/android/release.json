@@ -1,9 +1,9 @@
 {
   "name": "ByLine",
-  "versionName": "1.0.6",
-  "versionCode": 7,
+  "versionName": "1.0.7",
+  "versionCode": 8,
   "packageId": "com.linkdin.byline",
-  "builtAtUtc": "2026-11-07T11:27:23.489031+00:00",
+  "builtAtUtc": "2026-11-07T11:52:45.606903+00:00",
   "releaseKind": "cloud",
   "apiOrigin": "https://byline-api.byline-b79.workers.dev",
   "minimumAndroidApi": 24,
@@ -16,7 +16,7 @@
     "x86_64"
   ],
   "bytes": 59813026,
-  "sha256": "84d2aa5f799c937d4e71b6bd67a0b7b9c2661d86e8bd11ac3c517831c84b300b",
+  "sha256": "809144917ab9500d061d909e138716ab4a962d44febed3a95e43185e7aad476a",
   "signingCertificateSha256": "fcfc5a0a6d34abe8ada3e525f1f5f758a4560b9fa58261f218a0fca3ac61773c",
   "signatureScheme": "APK Signature Scheme v2",
   "flutter": "3.44.1",
@@ -25,5 +25,5 @@
   "sourceInventory": "../../docs/repository-inventory.json",
   "download": "https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk",
   "phoneInstalledDuringThisBuild": false,
-  "note": "Selected-timezone scheduling and labels; DST handling; retained review drafts and first-run samples; minute-level scheduler; per-device notification retries; ByLine pen/byline logo. 204 Flutter tests passed. Existing signing key preserved; no phone installation performed."
+  "note": "Deleted drafts disappear immediately across Home and My posts, including cached responses and failed refreshes. Deleted occurrences and waiting-on-you timeline entries are hidden. Recurring timetable remains intact. Existing signing key preserved; no phone installation performed."
 }

@@ -160,7 +160,16 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final entries = _entries;
+    bool visible(Map raw) =>
+        raw['status'] != 'rejected' &&
+        !state.isDiscarded((raw['seq'] as num).toInt());
+    final entries = _entries
+        .where((e) => e['post'] is! Map || visible(e['post'] as Map))
+        .toList();
+    final otherPosts = (_day?['posts'] as List? ?? [])
+        .whereType<Map>()
+        .where(visible)
+        .toList();
     final ready = entries.where((e) => e['post'] != null).length;
     final canPrepare = entries.any((e) => e['canPrepare'] == true);
     return RefreshIndicator(
@@ -233,7 +242,7 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
               child: Text(
-                'No posting times are enabled for today. Add or change times and days in Timetable. You can still write a post whenever you want.',
+                'No planned posts remain for today. Your recurring timetable is unchanged. You can still start a post or edit your timetable.',
                 style: T.body,
               ),
             ),
@@ -286,12 +295,12 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
                 ),
             ],
           ],
-          if ((_day?['posts'] as List? ?? []).isNotEmpty) ...[
+          if (otherPosts.isNotEmpty) ...[
             const SizedBox(height: 28),
             const Text('Other posts today', style: T.title),
-            for (final raw in _day!['posts'] as List) ...[
+            for (final raw in otherPosts) ...[
               const SizedBox(height: 16),
-              _post(_currentPost(raw as Map, state), state),
+              _post(_currentPost(raw, state), state),
             ],
           ],
           const WritingPrompt(),

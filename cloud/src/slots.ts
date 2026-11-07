@@ -75,16 +75,17 @@ export async function timetable(db:D1Database,owner:Owner) {
     const run=runs.find(r=>r.slot_id===s.id),saved=posts.find(p=>p.seq===run?.post_seq||p.slot_id===s.id&&p.slot_date===today.date);
     // Keep the occurrence consumed, but never return a discarded draft as ready.
     const discarded=saved?.status==='rejected',p=discarded?undefined:saved;
+    if(discarded)return null;
     const active=run?.outcome==='pending'&&Date.parse(run.retry_at)>Date.now()-20*60000;
     const completed=Math.max(0,['discovering','judging','writing','saving'].indexOf(run?.stage??''));
     const occurrence=slotOnDate(a.timezone,s.local_time,today.date)!;
     const retryPlanned=!!run&&run.attempts<3&&occurrence.getTime()>Date.now()-45*60000&&s.next_run_at===occurrence.toISOString();
     return {slotId:s.id,time:s.local_time,scheduledFor:occurrence.toISOString(),post:p?postView(p):null,
-      progress:p?{state:'ready',stage:'ready',completed:4,total:4}:discarded?{state:'paused',completed:4,total:4,message:'You discarded this draft. Your next posting time is unchanged.'}:active?{state:'working',stage:run?.stage??'discovering',completed,total:4}
+      progress:p?{state:'ready',stage:'ready',completed:4,total:4}:active?{state:'working',stage:run?.stage??'discovering',completed,total:4}
         :a.paused?{state:'paused',completed,total:4,message:'Resume ByLine in Settings to prepare posts.'}
         :run?{state:retryPlanned?'waiting':'attention',stage:run.stage,completed,total:4,message:(run.detail??'Preparation did not finish.')+(retryPlanned?' ByLine will retry automatically.':run.attempts>=3?' Automatic attempts have finished for this posting time. You can prepare a separate draft in My posts.':' This posting time has passed. Tap Prepare this post to try again; it will be saved for review.')}:{state:'idle',completed:0,total:4},
       canPrepare:!a.paused&&!p&&!discarded&&!active&&(!run||(run.attempts<3&&Date.parse(run.retry_at)<=Date.now()))};
-  }).sort((x,y)=>x.time.localeCompare(y.time));
+  }).filter((entry):entry is NonNullable<typeof entry>=>entry!==null).sort((x,y)=>x.time.localeCompare(y.time));
   const assigned=new Set(entries.flatMap(e=>e.post?[e.post.seq]:[]));
   return {date:today.date,timezone:a.timezone,paused:a.paused,entries,posts:posts.filter(p=>p.status!=='rejected'&&!assigned.has(p.seq)&&localClock(a.timezone,new Date(p.created_at!)).date===today.date).map(postView),total:entries.length,ready:entries.filter(e=>e.post).length};
 }

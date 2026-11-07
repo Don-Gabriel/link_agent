@@ -21,6 +21,10 @@ GitHub repository access is required if the repository is private.
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
 
+Version **1.0.7 (build 8)** removes deleted drafts immediately from Home and My posts,
+including their preparation card and waiting-on-you activity. Install this APK over
+your existing app; the signing key is unchanged.
+
 Version **1.0.6 (build 7)** includes the new ByLine logo and fixes scheduling,
 generation recovery and notifications:
 
