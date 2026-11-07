@@ -1,4 +1,5 @@
 import java.util.Base64
+import java.util.Properties
 import com.google.gms.googleservices.GoogleServicesTask
 
 plugins {
@@ -17,10 +18,19 @@ val localPreview = (project.findProperty("dart-defines") as? String).orEmpty().s
 val liveClient = (project.findProperty("dart-defines") as? String).orEmpty().split(",").any {
     runCatching { String(Base64.getDecoder().decode(it)) == "BYLINE_APP_VARIANT=live" }.getOrDefault(false)
 }
+val cloudClient = (project.findProperty("dart-defines") as? String).orEmpty().split(",").any {
+    runCatching { String(Base64.getDecoder().decode(it)) == "BYLINE_APP_VARIANT=cloud" }.getOrDefault(false)
+}
+val releaseKeys = Properties()
+if (cloudClient) {
+    val keyFile = rootProject.file("key.properties")
+    check(keyFile.exists()) { "Prepare the private ByLine release signing key before building the cloud app." }
+    keyFile.inputStream().use { releaseKeys.load(it) }
+}
 if (localPreview) {
     tasks.matching { it.name.endsWith("GoogleServices") }.configureEach { enabled = false }
 }
-if (liveClient) {
+if (liveClient || cloudClient) {
     afterEvaluate {
         tasks.withType<GoogleServicesTask>().configureEach {
             googleServicesJsonFiles.set(listOf(file("../../../.byline-local/firebase-live-google-services.json")))
@@ -41,7 +51,7 @@ android {
     defaultConfig {
         // Must match the package registered in the Firebase console, or push
         // notifications register successfully and then never arrive.
-        applicationId = if (liveClient) "com.linkdin.byline" else if (localPreview) "com.linkdin.byline_preview" else "com.linkdin.linkdin_mobile"
+        applicationId = if (liveClient || cloudClient) "com.linkdin.byline" else if (localPreview) "com.linkdin.byline_preview" else "com.linkdin.linkdin_mobile"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -49,17 +59,19 @@ android {
         manifestPlaceholders["bylineLabel"] = if (liveClient) "ByLine Live" else if (localPreview) "ByLine Preview" else "ByLine"
     }
 
+    if (cloudClient) {
+        signingConfigs.create("bylineRelease") {
+            storeFile = file(releaseKeys.getProperty("storeFile"))
+            storePassword = releaseKeys.getProperty("storePassword")
+            keyAlias = releaseKeys.getProperty("keyAlias")
+            keyPassword = releaseKeys.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // Debug keys, deliberately. This app is installed by cable onto one
-            // phone and is not distributed, so a release keystore would be a
-            // secret to manage for no benefit — and it must never live in the
-            // repository, which is the usual way that goes wrong.
-            //
-            // Publishing to Play Store one day means generating a keystore,
-            // keeping it OUT of git, and referencing it from key.properties.
-            // Until then this keeps `flutter run --release` working.
-            signingConfig = signingConfigs.getByName("debug")
+            // Cloud releases require the private key; development variants keep their existing signing.
+            signingConfig = signingConfigs.getByName(if (cloudClient) "bylineRelease" else "debug")
         }
     }
 }

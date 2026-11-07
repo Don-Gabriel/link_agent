@@ -3,8 +3,9 @@ import {randomBytes} from 'node:crypto';
 import {localEnv} from './local-env.mjs';
 const env=localEnv();
 const base=`http://127.0.0.1:${env.PORT}`;
+const testClient=`2001:db8:${randomBytes(8).toString('hex').match(/.{4}/g).join(':')}::1`;
 async function request(path,token,body,method=body?'POST':'GET') {
-  const response=await fetch(base+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(120000)});
+  const response=await fetch(base+path,{method,headers:{'content-type':'application/json','x-forwarded-for':testClient,...(token?{authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(120000)});
   return {status:response.status,data:await response.json()};
 }
 assert.equal((await request('/api/native-auth')).data.localTest,true,'requires isolated local mode');

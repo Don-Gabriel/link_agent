@@ -264,8 +264,24 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> get(String path) =>
-      _send(() => _http.get(_uri(path), headers: _authHeaders));
+  Future<dynamic> get(String path) async {
+    // A pooled socket can be invalid after Android suspends the app. Only
+    // retry reads: repeating a publish or other mutation could duplicate it.
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _send(() => _http.get(_uri(path), headers: _authHeaders));
+      } on ApiException catch (e) {
+        if (attempt >= 1 ||
+            (e.status != 0 &&
+                e.status != 502 &&
+                e.status != 503 &&
+                e.status != 504)) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+    }
+  }
 
   Future<dynamic> post(
     String path, [
@@ -290,8 +306,9 @@ class ApiClient {
     timeout: timeout,
   );
 
-  Future<dynamic> delete(String path) =>
-      _send(() => _http.delete(_uri(path), headers: _authHeaders));
+  Future<dynamic> delete(String path, [Map<String, dynamic>? body]) =>
+      _send(() => _http.delete(_uri(path), headers: _authHeaders,
+          body: body == null ? null : jsonEncode(body)));
 
   /// Upload one image and return its media asset id.
   ///

@@ -3,11 +3,24 @@ import { randomBytes } from 'node:crypto';
 import { localEnv } from './local-env.mjs';
 import pg from 'pg';
 const env=localEnv();const base=`http://127.0.0.1:${env.PORT}`;
+// Each run has its own synthetic client so repeated tests do not throttle the phone.
+const testClient=`2001:db8:${randomBytes(8).toString('hex').match(/.{4}/g).join(':')}::1`;
 let passed=0;
 function check(value,message){assert.ok(value,message);passed++;console.log(`ok ${message}`);}
 async function api(path,token,body,method=body?'POST':'GET') {
-  const response=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  const response=await fetch(base+path,{method,headers:{'Content-Type':'application/json','X-Forwarded-For':testClient,...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(30000)});
   const data=await response.json();return {status:response.status,data};
+}
+async function today(token){return (await api('/api/review-delivery',token)).data;}
+async function waitForDraft(token) {
+  const deadline=Date.now()+30000;
+  while(Date.now()<deadline) {
+    const day=await today(token);
+    const post=day.entries?.find(entry=>entry.post)?.post;
+    if(post)return post;
+    await new Promise(resolve=>setTimeout(resolve,250));
+  }
+  throw new Error('Timetable worker did not produce a local draft within 30 seconds.');
 }
 const local=await api('/api/native-auth');check(local.data.localTest===true&&!local.data.google&&!local.data.linkedin,'isolated test mode has no external providers');
 async function signup(){const r=await api('/api/native-auth',null,{provider:'local',verifier:randomBytes(48).toString('base64url')});assert.equal(r.status,200);return r.data.token;}
@@ -38,38 +51,41 @@ const completed=await api('/api/onboarding',a,{action:'finish',revision:setup.re
 check(completed.data.next_delivery_at===setup.next_delivery_at,'completion is idempotent');
 check(!(await api('/api/onboarding',b)).data.completed_at,'second account stays unactivated');
 check((await api('/api/review-delivery',b,{action:'generate'})).status===409,'manual generation cannot bypass setup');
-check((await api('/api/review-delivery',a,{action:'test-now'})).status===200,'daily worker creates a draft');
-const first=(await api('/api/status',a)).data.queue[0];check(!!first,'generated draft appears in the queue');
-check(Date.parse((await api('/api/onboarding',a)).data.next_delivery_at)>Date.now(),'worker advances a microsecond-precision delivery after preparing a post');
+check((await api('/api/review-delivery',a,{action:'test-now'})).status===409,'retired daily endpoint directs clients to Timetable');
+check((await api('/api/review-delivery',a,{action:'generate'})).status===202,'timetable worker accepts preparation asynchronously');
+const first=await waitForDraft(a);
+check((await api('/api/status',a)).data.queue.some(p=>p.seq===first.seq),'generated draft appears in the queue');
+const day=await today(a);
+const slotId=day.entries.find(entry=>entry.post?.seq===first.seq).slotId;
+check(day.total===1&&day.ready===1,'onboarding creates one timetable entry with a ready draft');
 const repeated=(await api('/api/review-delivery',a,{action:'generate'})).data;
-check(repeated.alreadyPrepared&&repeated.seq===first.seq,'manual preparation reuses the existing daily suggestion');
-check(repeated.post.seq===first.seq&&repeated.post.status==='draft'&&repeated.post.text===first.text,'repeat preparation returns the exact existing draft');
-check((await api('/api/status',b)).data.reviewDelivery.post===null,'daily post readout is isolated between accounts');
+check(!repeated.accepted&&repeated.count===0,'manual preparation does not queue a duplicate');
+const existing=(await today(a)).entries[0].post;
+check(existing.seq===first.seq&&existing.status==='draft'&&existing.text===first.text,'timetable retains the exact existing draft');
+check((await today(b)).entries.length===0,'timetable readout is isolated between accounts');
 check((await api('/api/posts/'+first.seq,a,{action:'discard'},'PATCH')).status===200,'daily suggestion can be skipped');
 const skipped=(await api('/api/review-delivery',a,{action:'generate'})).data;
-check(skipped.alreadyPrepared&&skipped.post.status==='rejected'&&skipped.post.seq===first.seq,'repeat preparation returns the skipped post without generating another');
-check((await api('/api/status',a)).data.reviewDelivery.post.status==='rejected','skipped daily state remains visible after reloading');
+check(!skipped.accepted&&skipped.count===0,'repeat preparation does not replace a skipped post');
+check((await today(a)).entries[0].post.status==='rejected','skipped timetable state remains visible after reloading');
 check((await api('/api/posts/'+first.seq,a,{action:'edit',text:first.text,hashtags:first.hashtags},'PATCH')).status===200,'explicit editing can restore the skipped fixture draft');
 check((await api('/api/posts/'+first.seq,a,{action:'publish',reviewed:{text:first.text+' stale version',hashtags:first.hashtags,media:first.media}},'PATCH')).status!==200,'approval refuses a post whose text differs from the reviewed version');
 check((await api('/api/posts/'+first.seq,b,{action:'discard'},'PATCH')).status===404,'another account cannot edit the draft');
-await api('/api/review-delivery',a,{action:'test-now'});
+await api('/api/review-delivery',a,{action:'generate'});
 check((await api('/api/status',a)).data.queue.length===1,'duplicate daily run does not create another draft');
 const concurrent=await Promise.all(Array.from({length:8},(_,i)=>api('/api/posts',a,{text:`Concurrent test draft number ${i} contains enough words to be saved.`})));
 check(concurrent.every(r=>r.status===200)&&new Set(concurrent.map(r=>r.data.seq)).size===8,'simultaneous composer saves allocate unique sequences');
 check((await api('/api/posts/'+first.seq,a,{action:'publish',reviewed:{text:first.text,hashtags:first.hashtags,media:first.media}},'PATCH')).status===200,'one-tap approval works in local simulation');
 check((await api('/api/status',a)).data.history.some(p=>p.seq===first.seq),'simulated approval reaches archive');
 const published=(await api('/api/review-delivery',a,{action:'generate'})).data;
-check(published.alreadyPrepared&&published.post.status==='published'&&published.post.seq===first.seq,'repeat preparation returns the published post without another send');
-check((await api('/api/status',a)).data.reviewDelivery.post.status==='published','published daily state remains visible after reloading');
+check(!published.accepted&&published.count===0,'repeat preparation cannot replace the published post');
+check((await today(a)).entries[0].post.status==='published','published timetable state remains visible after reloading');
 check((await api('/api/posts/'+first.seq,a,{action:'publish'},'PATCH')).status!==200,'repeated approval cannot republish');
 check((await api('/api/review-delivery',b,{action:'schedule',time:'10:00',timezone:'UTC'})).status===409,'delivery settings cannot bypass onboarding');
-check((await api('/api/review-delivery',a,{action:'schedule',time:'10:15',timezone:'America/New_York'})).status===200,'daily delivery can be changed after setup');
-const rescheduled=(await api('/api/onboarding',a)).data;
-const changedAgent=(await api('/api/status',a)).data.agent;
-check(rescheduled.config.time==='10:15'&&rescheduled.config.timezone==='America/New_York'&&changedAgent.timezone==='America/New_York','delivery settings and agent stay synchronized');
-check((await api('/api/review-delivery',a,{action:'schedule',time:'25:00',timezone:'UTC'})).status===400,'invalid delivery time is rejected');
-check((await api('/api/review-delivery',a,{action:'schedule',time:'09:07',timezone:'Asia/Kolkata'})).status===200,'exact delivery minutes are preserved');
-check((await api('/api/onboarding',a)).data.config.time==='09:07','exact delivery time persists on reload');
+check((await api('/api/slots/'+slotId,b,{localTime:'10:15'},'PATCH')).status===404,'another account cannot edit the timetable entry');
+check((await api('/api/slots/'+slotId,a,{localTime:'10:15'},'PATCH')).status===200,'posting time can be changed in Timetable');
+check((await api('/api/slots/'+slotId,a,{localTime:'25:00'},'PATCH')).status===400,'invalid posting time is rejected');
+check((await api('/api/slots/'+slotId,a,{localTime:'09:07'},'PATCH')).status===200,'exact posting minutes are preserved');
+check((await api('/api/slots',a)).data.slots.find(slot=>slot.id===slotId).localTime==='09:07','exact posting time persists on reload');
 const priorTopicsB=(await api('/api/interests',b)).data.topics;
 const priorStatus=(await api('/api/status',a)).data;
 check((await api('/api/interests')).status===401,'interests require authentication');

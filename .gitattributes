@@ -1,0 +1,6 @@
+# Preserve distributable artifacts byte-for-byte on every checkout.
+*.pdf binary
+*.apk binary
+
+# This generated reference embeds existing source, including its whitespace.
+docs/generated-reference.md -whitespace

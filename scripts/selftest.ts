@@ -581,9 +581,11 @@ console.log("\ndraft critique (the rules nothing used to verify)");
   // away — which, on a narrow word range, is nearly all of them.
   {
     const band = { ...DEFAULT_STYLE, minWords: 280, maxWords: 300 };
-    const near = body(275);
-    const far = body(200);
-    const inside = body(290);
+    // Isolate word-count distance from the independent character-budget rule.
+    const compactBody=(n:number)=>'A short lead. '+Array(n-3).fill('code').join(' ');
+    const near = compactBody(275);
+    const far = compactBody(200);
+    const inside = compactBody(290);
     check("a draft inside the range scores zero",
       severity(inside, band, critique(inside, band)) === 0,
       String(countWords(inside)) + " words");

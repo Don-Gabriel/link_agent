@@ -3,10 +3,11 @@ import {randomBytes, createHash, randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {localEnv} from './local-env.mjs';
 const env=localEnv(), base=`http://127.0.0.1:${env.PORT}`;
+const testClient=`2001:db8:${randomBytes(8).toString('hex').match(/.{4}/g).join(':')}::1`;
 const db=new pg.Pool({connectionString:env.DATABASE_URL});
 let checks=0;
 function check(value,message){assert.ok(value,message);checks++;console.log(`ok ${message}`);}
-async function post(body){return fetch(base+'/api/native-auth',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
+async function post(body){return fetch(base+'/api/native-auth',{method:'POST',headers:{'content-type':'application/json','x-forwarded-for':testClient},body:JSON.stringify(body)});}
 try {
   const mode=await (await fetch(base+'/api/native-auth')).json();
   assert.equal(mode.localTest,true); // never seed flows in live storage

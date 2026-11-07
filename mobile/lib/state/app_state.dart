@@ -27,6 +27,9 @@ class AppState extends ChangeNotifier {
   AuthPhase phase = AuthPhase.unknown;
   AppStatus? status;
   Map<String, dynamic>? reviewDelivery;
+  Map<String, dynamic>? generation;
+  bool get preparingDraft =>
+      ['queued', 'working'].contains(generation?['state']);
 
   /// Set while a full refresh is in flight, so screens can show a spinner
   /// without every button needing its own flag.
@@ -172,9 +175,7 @@ class AppState extends ChangeNotifier {
     await stopPush();
     if (_deviceToken != null) {
       try {
-        await _api.delete(
-          '/api/devices?token=${Uri.encodeComponent(_deviceToken!)}',
-        );
+        await _api.delete('/api/devices', {'token': _deviceToken});
       } catch (_) {}
     }
     _deviceToken = null;
@@ -186,6 +187,7 @@ class AppState extends ChangeNotifier {
     phase = AuthPhase.signedOut;
     status = null;
     reviewDelivery = null;
+    generation = null;
     error = null;
     notifyListeners();
   }
@@ -208,6 +210,9 @@ class AppState extends ChangeNotifier {
       reviewDelivery = json['reviewDelivery'] is Map
           ? Map<String, dynamic>.from(json['reviewDelivery'] as Map)
           : null;
+      generation = json['generation'] is Map
+          ? Map<String, dynamic>.from(json['generation'] as Map)
+          : null;
       error = null;
     } on ApiException catch (e) {
       if (revision != _refreshRevision) return;
@@ -220,6 +225,7 @@ class AppState extends ChangeNotifier {
         phase = AuthPhase.signedOut;
         status = null;
         reviewDelivery = null;
+        generation = null;
         editing = null;
         composeSeed = null;
         composeSeedHashtags = const [];

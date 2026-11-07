@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -25,10 +26,50 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late int _index = widget.initialIndex;
   int _seenComposeRequest = 0;
   int _seenTabRequest = 0;
+  Timer? _recoveryTimer;
+  bool _active = true;
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _recoveryTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final state = context.read<AppState>();
+      if (state.error != null || state.status == null || state.preparingDraft) {
+        _refreshAfterReturn();
+      }
+    });
+  }
+
+  Future<void> _refreshAfterReturn() async {
+    if (!mounted || !_active || _refreshing) return;
+    final state = context.read<AppState>();
+    if (state.phase != AuthPhase.signedIn) return;
+    _refreshing = true;
+    try {
+      await state.refresh(quiet: true);
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _active = state == AppLifecycleState.resumed;
+    if (_active) _refreshAfterReturn();
+  }
+
+  @override
+  void dispose() {
+    _recoveryTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

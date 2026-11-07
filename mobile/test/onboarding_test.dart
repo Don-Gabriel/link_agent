@@ -42,66 +42,85 @@ Map<String, dynamic> setupFixture() => {
   },
 };
 void main() {
-  testWidgets('an interrupted sign-in resumes without opening consent again', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final secure = <String, String>{};
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
-      (call) async {
-        final args = Map<String, dynamic>.from(call.arguments as Map);
-        if (call.method == 'write') {
-          secure[args['key'] as String] = args['value'] as String;
+  for (final interruption in ['none', 'connection', 'server']) {
+    testWidgets(
+      'sign-in resumes after $interruption without opening consent again',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final secure = <String, String>{};
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          (call) async {
+            final args = Map<String, dynamic>.from(call.arguments as Map);
+            if (call.method == 'write') {
+              secure[args['key'] as String] = args['value'] as String;
+            }
+            if (call.method == 'read') return secure[args['key']];
+            if (call.method == 'delete') secure.remove(args['key']);
+            return null;
+          },
+        );
+        final requests = <http.Request>[];
+        var polls = 0;
+        final fixture = statusFixture()..['queue'] = [];
+        final transport = MockClient((r) async {
+          requests.add(r);
+          if (r.method == 'POST' &&
+              r.url.path == '/api/native-auth' &&
+              ++polls == 1) {
+            if (interruption == 'connection') {
+              throw http.ClientException('Network suspended');
+            }
+            if (interruption == 'server') {
+              return http.Response('{"error":"unavailable"}', 503);
+            }
+          }
+          final dynamic value = r.url.path == '/api/native-auth'
+              ? (r.method == 'GET'
+                    ? {'linkedin': true}
+                    : {'token': 'recovered-session'})
+              : r.url.path == '/api/onboarding'
+              ? {...setupFixture(), 'completed_at': '2026-09-06T12:00:00Z'}
+              : fixture;
+          return http.Response(
+            jsonEncode(value),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+        final before = await ApiClient.create(httpClient: transport);
+        await before.savePendingSignIn({
+          'id': 'flow-id',
+          'provider': 'linkedin',
+          'verifier': 'saved-verifier',
+          'url': 'https://www.linkedin.com/oauth/v2/authorization',
+          'startedAt': DateTime.now().millisecondsSinceEpoch,
+        });
+        final restored = await ApiClient.create(httpClient: transport);
+        final state = AppState(restored);
+        await state.bootstrap();
+        await tester.pumpWidget(
+          ChangeNotifierProvider.value(value: state, child: const LinkdInApp()),
+        );
+        for (var i = 0; i < 8; i++) {
+          await tester.pump(const Duration(seconds: 1));
         }
-        if (call.method == 'read') return secure[args['key']];
-        if (call.method == 'delete') secure.remove(args['key']);
-        return null;
+        await tester.pumpAndSettle();
+        expect(find.text('Your writing day'), findsOneWidget);
+        final exchange = requests
+            .where(
+              (r) => r.method == 'POST' && r.url.path == '/api/native-auth',
+            )
+            .toList();
+        expect(exchange, hasLength(interruption == 'none' ? 1 : 2));
+        expect(
+          exchange.every((r) => jsonDecode(r.body)['action'] == 'poll'),
+          isTrue,
+        );
+        expect(await restored.pendingSignIn(), isNull);
       },
     );
-    final requests = <http.Request>[];
-    final fixture = statusFixture()..['queue'] = [];
-    final transport = MockClient((r) async {
-      requests.add(r);
-      final dynamic value = r.url.path == '/api/native-auth'
-          ? (r.method == 'GET'
-                ? {'linkedin': true}
-                : {'token': 'recovered-session'})
-          : r.url.path == '/api/onboarding'
-          ? {...setupFixture(), 'completed_at': '2026-09-06T12:00:00Z'}
-          : fixture;
-      return http.Response(
-        jsonEncode(value),
-        200,
-        headers: {'content-type': 'application/json; charset=utf-8'},
-      );
-    });
-    final before = await ApiClient.create(httpClient: transport);
-    await before.savePendingSignIn({
-      'id': 'flow-id',
-      'provider': 'linkedin',
-      'verifier': 'saved-verifier',
-      'url': 'https://www.linkedin.com/oauth/v2/authorization',
-      'startedAt': DateTime.now().millisecondsSinceEpoch,
-    });
-    final restored = await ApiClient.create(httpClient: transport);
-    final state = AppState(restored);
-    await state.bootstrap();
-    await tester.pumpWidget(
-      ChangeNotifierProvider.value(value: state, child: const LinkdInApp()),
-    );
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(seconds: 1));
-    }
-    await tester.pumpAndSettle();
-    expect(find.text('Your writing day'), findsOneWidget);
-    final exchange = requests
-        .where((r) => r.method == 'POST' && r.url.path == '/api/native-auth')
-        .toList();
-    expect(exchange, hasLength(1));
-    expect(jsonDecode(exchange.single.body)['action'], 'poll');
-    expect(await restored.pendingSignIn(), isNull);
-  });
+  }
   testWidgets('completed setup opens the daily screen without restarting', (
     tester,
   ) async {

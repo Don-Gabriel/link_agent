@@ -13,6 +13,7 @@ Push-Location -LiteralPath 'mobile'
 try {
   flutter build apk --debug --dart-define=BYLINE_API_URL=http://localhost:3100 --dart-define=BYLINE_LOCAL_TEST=true
   if ($LASTEXITCODE -ne 0) { throw 'Android preview build failed.' }
+  Copy-Item -LiteralPath 'build/app/outputs/flutter-apk/app-debug.apk' -Destination '../.byline-local/byline-preview.apk'
 } finally {
   Pop-Location
   $env:TEMP = $bylineOldTemp

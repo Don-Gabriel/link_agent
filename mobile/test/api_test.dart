@@ -80,6 +80,16 @@ void main() {
     return AppState(await ApiClient.create(httpClient: mock));
   }
 
+  test('sign-out unregisters the device with an authenticated JSON body', () async {
+    final state = await buildState(response: {'ok': true, 'configured': true});
+    state.phase = AuthPhase.signedIn;
+    expect(await state.registerDevice('test-notification-device-12345'), true);
+    await state.signOut();
+    final removal = calls.firstWhere((c) => c.method == 'DELETE' && c.path == '/api/devices');
+    expect(removal.body, {'token': 'test-notification-device-12345'});
+    expect(calls.indexOf(removal), lessThan(calls.indexWhere((c) => c.path == '/api/auth')));
+  });
+
   group('post actions use the verb the route actually exports', () {
     // Clearing and sending are DIFFERENT verbs, and conflating them is the
     // regression these two tests exist to catch. Clearing says "let it go at

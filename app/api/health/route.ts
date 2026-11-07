@@ -1,9 +1,6 @@
 /**
- * Liveness + keep-alive. One capped query, always 200, no secrets.
- *
- * Neon's free tier autosuspends after ~5 idle minutes, so a scheduled ping
- * here keeps the dashboard's first load warm instead of cold-starting the
- * database.
+ * Public database readiness probe. Return 503 when storage is unavailable so
+ * monitoring can detect an outage. Never expose database error details.
  */
 import { NextResponse } from "next/server";
 import { getPool } from "../../../lib/db";
@@ -11,20 +8,22 @@ import { getPool } from "../../../lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  let db = "unconfigured";
+  let db: "unconfigured" | "ok" | "unavailable" = "unconfigured";
   try {
     const pool = getPool();
     if (pool) {
-      await pool.query("SELECT 1");
+      const probe = { text: "SELECT 1", query_timeout: 5_000 };
+      await pool.query(probe);
       db = "ok";
     }
-  } catch (err) {
-    db = `error: ${String((err as Error)?.message ?? err).slice(0, 120)}`;
+  } catch {
+    db = "unavailable";
   }
+  const ok = db === "ok";
   return NextResponse.json({
-    ok: true,
+    ok,
     db,
     commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
     at: new Date().toISOString(),
-  });
+  }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
 }

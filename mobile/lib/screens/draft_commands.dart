@@ -313,7 +313,7 @@ Future<void> runCycleNow(BuildContext context) async {
     SnackBar(
       content: Text(
         error ??
-            'Started. A draft appears in 30–60 seconds if anything clears the bar.',
+            'Started in the cloud. You can close ByLine; we’ll notify you when the draft is ready or needs attention.',
       ),
     ),
   );

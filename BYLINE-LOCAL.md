@@ -4,6 +4,14 @@ The native ByLine client shares the existing publishing engine. The new local pr
 
 ## Start the local system
 
+For a connected Android phone on Windows, run `npm run local:phone`. This prepares
+the isolated database, starts the backend in the background if needed, builds the
+preview APK if missing, and installs and opens it over USB. Use
+`npm run local:phone -- -Rebuild` after changing Flutter code. Server logs are in
+`.byline-local/server.stdout.log` and `.byline-local/server.stderr.log`.
+
+To run the backend in a visible terminal instead:
+
 From the repository root:
 
 ```powershell
@@ -26,7 +34,7 @@ Enable USB debugging on your Android phone and connect the cable. Run:
 
 The installer forwards the phone's localhost:3100 to the computer over USB and opens ByLine. Re-run it, or `adb reverse tcp:3100 tcp:3100`, after reconnecting a phone if the app cannot reach the server. Keep the cable connected for this setup. No server address or API key is entered in normal onboarding.
 
-On the welcome screen choose **Try local preview**, complete topics/voice/sample acceptance/time, then choose **Not now** for notifications. In the daily screen, **Generate today’s test draft** exercises the daily worker immediately. Approve, edit, skip, composer, archive, voice settings and advanced timetable remain available. The worker produces at most one daily suggestion for each local calendar day; repeated presses reuse that day’s delivery.
+On the welcome screen choose **Try local preview**, complete topics/voice/sample acceptance/time, then choose **Not now** for notifications. Use the preparation action on the home screen to create a demonstration draft for today's Timetable entry. Edit, skip, composer, archive and voice settings remain available. Each timetable entry produces at most one draft per local calendar day; repeated preparation does not replace an existing, skipped or published draft.
 
 Local samples are explicitly labelled demonstrations. They exercise the app and database without calling Gemini. Local approvals move a post into the local archive and are labelled simulations; they never call LinkedIn. Notifications accurately report unavailable in this environment because the launcher clears Firebase credentials. Physical FCM delivery needs a separately configured integration run.
 
@@ -58,13 +66,14 @@ The local launcher intentionally disables external credentials and publishing, e
 npm test
 npx tsx scripts/byline-logic-test.ts
 node scripts/byline-test.mjs
+npm run test:local
 npm run build:check
 cd mobile
 flutter analyze lib test
 flutter test --no-pub
 ```
 
-`byline-test.mjs` requires the local launcher. It creates two isolated test accounts and checks ownership, activation, stale samples, daily deduplication, simultaneous composer saves, simulated approval and logout. It never uses the original database. The existing `test:db` suite must likewise run against a disposable/local database.
+`test:local` requires the local launcher and runs the account/Timetable, catalogue API and native OAuth return suites. It creates isolated test accounts and checks ownership, activation, stale samples, asynchronous preparation, deduplication, simultaneous composer saves, simulated publishing and logout. It never uses the original database. The existing `test:db` suite must likewise run against a disposable/local database.
 
 ## Production boundary
 

@@ -1,5 +1,16 @@
 # ByLine
 
+**Start here:** [Complete project handbook (PDF)](output/pdf/ByLine-Complete-Project-Handbook.pdf)
+| [Download Android APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)
+| [Phone installation guide](releases/android/README.md)
+| [Documentation and every-file reference](docs/README.md)
+
+The downloadable Android release uses the dedicated [Cloudflare backend](cloud/README.md)
+and works without the development computer. The original Next.js/PostgreSQL web
+deployment described below remains a separate runtime. See the
+[current verification report](reports/ByLine-release-verification-2026-11-07.md)
+and [APK metadata/checksum](releases/android/release.json) for this repository snapshot.
+
 A writing workspace for LinkedIn: discover relevant stories, prepare posts in
 your voice, and review them before publishing. Choose from **1,112 subjects**
 across 55 specialist groups, combine industries, and add your own editorial focus.

@@ -1,0 +1,29 @@
+{
+  "name": "ByLine",
+  "versionName": "1.0.2",
+  "versionCode": 3,
+  "packageId": "com.linkdin.byline",
+  "builtAtUtc": "2026-11-07T06:40:55Z",
+  "releaseKind": "cloud",
+  "apiOrigin": "https://byline-api.byline-b79.workers.dev",
+  "minimumAndroidApi": 24,
+  "minimumAndroidVersion": "7.0",
+  "targetAndroidApi": 36,
+  "compileAndroidApi": 36,
+  "architectures": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86_64"
+  ],
+  "bytes": 56892335,
+  "sha256": "8f0b84d52aaad072c4751128bfb3ba98c87766fd8a9b0385bf8654591769c831",
+  "signingCertificateSha256": "fcfc5a0a6d34abe8ada3e525f1f5f758a4560b9fa58261f218a0fca3ac61773c",
+  "signatureScheme": "APK Signature Scheme v2",
+  "flutter": "3.44.1",
+  "dart": "3.12.1",
+  "buildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-cloud-android.ps1",
+  "sourceInventory": "../../docs/repository-inventory.json",
+  "download": "https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk",
+  "phoneInstalledDuringThisBuild": false,
+  "note": "Fresh rebuild of current mobile source; declared app version unchanged from 5 November release. Private release signing key preserved."
+}

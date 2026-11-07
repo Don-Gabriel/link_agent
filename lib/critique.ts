@@ -18,7 +18,7 @@
  * hashtags and source links are appended by lib/format.ts and duplicate if the
  * body carries its own).
  */
-import { FOLD_CHARS } from "./format";
+import { FOLD_CHARS,MAX_BODY_CHARS,assemblePost,checkLength } from "./format";
 import { BULLET_MARK, type StyleConfig } from "./style";
 
 export interface Violation {
@@ -59,6 +59,7 @@ export function critique(
      * has no tag list to judge, which is different from a post with none.
      */
     hashtags?: string[];
+    sourceUrl?: string;
   } = {},
 ): Violation[] {
   const out: Violation[] = [];
@@ -67,6 +68,8 @@ export function critique(
 
   // ---- length
   const words = countWords(body);
+  const finalLength=checkLength(assemblePost({body,hashtags:options.hashtags,sourceUrl:options.sourceUrl,maxHashtags:style.hashtagCount}));
+  if(!finalLength.withinLimit||body.length>MAX_BODY_CHARS)out.push({rule:'linkedin_length',detail:`The body is ${body.length} characters and the assembled post is ${finalLength.escapedChars}. Keep the body within ${MAX_BODY_CHARS} characters and the complete post within LinkedIn's 3000-character limit after its source and hashtags are added. Use short words and short sentences while keeping ${style.minWords}-${style.maxWords} words; aim near ${style.minWords}. Do not drop the source or tags.`});
   if (words < style.minWords) {
     out.push({
       rule: "too_short",

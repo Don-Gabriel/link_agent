@@ -1,0 +1,11 @@
+{
+  "date": "7 November 2026",
+  "files_catalogued": 326,
+  "full_text_files": 276,
+  "source_lines": 41087,
+  "pages": 836,
+  "pdf_bytes": 2901069,
+  "pdf_sha256": "ffe2ccb57732ab98fd093e645a1eb149625b6594ecff12a41d2ec88a042a4e51",
+  "baseline_commit": "f8bd9fd6419b74177d90584dcf9015af75b32b13",
+  "source_inventory": "docs/repository-inventory.json"
+}

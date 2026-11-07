@@ -5,13 +5,15 @@ import pg from 'pg';
 import { readEnvFile } from './live-env.mjs';
 import { googleOperatorFetch } from './google-operator.mjs';
 const original=readEnvFile('.env');
+const missing=['GEMINI_API_KEY','LINKEDIN_CLIENT_ID','LINKEDIN_CLIENT_SECRET'].filter(key=>!original[key]?.trim());
+if(missing.length)throw new Error(`Fill ${missing.join(', ')} in the private .env file, then run npm run live:setup again. No live configuration was created.`);
 mkdirSync('.byline-local',{recursive:true});
 const db=new pg.Pool({connectionString:'postgresql://byline_local@127.0.0.1:55440/postgres'});
 try {if(!(await db.query("SELECT 1 FROM pg_database WHERE datname='byline_live'")).rowCount)await db.query('CREATE DATABASE byline_live');}finally{await db.end();}
 if(!existsSync('.env.byline-live')) {
   const settings={DATABASE_URL:'postgresql://byline_local@127.0.0.1:55440/byline_live',PORT:'3000',BYLINE_PUBLIC_URL:'http://localhost:3000',
     APP_SECRET:randomBytes(32).toString('hex'),APP_PASSWORD:randomBytes(32).toString('hex'),TOKEN_ENCRYPTION_KEY:randomBytes(32).toString('base64'),CRON_SECRET:randomBytes(32).toString('hex'),
-    LINKEDIN_LIVE:'true',FCM_PROJECT_ID:'linkdin-43813',FCM_ACCESS_TOKEN_FILE:resolve('.byline-local/google-access.json'),BYLINE_ZERO_BUDGET_STATE_FILE:resolve('.byline-local/zero-budget.json'),
+    LINKEDIN_LIVE:original.LINKEDIN_LIVE==='true'?'true':'false',FCM_PROJECT_ID:'linkdin-43813',FCM_ACCESS_TOKEN_FILE:resolve('.byline-local/google-access.json'),BYLINE_ZERO_BUDGET_STATE_FILE:resolve('.byline-local/zero-budget.json'),
     BYLINE_AI_CALLS_PER_USER_DAY:'30',BYLINE_DEVICE_PAIRING:'true'};
   for(const key of ['GEMINI_API_KEY','LLM_PROVIDER','GEMINI_MODEL','GEMINI_FALLBACK_MODEL','GEMINI_LAST_RESORT_MODEL','GEMINI_RPD_LIMIT','LINKEDIN_CLIENT_ID','LINKEDIN_CLIENT_SECRET','LINKEDIN_REDIRECT_URI','LINKEDIN_API_VERSION','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET'])settings[key]=original[key]??'';
   writeFileSync('.env.byline-live',Object.entries(settings).map(([k,v])=>`${k}=${v}`).join('\n')+'\n',{mode:0o600});

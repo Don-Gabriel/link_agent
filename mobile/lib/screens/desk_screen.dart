@@ -34,6 +34,7 @@ import '../widgets/primitives.dart';
 import 'draft_commands.dart';
 import 'settings_screen.dart';
 import '../widgets/editorial.dart';
+import '../widgets/preparation_progress.dart';
 
 class DeskScreen extends StatelessWidget {
   const DeskScreen({super.key});
@@ -99,6 +100,36 @@ class DeskScreen extends StatelessWidget {
 
     return [
       ..._conditions(context, state, status),
+      if (state.generation?['state'] == 'failed') ...[
+        Text('Draft preparation could not finish', style: T.bodyStrong),
+        const SizedBox(height: 8),
+        Text(
+          state.generation?['error'] as String? ??
+              'Please try preparing the draft again.',
+          style: T.body,
+        ),
+        const SizedBox(height: S.x4),
+      ],
+      if (state.preparingDraft) ...[
+        PreparationProgress(
+          progress: {
+            'state': 'working',
+            'stage': state.generation?['stage'] ?? 'discovering',
+            'completed': [
+              'discovering',
+              'judging',
+              'writing',
+              'saving',
+            ].indexOf(state.generation?['stage'] ?? 'discovering').clamp(0, 3),
+          },
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'You can close ByLine. We’ll notify you when the draft is ready or needs attention.',
+          ),
+        ),
+      ],
 
       // The lede. One object, wearing its own deadline.
       if (next != null) ...[
@@ -160,7 +191,11 @@ class DeskScreen extends StatelessWidget {
         const SizedBox(height: S.x4),
       ],
 
-      if (next == null && drafts.isEmpty && stranded.isEmpty && !state.loading)
+      if (next == null &&
+          drafts.isEmpty &&
+          stranded.isEmpty &&
+          !state.loading &&
+          !state.preparingDraft)
         Empty(
           icon: Icons.done_all,
           title: 'Nothing on the desk',
@@ -195,7 +230,10 @@ class DeskScreen extends StatelessWidget {
       // Named to be unmistakably different from writing something yourself.
       if (drafts.isNotEmpty || stranded.isNotEmpty)
         OutlinedButton.icon(
-          onPressed: state.loading || (state.agent?.paused ?? false)
+          onPressed:
+              state.loading ||
+                  state.preparingDraft ||
+                  (state.agent?.paused ?? false)
               ? null
               : () => runCycleNow(context),
           icon: const Icon(Icons.auto_awesome_outlined, size: 17),

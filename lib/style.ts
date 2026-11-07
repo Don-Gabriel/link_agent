@@ -298,7 +298,9 @@ const REGISTER_RULES: Record<Register, string> = {
 export function styleBlock(style: StyleConfig): string {
   const lines: string[] = [
     "HARD VOICE CONSTRAINTS — violating any of these is a failure:",
-    STRUCTURE_RULES[style.structure],
+    style.structure==='bullets'&&style.minWords>180
+      ?`STRUCTURE: a short lead, then 4-6 bullet sections beginning with "${BULLET_MARK} ", then a short close. Each section may contain several short sentences to reach the requested word count. Use short words and concise phrasing; the full post including its link and tags must fit LinkedIn's 3000-character limit.`
+      :STRUCTURE_RULES[style.structure],
     EMOJI_RULES[style.emoji],
     HOOK_RULES[style.hook],
     CTA_RULES[style.cta],
@@ -306,7 +308,7 @@ export function styleBlock(style: StyleConfig): string {
     // A target and a warning, not a bare range. A range reads as guidance and
     // models drift out of a narrow one constantly; naming the midpoint and
     // saying the count is checked afterwards lands inside it far more often.
-    `LENGTH: ${style.minWords}-${style.maxWords} words — aim for about ${Math.round((style.minWords + style.maxWords) / 2)}. The count is checked programmatically after you reply, and a draft outside the range is sent straight back to you.`,
+    `LENGTH: ${style.minWords}-${style.maxWords} words — aim for about ${style.minWords>300?style.minWords:Math.round((style.minWords + style.maxWords) / 2)}. Also keep the body under 2400 characters so the appended source and hashtags fit. For a long word count use short, plain words, rather than long technical phrases. Both limits are checked programmatically.`,
     "NO markdown of any kind. LinkedIn renders none of it — asterisks, backticks and brackets appear literally on screen.",
     "The FIRST LINE is the whole hook: everything past ~210 characters is hidden behind \"see more\".",
     "Be concrete about the selected subject. Name the relevant development and its implications using only facts present in the source. Do not force technical jargon into nontechnical subjects or invent numbers for specificity.",

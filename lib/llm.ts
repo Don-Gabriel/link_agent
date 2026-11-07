@@ -27,19 +27,8 @@ import { usageOwner, reserveUserCall, reserveProviderCall, recordAiUsage } from 
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
-export interface CompleteArgs {
-  system: string;
-  user: string;
-  /** Smaller prompt variant for low-TPM models (Gemma). Optional. */
-  compactUser?: string;
-  jsonMode?: boolean;
-  maxOutputTokens?: number;
-}
-
-export type CompleteResult =
-  | { ok: true; text: string; model: string }
-  | { ok: false; reason: string };
-
+import type { CompleteArgs, CompleteResult } from "./llm-contract";
+export type { CompleteArgs, CompleteResult } from "./llm-contract";
 const MIN_GAP_MS = 4_000;
 const DEFAULT_RPD: Record<string, number> = {}; // filled per call from env
 
@@ -219,15 +208,4 @@ export async function complete(args: CompleteArgs): Promise<CompleteResult> {
  * the caller's guard. Used by judge/writer so a malformed response can never
  * publish unscored content.
  */
-export function parseJson<T>(text: string, guard: (v: unknown) => v is T): T | null {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "");
-  try {
-    const parsed: unknown = JSON.parse(cleaned);
-    return guard(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
+export { parseJson } from "./llm-contract";

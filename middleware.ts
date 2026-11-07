@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "./lib/auth";
 
 const PUBLIC_PATHS = new Set([
-  "/api/health", // liveness/keep-alive: no data, always 200
+  "/api/health", // public readiness: 503 when the database is unavailable
   "/api/auth", // the login endpoint itself
   "/api/native-auth",
   "/api/native-auth/callback",

@@ -7,14 +7,17 @@
     "build": "next build",
     "build:check": "node scripts/build-check.mjs",
     "start": "next start",
-    "test": "tsx scripts/selftest.ts",
+    "test": "tsx scripts/selftest.ts && tsx scripts/health-test.ts",
     "test:db": "tsx scripts/dbtest.ts",
     "test:catalogue": "tsx scripts/catalogue-test.ts",
     "test:catalogue:api": "node scripts/catalogue-api-test.mjs",
+    "test:local": "node scripts/byline-test.mjs && node scripts/catalogue-api-test.mjs && node scripts/native-return-test.mjs",
+    "test:byline": "tsx scripts/byline-logic-test.ts",
     "check:feeds": "node scripts/check-feeds.mjs",
     "keygen": "node -e \"console.log('TOKEN_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64')); console.log('APP_SECRET=' + require('crypto').randomBytes(32).toString('hex')); console.log('CRON_SECRET=' + require('crypto').randomBytes(24).toString('hex'))\"",
     "local:setup": "node scripts/local-setup.mjs",
     "local:dev": "node scripts/local-dev.mjs",
+    "local:phone": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-phone.ps1",
     "migrate": "tsx scripts/migrate.ts",
     "live:setup": "node scripts/live-setup.mjs",
     "live:dev": "node scripts/live-dev.mjs",
@@ -22,10 +25,15 @@
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
-    "next": "^15.4.5",
+    "next": "^15.5.28",
     "pg": "^8.13.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.32"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

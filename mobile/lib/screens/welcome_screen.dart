@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/app_state.dart';
+import '../api/client.dart';
 import '../auth_return.dart';
 import 'gate_screen.dart';
 import '../theme.dart';
@@ -43,7 +44,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       if (mounted) {
         setState(
           () => _error =
-              'Cannot reach ByLine. Check that your local server is running.',
+              'Cannot reach ByLine. Check your internet connection and try again.',
         );
       }
     }
@@ -92,28 +93,40 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           throw Exception('Could not open sign-in.');
         }
         final id = result['id'];
-        for (var n = 0; n < 300; n++) {
+        final deadline = DateTime.fromMillisecondsSinceEpoch(
+          pending?['startedAt'] as int? ??
+              DateTime.now().millisecondsSinceEpoch,
+        ).add(const Duration(minutes: 10));
+        while (DateTime.now().isBefore(deadline)) {
           await Future<void>.delayed(const Duration(seconds: 2));
           if (!mounted || attempt != _attempt) return;
-          result = Map<String, dynamic>.from(
-            await state.api.post('/api/native-auth', {
-                  'action': 'poll',
-                  'id': id,
-                  'verifier': verifier,
-                })
-                as Map,
-          );
+          try {
+            result = Map<String, dynamic>.from(
+              await state.api.post('/api/native-auth', {
+                    'action': 'poll',
+                    'id': id,
+                    'verifier': verifier,
+                  })
+                  as Map,
+            );
+          } on ApiException catch (e) {
+            // Android may suspend networking while the sign-in browser is in
+            // front. Keep the saved flow alive so returning to ByLine recovers.
+            if (e.status == 0 || e.status == 429 || e.status >= 500) continue;
+            rethrow;
+          }
           if (result['token'] != null) break;
         }
       }
       if (result['token'] is! String) {
+        await state.api.clearPendingSignIn();
         throw Exception('Sign-in expired. Please try again.');
       }
       if (!mounted || attempt != _attempt) return;
       await state.api.saveNativeSession(result['token'] as String);
       await state.bootstrap();
     } catch (e) {
-      if (e.toString().contains('sign_in_failed')) {
+      if (e is ApiException && e.error == 'sign_in_failed') {
         await state.api.clearPendingSignIn();
       }
       if (mounted) setState(() => _error = e.toString());
