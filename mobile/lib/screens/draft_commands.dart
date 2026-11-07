@@ -84,6 +84,8 @@ Future<void> clearForItsTime(BuildContext context, Post post) async {
               label: 'Undo',
               onPressed: () => state.unclear(post.seq),
             ),
+      persist: false,
+      duration: const Duration(seconds: 6),
     ),
   );
 }
@@ -214,9 +216,8 @@ Future<void> discard(BuildContext context, Post post) async {
 /// a SECOND call repairing the draft to the author's word range — half a minute
 /// is normal and a minute is not alarming.
 ///
-/// The notice stays up until the work finishes rather than expiring after a few
-/// seconds. A message that disappears while the request is still running reads
-/// as the tap having been lost, which is exactly what this looked like before.
+/// The notice is brief; the request continues after it disappears. Completion
+/// must not dismiss a different notification that arrived in the meantime.
 Future<void> followUp(BuildContext context, int seq) async {
   final messenger = ScaffoldMessenger.of(context);
   messenger.showSnackBar(
@@ -234,13 +235,11 @@ Future<void> followUp(BuildContext context, int seq) async {
           ),
         ],
       ),
-      // Effectively "until dismissed": hidden explicitly below. The server
-      // gives up at 120s, so nothing can outlive this.
-      duration: Duration(minutes: 3),
+      duration: Duration(seconds: 6),
+      persist: false,
     ),
   );
   final error = await context.read<AppState>().followUp(seq);
-  messenger.hideCurrentSnackBar();
   if (error != null) {
     messenger.showSnackBar(SnackBar(content: Text(error)));
   }

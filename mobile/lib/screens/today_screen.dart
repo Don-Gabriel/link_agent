@@ -14,7 +14,8 @@ import 'timetable_screen.dart';
 
 /// Home follows the timetable: one occurrence and one draft per enabled time.
 class TodayScreen extends StatefulWidget {
-  const TodayScreen({super.key});
+  const TodayScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
   @override
   State<TodayScreen> createState() => _TodayScreenState();
 }
@@ -164,6 +165,7 @@ class _TodayScreenState extends State<TodayScreen> with WidgetsBindingObserver {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(
+        controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
         children: [
           OutlinedButton.icon(

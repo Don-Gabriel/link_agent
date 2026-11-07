@@ -42,7 +42,7 @@ async function main() {
   };
   try {
     const discovered=await discover({categories:[subjects[0]]});
-    assert.equal(calls.length,1,'only the selected subject is fetched');
+    assert.equal(calls.length,2,'both search engines research the selected subject');
     assert.equal(new URL(calls[0]).searchParams.get('q'),'"Solar energy" when:7d');
     assert.equal(discovered[0].categoryHint,subjects[0]);
     assert.ok(discovered[0].summary.includes('solar panels'));

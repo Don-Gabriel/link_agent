@@ -1,9 +1,9 @@
 {
   "name": "ByLine",
-  "versionName": "1.0.3",
-  "versionCode": 4,
+  "versionName": "1.0.4",
+  "versionCode": 5,
   "packageId": "com.linkdin.byline",
-  "builtAtUtc": "2026-11-07T08:00:56Z",
+  "builtAtUtc": "2026-11-07T09:55:14.233419+00:00",
   "releaseKind": "cloud",
   "apiOrigin": "https://byline-api.byline-b79.workers.dev",
   "minimumAndroidApi": 24,
@@ -15,8 +15,8 @@
     "armeabi-v7a",
     "x86_64"
   ],
-  "bytes": 56892379,
-  "sha256": "9ab71a961f1cd3ffbb58a6256d380b0abe34d1696d842fe4c540391b80e3e823",
+  "bytes": 56892375,
+  "sha256": "aacd07ceaf89c86f7b7ce4aa7eae528aa57d9e71dac6c602c19310a6446a088d",
   "signingCertificateSha256": "fcfc5a0a6d34abe8ada3e525f1f5f758a4560b9fa58261f218a0fca3ac61773c",
   "signatureScheme": "APK Signature Scheme v2",
   "flutter": "3.44.1",
@@ -25,5 +25,5 @@
   "sourceInventory": "../../docs/repository-inventory.json",
   "download": "https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk",
   "phoneInstalledDuringThisBuild": false,
-  "note": "Android browser-only OAuth routing and first-run connection recovery. Version increased; existing private release signing key preserved. 177 Flutter, 8 native Android and 30 cloud tests passed. Real new-phone consent not performed during this build."
+  "note": "Auto-dismiss action notices after six seconds; navigation always returns to the top. 184 Flutter tests passed. Same private release signing key preserved. No phone installation performed."
 }

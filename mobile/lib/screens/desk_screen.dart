@@ -37,7 +37,8 @@ import '../widgets/editorial.dart';
 import '../widgets/preparation_progress.dart';
 
 class DeskScreen extends StatelessWidget {
-  const DeskScreen({super.key});
+  const DeskScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +50,7 @@ class DeskScreen extends StatelessWidget {
       backgroundColor: C.ink2,
       color: C.filament,
       child: ListView(
+        controller: scrollController,
         padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
         children: [
           _Masthead(state: state),

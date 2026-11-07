@@ -157,24 +157,9 @@ class _PushListenerState extends State<PushListener> {
 
     // Keep the existing banner as a fallback on other platforms or when
     // Android notifications have been disabled.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (title != null)
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-            if (body != null) Text(body, style: const TextStyle(fontSize: 13)),
-          ],
-        ),
-        duration: const Duration(seconds: 6),
-        action: SnackBarAction(
-          label: 'Show',
-          onPressed: () => _openTab(message),
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(inAppNotification(message, onOpen: () => _openTab(message)));
   }
 
   void _openTab(RemoteMessage message) {
@@ -191,4 +176,28 @@ class _PushListenerState extends State<PushListener> {
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// The foreground fallback when an OS notification cannot be displayed.
+SnackBar inAppNotification(
+  RemoteMessage message, {
+  required VoidCallback onOpen,
+}) {
+  final title = message.notification?.title;
+  final body = message.notification?.body;
+  return SnackBar(
+    content: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (title != null)
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        if (body != null) Text(body, style: const TextStyle(fontSize: 13)),
+      ],
+    ),
+    duration: const Duration(seconds: 6),
+    // Flutter otherwise keeps snackbars with action buttons visible indefinitely.
+    persist: false,
+    action: SnackBarAction(label: 'Show', onPressed: onOpen),
+  );
 }

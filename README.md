@@ -1,5 +1,13 @@
 # ByLine
 
+## Download for Android
+
+**[Download ByLine 1.0.4 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
+
+Open this link on your phone, download the APK, then open it to install or update.
+Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
+· [Release verification](reports/ByLine-navigation-discovery-2026-11-07.md)
+
 **Start here:** [Complete project handbook (PDF)](output/pdf/ByLine-Complete-Project-Handbook.pdf)
 | [Download Android APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)
 | [Phone installation guide](releases/android/README.md)
@@ -31,7 +39,9 @@ separate, guarded decision.
 - **At your chosen posting times**, it pulls fresh candidates across
   your categories, scores every one in a single batched LLM call on five
   criteria, and writes a post about the winner — **only if it clears 6.5/10**.
-  A story must also score at least 7/10 for subject fit and 6/10 for author fit.
+  A story must also score at least 7/10 for subject fit and non-duplication,
+  and 6/10 for author fit. Qualifying stories rotate across selected categories,
+  favouring subjects covered least recently instead of repeatedly picking one beat.
   If no relevant source qualifies, it waits rather than forcing an unrelated post.
 - **Approval queue by default.** Drafts wait for you with their scores, the
   editorial reasoning, and a marker showing exactly where LinkedIn will cut the
@@ -44,6 +54,12 @@ separate, guarded decision.
 - **Searchable subjects**: select up to 12 at once, including specialist areas
   across industries. Specialist sources use targeted news searches and must pass
   editorial relevance checks. Source availability varies by subject and date.
+- **Broader research**: Google News, Bing News and curated publisher/research feeds
+  cover every selected category and free-text topic. The cloud checks up to 20 feeds
+  per generation, balances publishers, and excludes recently consumed links and
+  near-identical headlines. Even one subject gets multiple search sources; fresh,
+  relevant evidence is still required. Research uses feed/search excerpts, not
+  unrestricted full-page crawling.
 - **Optional signatures**, disabled for new native accounts. Existing accounts
   retain their saved preferences.
 

@@ -1,7 +1,7 @@
 /**
  * Editorial judging: ONE batched LLM call scores every candidate 0-10 on
- * five criteria and assigns it a category. Publish only the single top
- * candidate, and only above the threshold.
+ * five criteria and assigns it a category. The caller rotates among qualifying
+ * categories, selecting one story above the quality and non-duplication gates.
  *
  * A day that publishes nothing is correct behavior — there is no floor
  * forcing a post out. On a personal LinkedIn profile that matters more than
@@ -20,7 +20,7 @@ export const PUBLISH_THRESHOLD = 6.5;
 
 export function relevanceTotal(scores: Scores, category: unknown, active: CategoryId[]): number {
   const total=Math.round((scores.persona_fit+scores.category_fit+scores.novelty+scores.timeliness+scores.non_duplication)/5*100)/100;
-  return scores.category_fit>=7 && scores.persona_fit>=6 && isCategoryId(category) && active.includes(category)
+  return scores.category_fit>=7 && scores.persona_fit>=6 && scores.non_duplication>=7 && isCategoryId(category) && active.includes(category)
     ? total : Math.min(total,PUBLISH_THRESHOLD-0.01);
 }
 
@@ -101,7 +101,7 @@ const SYSTEM = `You are the editorial judgment of the professional described in 
 - category_fit: does it substantively address one of the exact selected subjects, and is it substantial enough to be worth a post rather than a link? A passing mention, shared keyword, or neighbouring industry does not qualify. Score these below 5. Never force a connection to fill a slot.
 - novelty: does it add something beyond what has already been covered (see PRIOR COVERAGE)?
 - timeliness: is there a reason to write about it right now?
-- non_duplication: 10 = nothing like it in prior coverage; 0 = already covered.
+- non_duplication: 10 = nothing like it in prior coverage; 0 = already covered. Rewording the same event or using a different publisher does not make a new story. Scores below 7 cannot qualify.
 
 Also assign "category": the id of the single active category it best belongs to.
 The active categories are the author's current scope. If older persona interests describe another field, use the current scope; never reject an otherwise suitable story just to preserve a previous industry.

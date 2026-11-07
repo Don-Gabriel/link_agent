@@ -30,6 +30,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cloud:
+    name: cloud types, workflows and database tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            cloud/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix cloud
+      - run: npm run typecheck --prefix cloud
+      - run: npm test --prefix cloud
+
   backend:
     name: types, logic, build
     runs-on: ubuntu-latest

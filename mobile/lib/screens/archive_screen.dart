@@ -26,7 +26,8 @@ import '../widgets/editorial.dart';
 enum _Shelf { published, passed }
 
 class ArchiveScreen extends StatefulWidget {
-  const ArchiveScreen({super.key});
+  const ArchiveScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
 
   @override
   State<ArchiveScreen> createState() => _ArchiveScreenState();
@@ -88,6 +89,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
       backgroundColor: C.ink2,
       color: C.filament,
       child: ListView(
+        controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x7),
         children: [
           Row(

@@ -128,7 +128,8 @@ void openLinkedIn(BuildContext context) => Navigator.of(
 ).push(MaterialPageRoute(builder: (_) => const LinkedInScreen()));
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
 
   @override
   Widget build(BuildContext context) {
@@ -144,6 +145,7 @@ class SettingsScreen extends StatelessWidget {
     final chosen = labels.keys.where(agent.categories.contains).toList();
 
     return ListView(
+      controller: scrollController,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
       children: [
         const ProfileCard(),

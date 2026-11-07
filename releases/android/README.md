@@ -21,7 +21,13 @@ GitHub repository access is required if the repository is private.
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
 
-Version **1.0.3 (build 4)** fixes Android sending the initial LinkedIn OAuth link to
+Version **1.0.4 (build 5)** dismisses action popups after six seconds and resets
+Home, My posts and Me to the top whenever selected, including tapping the current
+tab. Both the drafts and archive lists reset when entering My posts. The cloud
+backend also rotates qualifying categories, expands source searches and avoids
+previously used stories. [Verification report](../../reports/ByLine-navigation-discovery-2026-11-07.md).
+
+This release includes the **1.0.3** fix for Android sending the initial LinkedIn OAuth link to
 the LinkedIn app before consent. Sign-in and reconnection explicitly select a browser.
 Returning to setup refreshes connection status immediately. If no browser is enabled,
 ByLine shows a retryable error. Installing this APK over the previous signed cloud

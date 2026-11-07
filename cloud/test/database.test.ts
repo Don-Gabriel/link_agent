@@ -11,6 +11,8 @@ import type { AppEnv } from '../src/env.ts';
 import {reconcileJobs,failJob} from '../src/jobs.ts';
 import {generationError} from '../src/generation-errors.ts';
 import {drainNotifications} from '../src/notifications.ts';
+import {recentCoverage,generatePreview} from '../src/generation.ts';
+import {defaultSetup} from '../../lib/setup-config';
 
 const runtime = new Miniflare(convertV4MiniflareOptions({
   modules: true,
@@ -28,6 +30,45 @@ before(async () => {
   }
 });
 after(async () => { await runtime.dispose(); });
+
+test('retrying setup excludes the previous sample and includes its category in editorial history',async()=>{
+  const a=await provisionIdentity(db,{provider:'linkedin',subject:'preview-diversity',name:'Preview test'});
+  await db.prepare('UPDATE onboarding SET preview=?,preview_attempts=2 WHERE user_id=?')
+    .bind(JSON.stringify({title:'Earlier music story',sources:['https://example.com/old'],category:'music-tech-software'}),a.userId).run();
+  const original=globalThis.fetch;let judged=false;
+  globalThis.fetch=async(input,init)=>{
+    if(String(input).includes('generativelanguage.googleapis.com')){
+      const prompt=JSON.parse(String(init?.body)).contents[0].parts[0].text;
+      assert.match(prompt,/music-tech-software .*: 1 of the last 1 posts/);
+      assert.match(prompt,/0\. .*Fresh finance story/);
+      assert.doesNotMatch(prompt,/\d+\. .*Earlier music story/);
+      judged=true;
+      return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify([{index:0,category:'finance',persona_fit:0,category_fit:8,novelty:8,timeliness:8,non_duplication:8,reason:'No appropriate story'}])}]}}]});
+    }
+    return new Response('<rss><channel><item><title>Earlier music story</title><link>https://example.com/old</link></item><item><title>Fresh finance story</title><link>https://example.com/new</link></item></channel></rss>');
+  };
+  try{
+    await assert.rejects(generatePreview({DB:db,GEMINI_API_KEY:'test'} as AppEnv,a.userId,'Preview test',
+      {...defaultSetup,categories:['finance','music-tech-software']}),/No source closely matches/);
+    assert.equal(judged,true);
+  }finally{globalThis.fetch=original;}
+});
+
+test('concurrent generated stories cannot reuse a source; retries and other authors remain independent',async()=>{
+  const a=await provisionIdentity(db,{provider:'linkedin',subject:'diversity-a',name:'Author A'});
+  const b=await provisionIdentity(db,{provider:'linkedin',subject:'diversity-b',name:'Author B'});
+  const draft={agentId:a.agentId,text:'A fresh researched story.',rationale:'Relevant',fingerprint:'A fresh story',sources:['https://example.com/fresh'],category:'finance',avoidUsedSources:true};
+  const outcomes=await Promise.allSettled(['story-a','story-b'].map(requestId=>saveDraft(db,{...draft,requestId})));
+  assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);
+  const saved=await db.prepare('SELECT seq,client_request_id FROM posts WHERE agent_id=?').bind(a.agentId).first<{seq:number;client_request_id:string}>();
+  assert.equal(await saveDraft(db,{...draft,requestId:saved!.client_request_id}),saved!.seq);
+  assert.equal(await saveDraft(db,{...draft,agentId:b.agentId,requestId:'other-author'}),1);
+  await db.prepare("UPDATE posts SET status='rejected' WHERE agent_id=?").bind(a.agentId).run();
+  const history=await recentCoverage(db,a.agentId);
+  assert.equal(history.length,1);assert.equal(history[0].category,'finance');assert.equal(history[0].status,'rejected');
+  await assert.rejects(saveDraft(db,{...draft,requestId:'repeat-rejected'}),/not saved/);
+  assert.equal(await saveDraft(db,{...draft,requestId:'manual-reuse',avoidUsedSources:false}),2);
+});
 
 test('notification batches stay bounded and each author receives only their own draft notice',async()=>{
   // Clear only this test runtime's old outbox fixtures.

@@ -33,6 +33,7 @@ import { getPool, query } from "./db";
 import { discover } from "./discovery";
 import { hookOf } from "./format";
 import { judgeCandidates, PUBLISH_THRESHOLD } from "./judge";
+import { diverseWinner, rotateCategories } from './editorial-selection';
 import { notify } from "./push";
 import { formatInZone } from "./schedule";
 import { recall, rememberPublish, rememberRejections } from "./memory";
@@ -143,8 +144,9 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   // never widen them beyond what the agent is watching.
   const slotCategories = (context.categories ?? []).filter((c) => settings.categories.includes(c));
   const activeCategories = slotCategories.length > 0 ? slotCategories : settings.categories;
-  await context.onProgress?.('discovering');
-  const discovered = await discover({ categories: activeCategories, wide: staleFeed });
+  const coverage = await query<{category:CategoryId|null;seq:number}>(
+    'SELECT category,seq FROM posts WHERE agent_id=$1 ORDER BY seq DESC LIMIT 24', [agentId]);
+  const recentCategories = coverage.flatMap(r=>r.category?[r.category]:[]);
 
   // Hard dedup: never re-judge a URL already written about (drafts included —
   // a rejected draft still consumed the story).
@@ -167,6 +169,10 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
       )
     ).map((r) => r.url),
   );
+
+  await context.onProgress?.('discovering');
+  const discovered = await discover({categories:rotateCategories(activeCategories,recentCategories),wide:staleFeed,
+    topics:persona.identity.interests,rotation:coverage[0]?.seq??0,excludeUrls:[...usedUrls,...cooldownUrls]});
 
   const candidates = discovered.filter((c) => !usedUrls.has(c.url) && !cooldownUrls.has(c.url));
   console.log(
@@ -198,14 +204,6 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
   // time: whichever category yields the strongest stories takes every cycle.
   // Drafts count, not just published posts — a draft has already consumed the
   // subject whether or not the author ever approved it.
-  const recentCategories = (
-    await query<{ category: CategoryId | null }>(
-      `SELECT category FROM posts
-        WHERE agent_id = $1 AND category IS NOT NULL
-        ORDER BY seq DESC LIMIT 12`,
-      [agentId],
-    )
-  ).flatMap((r) => (r.category ? [r.category] : []));
 
   await context.onProgress?.('judging');
   const judged = await judgeCandidates(
@@ -237,8 +235,8 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     mean: Math.round((totals.reduce((a, b) => a + b, 0) / totals.length) * 100) / 100,
   };
 
-  const winner = scored[0].total >= PUBLISH_THRESHOLD ? scored[0] : null;
-  const rejected = winner ? scored.slice(1) : scored;
+  const winner = diverseWinner(scored,activeCategories,recentCategories);
+  const rejected = winner ? scored.filter(candidate=>candidate!==winner) : scored;
 
   // 4. Persist every rejection with its per-criterion scores and a reason.
   const cycleId =
@@ -307,7 +305,7 @@ async function runCycle(agentId: string, context: CycleContext = {}): Promise<Cy
     )
   ).filter((r) => r.used_quote).length;
 
-  const runnersUp = scored.slice(1, 3);
+  const runnersUp = scored.filter(candidate => candidate !== winner).slice(0, 2);
   await context.onProgress?.('writing');
   const draft = await writePost({
     persona,

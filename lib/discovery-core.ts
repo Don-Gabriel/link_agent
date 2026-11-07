@@ -21,6 +21,7 @@ import type { CategoryId } from "./categories";
 import { CATEGORIES, LEGACY_CATEGORY_IDS as ALL_CATEGORY_IDS, MAX_SELECTED_CATEGORIES } from "./categories";
 import { decodeEntities } from "./entities";
 import { boundedText } from './http-body';
+import { storyUrl, unseenStories } from './editorial-selection';
 export type FeedRecorder = (name:string, outcome:{ok:true;items:number}|{ok:false;error:string})=>Promise<void>;
 
 export interface Candidate {
@@ -31,6 +32,8 @@ export interface Candidate {
   /** The category its source usually serves — a hint for the judge, not a verdict. */
   categoryHint: CategoryId;
   publishedAt?: string;
+  /** Original publisher, including when discovered through a news search feed. */
+  publisher?: string;
 }
 
 const FETCH_TIMEOUT_MS = 8_000;
@@ -63,6 +66,11 @@ export interface DiscoverOptions {
   /** Cloud deployments reserve requests for writing and notification delivery. */
   maxFetches?: number;
   maxFeeds?: number;
+  topics?: string[];
+  /** Stable within one job, changes after each saved draft. */
+  rotation?: number;
+  excludeUrls?: string[];
+  priorCoverage?: string[];
 }
 
 type FeedFetch=(url:string,init:RequestInit)=>Promise<Response>;
@@ -149,10 +157,12 @@ function parseFeed(
   for (const item of items.slice(0, limit)) {
     const title = stripHtml(item.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ?? "");
     // Atom: <link href="..."/>; RSS: <link>...</link>; arXiv: <id>...</id>
-    const url =
-      item.match(/<link[^>]*href="([^"]+)"/)?.[1] ??
-      stripHtml(item.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1] ?? "") ??
+    const rawUrl =
+      (item.match(/<link[^>]*href="([^"]+)"/)?.[1] ??
+      stripHtml(item.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1] ?? "")) ||
       stripHtml(item.match(/<id>([\s\S]*?)<\/id>/)?.[1] ?? "");
+    const url = storyUrl(decodeEntities(rawUrl));
+    const publisher = stripHtml(item.match(/<(?:source|News:Source)[^>]*>([\s\S]*?)<\/(?:source|News:Source)>/i)?.[1] ?? source);
     const summary = stripHtml(
       item.match(
         /<(?:description|summary|content)[^>]*>([\s\S]*?)<\/(?:description|summary|content)>/,
@@ -163,7 +173,7 @@ function parseFeed(
         "",
     );
     if (title.length >= 8 && url.startsWith("http")) {
-      out.push({ title, url, summary: clip(summary || title, 400), source, categoryHint, publishedAt });
+      out.push({ title, url, summary: clip(summary || title, 1200), source, publisher, categoryHint, publishedAt });
     }
   }
   return out;
@@ -480,7 +490,18 @@ function interleaveByCategory(candidates: Candidate[], cap: number): Candidate[]
     bucket.push(c);
     buckets.set(c.categoryHint, bucket);
   }
-  const lists = [...buckets.values()];
+  // Within each subject, interleave publishers too: one prolific site or
+  // syndicated feed must not crowd every other website out of the judge's pool.
+  const lists = [...buckets.values()].map(bucket => {
+    const publishers = new Map<string, Candidate[]>();
+    for (const c of bucket) {
+      const key = c.publisher || new URL(c.url).hostname;
+      publishers.set(key, [...(publishers.get(key) ?? []), c]);
+    }
+    const rows = [...publishers.values()], balanced: Candidate[] = [];
+    for (let i = 0; i < bucket.length; i++) for (const row of rows) if (row[i]) balanced.push(row[i]);
+    return balanced;
+  });
   const out: Candidate[] = [];
   for (let i = 0; out.length < cap; i++) {
     let added = false;
@@ -497,15 +518,36 @@ function interleaveByCategory(candidates: Candidate[], cap: number): Candidate[]
 }
 
 /** Source routing is shared with catalogue coverage checks. No network work here. */
-export function feedsForCategories(active: CategoryId[], wide = false): Feed[] {
+export function feedsForCategories(active: CategoryId[], wide = false, topics: string[] = [], rotation = 0): Feed[] {
   const activeSet = new Set(active);
-  return [
-    ...FEEDS.filter(f => activeSet.has(f.category) && (wide || !f.wideOnly)),
-    ...active.filter(id => CATEGORIES[id]?.query).slice(0, MAX_SELECTED_CATEGORIES).map(id => ({
-      name: `subject:${id}`, category: id, limit: 8, wideLimit: 12, verified: false,
-      url: `https://news.google.com/rss/search?q=${encodeURIComponent(CATEGORIES[id].query! + ' when:7d')}&hl=en-US&gl=US&ceid=US:en`,
-    })),
-  ];
+  const queries = active.filter(id => CATEGORIES[id]).slice(0, MAX_SELECTED_CATEGORIES).map(id => ({
+    id, category: id, query: CATEGORIES[id].query || CATEGORIES[id].scope,
+  }));
+  const cleanTopics = [...new Set(topics.map(t=>t.trim()).filter(t=>t.length>=2 && t.length<=80))].slice(0,12);
+  cleanTopics.forEach((topic, index) => {
+    // This is only a source hint. The judge must classify the actual story into
+    // an allowed subject, so a free-text query cannot bypass relevance checks.
+    const terms = topic.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+    const ranked = active.map(id=>({id, matches:terms.filter(t=>`${CATEGORIES[id]?.label} ${CATEGORIES[id]?.scope}`.toLowerCase().includes(t)).length}))
+      .sort((a,b)=>b.matches-a.matches);
+    const category = ranked[0]?.matches ? ranked[0].id : active[index % active.length];
+    if (category) queries.push({id:`focus:${index}`,category,query:topic});
+  });
+  const angles = ['', 'research OR study OR report', 'adoption OR implementation OR case study', 'innovation OR release OR breakthrough'];
+  const angle = angles[Math.abs(Math.trunc(rotation)) % angles.length];
+  const searches = queries.flatMap(({id,category,query}) => [
+    {name:`subject:${id}`,category,limit:12,wideLimit:16,verified:false,
+      url:`https://news.google.com/rss/search?q=${encodeURIComponent(query+' when:7d')}&hl=en-US&gl=US&ceid=US:en`},
+    {name:`search:${id}`,category,limit:12,wideLimit:16,verified:false,
+      url:`https://www.bing.com/news/search?q=${encodeURIComponent(query+(angle?` (${angle})`:''))}&format=rss`},
+  ]);
+  const all = [...searches,...FEEDS.filter(f=>activeSet.has(f.category)&&(wide||!f.wideOnly))];
+  // Rotate the starting source within each subject instead of always taking
+  // the first fixed publishers when a deployment's feed budget is smaller.
+  return active.flatMap(category=>{
+    const group=all.filter(f=>f.category===category), offset=Math.abs(Math.trunc(rotation))%Math.max(1,group.length);
+    return [...group.slice(offset),...group.slice(0,offset)];
+  });
 }
 
 export function balanceFeeds(feeds:Feed[],active:CategoryId[],limit:number):Feed[] {
@@ -542,12 +584,14 @@ export async function discover(recordFeedResult: FeedRecorder, options: Discover
     }
   }
 
-  const available = feedsForCategories(active, wide);
-  const feeds=options.maxFeeds===undefined?available:balanceFeeds(available,active,options.maxFeeds);
+  const available = feedsForCategories(active, wide, options.topics, options.rotation);
+  const feeds=balanceFeeds(available,active,options.maxFeeds ?? 24);
 
   // Fetched concurrently: ~13 feeds at 8s each would blow the cycle budget serially.
-  await Promise.all(
-    feeds.map(async (feed) => {
+  let nextFeed = 0;
+  await Promise.all(Array.from({length:Math.min(6,feeds.length)}, async()=>{
+    while(nextFeed<feeds.length) {
+      const feed=feeds[nextFeed++];
       const url = wide && feed.wideUrl ? feed.wideUrl : feed.url;
       const limit = wide ? feed.wideLimit : feed.limit;
       try {
@@ -563,16 +607,12 @@ export async function discover(recordFeedResult: FeedRecorder, options: Discover
         console.warn(`[discovery] ${feed.name} failed:`, message);
         await recordFeedResult(feed.name, { ok: false, error: message });
       }
-    }),
-  );
+    }
+  }));
 
   // Dedupe by URL, drop stale items, newest first, then balance across categories.
-  const seen = new Set<string>();
-  const unique = results.filter((c) => {
-    if (seen.has(c.url)) return false;
-    seen.add(c.url);
-    return true;
-  });
+  results.sort((a,b)=>(Date.parse(b.publishedAt??'')||0)-(Date.parse(a.publishedAt??'')||0));
+  const unique = unseenStories(results, options.excludeUrls ?? [], options.priorCoverage);
   const fresh = unique.filter(c => isFresh(c));
   // Quiet categories need a useful pool over weekends too. Supplement only
   // categories with fewer than five recent stories, using at most a week's

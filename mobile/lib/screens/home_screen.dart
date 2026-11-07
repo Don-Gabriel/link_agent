@@ -33,6 +33,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _recoveryTimer;
   bool _active = true;
   bool _refreshing = false;
+  final _homeScroll = ScrollController(keepScrollOffset: false);
+  final _draftsScroll = ScrollController(keepScrollOffset: false);
+  final _historyScroll = ScrollController(keepScrollOffset: false);
+  final _settingsScroll = ScrollController(keepScrollOffset: false);
+
+  void _selectDestination(int index) {
+    final controllers = switch (index) {
+      0 => [_homeScroll],
+      1 => [_draftsScroll, _historyScroll],
+      2 => [_settingsScroll],
+      _ => <ScrollController>[],
+    };
+    for (final controller in controllers) {
+      for (final position in controller.positions.toList()) {
+        position.jumpTo(position.minScrollExtent);
+      }
+    }
+    setState(() => _index = index);
+  }
 
   @override
   void initState() {
@@ -67,6 +86,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _recoveryTimer?.cancel();
+    for (final controller in [
+      _homeScroll,
+      _draftsScroll,
+      _historyScroll,
+      _settingsScroll,
+    ]) {
+      controller.dispose();
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -91,9 +118,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state.tabRequest != _seenTabRequest) {
       _seenTabRequest = state.tabRequest;
       final wanted = state.requestedTab;
-      if (_index != wanted && wanted >= 0 && wanted < 3) {
+      if (wanted >= 0 && wanted < 3) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) setState(() => _index = wanted);
+          if (mounted) _selectDestination(wanted);
         });
       }
     }
@@ -108,9 +135,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final content = IndexedStack(
       index: _index,
       children: [
-        state.api.isNativeSession ? const TodayScreen() : const DeskScreen(),
-        const _PostsWorkspace(),
-        const SettingsScreen(),
+        state.api.isNativeSession
+            ? TodayScreen(scrollController: _homeScroll)
+            : DeskScreen(scrollController: _homeScroll),
+        _PostsWorkspace(
+          draftsScroll: _draftsScroll,
+          historyScroll: _historyScroll,
+        ),
+        SettingsScreen(scrollController: _settingsScroll),
       ],
     );
     return Scaffold(
@@ -131,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 child: TextButton.icon(
-                  onPressed: () => setState(() => _index = i),
+                  onPressed: () => _selectDestination(i),
                   icon: i == 1
                       ? _PostsIcon(
                           pending: state.onTheDesk,
@@ -175,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
                     children: [
-                      ProfileCard(onEdit: () => setState(() => _index = 2)),
+                      ProfileCard(onEdit: () => _selectDestination(2)),
                       const Divider(height: 24),
                       Material(
                         color: Colors.transparent,
@@ -218,7 +250,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               backgroundColor: C.ink2,
               indicatorColor: Colors.transparent,
               selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
+              onDestinationSelected: _selectDestination,
               destinations: [
                 NavigationDestination(
                   icon: Icon(Icons.home_outlined),
@@ -249,7 +281,12 @@ void _open(BuildContext context, Widget page) =>
     Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
 
 class _PostsWorkspace extends StatefulWidget {
-  const _PostsWorkspace();
+  const _PostsWorkspace({
+    required this.draftsScroll,
+    required this.historyScroll,
+  });
+  final ScrollController draftsScroll;
+  final ScrollController historyScroll;
   @override
   State<_PostsWorkspace> createState() => _PostsWorkspaceState();
 }
@@ -281,7 +318,10 @@ class _PostsWorkspaceState extends State<_PostsWorkspace> {
         Expanded(
           child: IndexedStack(
             index: _view == 'drafts' ? 0 : 1,
-            children: const [DeskScreen(), ArchiveScreen()],
+            children: [
+              DeskScreen(scrollController: widget.draftsScroll),
+              ArchiveScreen(scrollController: widget.historyScroll),
+            ],
           ),
         ),
       ],

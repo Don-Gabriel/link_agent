@@ -1,5 +1,5 @@
 import { discover, type Candidate } from '../../lib/discovery-core';
-import { judgeCandidates,PUBLISH_THRESHOLD } from '../../lib/judge-core';
+import { judgeCandidates } from '../../lib/judge-core';
 import { writePost, type PriorPost } from '../../lib/writer-core';
 import { parseSetup,setupCategories,setupPersona,setupStyle,type SetupConfig } from '../../lib/setup-config';
 import { critique } from '../../lib/critique';
@@ -12,9 +12,23 @@ import { failJob,type GenerationJob } from './jobs';
 import type { AppEnv } from './env';
 import type { SlotRow } from './slots';
 import { generationError } from './generation-errors';
+import { diverseWinner, rotateCategories } from '../../lib/editorial-selection';
+import { type CategoryId } from '../../lib/categories';
 export type RunStep=<T extends Rpc.Serializable<T>>(name:string,work:()=>Promise<T>)=>Promise<T>;
 export const directly:RunStep=(_name,work)=>work();
 const memory={facts:[],source:'none' as const,degraded:false};
+interface CoverageRow {id:string;seq:number;fingerprint:string;text:string;category:string|null;used_quote:number;status:string;sources_json:string}
+export async function recentCoverage(db:D1Database,agentId:string):Promise<CoverageRow[]> {
+  // Include drafts and discarded stories: both already consumed an idea.
+  return (await db.prepare('SELECT id,seq,fingerprint,text,category,used_quote,status,sources_json FROM posts WHERE agent_id=? ORDER BY seq DESC LIMIT 100')
+    .bind(agentId).all<CoverageRow>()).results;
+}
+function discoveryOptions(categories:CategoryId[],topics:string[],rows:CoverageRow[]) {
+  const recent=rows.slice(0,24).flatMap(p=>p.category?[p.category]:[]);
+  return {categories:rotateCategories(categories,recent),topics,rotation:rows[0]?.seq??0,
+    maxFetches:24,maxFeeds:20,wide:true,excludeUrls:rows.flatMap(p=>JSON.parse(p.sources_json??'[]') as string[]),
+    priorCoverage:rows.slice(0,30).map(p=>p.fingerprint).filter(Boolean)};
+}
 async function feedResult(db:D1Database,name:string,outcome:{ok:true;items:number}|{ok:false;error:string}) {
   const ok=outcome.ok&&outcome.items>0,now=new Date().toISOString();
   await db.prepare(`INSERT INTO feed_health(name,last_ok_at,last_failed_at,fails_in_a_row,last_error,updated_at) VALUES(?,?,?,?,?,?)
@@ -24,16 +38,26 @@ async function feedResult(db:D1Database,name:string,outcome:{ok:true;items:numbe
 }
 export async function generatePreview(env:AppEnv,userId:string,name:string,config:SetupConfig) {
   const categories=setupCategories(config),persona=setupPersona(config,name),style=setupStyle(config);
-  const candidates=await discover((name,result)=>feedResult(env.DB,name,result),{categories,maxFetches:24,maxFeeds:12});
+  const agent=await env.DB.prepare('SELECT id FROM agents WHERE owner_id=?').bind(userId).first<{id:string}>();
+  const rows=agent?await recentCoverage(env.DB,agent.id):[];
+  const setup=await env.DB.prepare('SELECT preview,preview_attempts FROM onboarding WHERE user_id=?').bind(userId).first<{preview:string|null;preview_attempts:number}>();
+  const previous=setup?.preview?JSON.parse(setup.preview) as {sources?:string[];title?:string;category?:string}:null;
+  const options=discoveryOptions(categories,config.topics,rows);
+  options.rotation+=Math.max(0,(setup?.preview_attempts??1)-1);
+  options.excludeUrls.push(...(previous?.sources??[]));
+  if(previous?.title)options.priorCoverage.push(previous.title);
+  const candidates=await discover((name,result)=>feedResult(env.DB,name,result),options);
   const complete=completion(env,userId);
-  const judged=await judgeCandidates(complete,persona,categories,candidates,memory,[]);
+  const recent=[...(previous?.category?[previous.category]:[]),...rows.slice(0,24).flatMap(p=>p.category?[p.category]:[])];
+  const prior=[...(previous?.title?[previous.title]:[]),...rows.slice(0,20).map(p=>p.fingerprint)];
+  const judged=await judgeCandidates(complete,persona,categories,candidates,memory,prior,recent);
   if(!judged.ok)throw new Error(judged.reason);
-  const source=judged.data.scored.find(s=>s.total>=PUBLISH_THRESHOLD);
+  const source=diverseWinner(judged.data.scored,categories,recent);
   if(!source)throw new Error('No source closely matches your subjects yet. Try again later or adjust your subjects.');
   const draft=await writePost(complete,{persona,style,winner:source,runnersUp:[],memory,priorPosts:[],repairAttempts:2,samples:config.samples.map(text=>({text,origin:'corpus'}))});
   if(!draft.ok)throw new Error(draft.reason);
   if(critique(draft.data.text,style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote}).length)throw new Error('The sample needs another pass to match your writing preferences.');
-  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,testMode:false};
+  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,testMode:false};
 }
 export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,step:RunStep) {
   const complete=durableCompletion(completion(env,payload.userId));
@@ -43,7 +67,7 @@ export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,ste
       if(!a.row.active||a.row.paused||a.row.revision!==payload.agentRevision)throw new Error('Preparation stopped because settings changed or ByLine was paused.');
       const slot=payload.slotId?await env.DB.prepare('SELECT * FROM post_slots WHERE id=? AND agent_id=?').bind(payload.slotId,payload.agentId).first<SlotRow>():null;
       if(payload.slotId&&(!slot||!slot.enabled||slot.revision!==payload.slotRevision))throw new Error('The posting time changed.');
-      const rows=(await env.DB.prepare("SELECT id,fingerprint,text,category,used_quote,status FROM posts WHERE agent_id=? AND status!='rejected' ORDER BY seq DESC LIMIT 12").bind(payload.agentId).all<{id:string;fingerprint:string;text:string;category:string|null;used_quote:number;status:string}>()).results;
+      const rows=await recentCoverage(env.DB,payload.agentId);
       return {...a,slot,rows};
     });
     const stage=async(name:string)=>{
@@ -53,19 +77,22 @@ export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,ste
       ]);
     };
     await step('stage-discover',()=>stage('discovering'));
-    const categories=context.slot&&JSON.parse(context.slot.categories_json).length?JSON.parse(context.slot.categories_json):context.settings.categories;
+    const slotCategories:CategoryId[]=context.slot?JSON.parse(context.slot.categories_json):[];
+    const selected=slotCategories.filter(category=>context.settings.categories.includes(category));
+    const categories=selected.length?selected:context.settings.categories;
+    const recent=context.rows.slice(0,24).flatMap(p=>p.category?[p.category]:[]);
     const candidates:Candidate[]=await discover(
-      (name,result)=>step(`feed-health:${name}`,()=>feedResult(env.DB,name,result)),{categories,maxFetches:24,maxFeeds:12},
+      (name,result)=>step(`feed-health:${name}`,()=>feedResult(env.DB,name,result)),discoveryOptions(categories,context.persona.identity.interests,context.rows),
       (name,work)=>step(`source:${name}`,work));
     await step('stage-judge',()=>stage('judging'));
-    const judged=await step('judge',()=>judgeCandidates(complete,context.persona,categories,candidates,memory,context.rows.map(p=>p.fingerprint)));
+    const judged=await step('judge',()=>judgeCandidates(complete,context.persona,categories,candidates,memory,context.rows.slice(0,20).map(p=>p.fingerprint),recent));
     if(!judged.ok)throw new Error(judged.reason);
-    const winner=judged.data.scored.find(s=>s.total>=PUBLISH_THRESHOLD);
+    const winner=diverseWinner(judged.data.scored,categories,recent);
     if(!winner)throw new Error('No suitable story cleared the relevance checks.');
     await step('stage-write',()=>stage('writing'));
-    const priorPosts:PriorPost[]=context.rows.map(r=>({id:r.id,fingerprint:r.fingerprint,opening:r.text.slice(0,210),usedQuote:!!r.used_quote}));
+    const priorPosts:PriorPost[]=context.rows.slice(0,12).map(r=>({id:r.id,fingerprint:r.fingerprint,opening:r.text.slice(0,210),usedQuote:!!r.used_quote}));
     const draft=await step('write',()=>writePost(complete,{persona:context.persona,style:context.settings.style,winner,repairAttempts:2,
-      runnersUp:judged.data.scored.slice(1,3),memory,priorPosts,samples:pickSamples(context.settings.corpus,context.rows.filter(p=>p.status==='published').map(p=>p.text)),editNotes:context.settings.editNotes}));
+      runnersUp:judged.data.scored.filter(c=>c!==winner).slice(0,2),memory,priorPosts,samples:pickSamples(context.settings.corpus,context.rows.filter(p=>p.status==='published').slice(0,12).map(p=>p.text)),editNotes:context.settings.editNotes}));
     if(!draft.ok)throw new Error(draft.reason);
     const violations=critique(draft.data.text,context.settings.style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote,sourceUrl:winner.url});
     if(violations.length){
@@ -76,7 +103,7 @@ export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,ste
     const seq=await step('save-draft',()=>saveDraft(env.DB,{agentId:payload.agentId,requestId:id,text:draft.data.text.trim(),rationale:draft.data.rationale,
       fingerprint:draft.data.fingerprint,sources:[winner.url],category:winner.category,hashtags:draft.data.hashtags,scores:winner.scores,continuity:draft.data.continuity,
       usedQuote:draft.data.used_quote,slotId:payload.slotId,slotDate:payload.runDate,agentRevision:payload.agentRevision,slotRevision:payload.slotRevision,
-      scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
+      avoidUsedSources:true,scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
     await step('settle',async()=>{
       const now=new Date().toISOString();
       const queries=[env.DB.prepare("UPDATE slot_runs SET post_seq=?,generated_at=?,outcome='drafted',stage='ready' WHERE job_id=? AND post_seq IS NULL").bind(seq,now,id),

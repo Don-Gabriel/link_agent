@@ -17,6 +17,8 @@ export interface DraftInput {
   cleared?:boolean;
   agentRevision?:number;
   slotRevision?:number;
+  /** Generated stories cannot reuse a source saved by a concurrent job. */
+  avoidUsedSources?:boolean;
 }
 
 /** Allocation and insert commit together; retries return the original draft. */
@@ -27,8 +29,10 @@ export async function saveDraft(db: D1Database, draft: DraftInput) {
     OR (? IS NOT NULL AND slot_id=? AND slot_date=?))`;
   const priorArgs = [draft.agentId, draft.requestId, draft.slotId ?? null, draft.slotId ?? null, draft.slotDate ?? null];
   const guard=`(? IS NULL OR EXISTS(SELECT 1 FROM agents WHERE id=? AND revision=? AND active=1 AND paused=0))
-    AND (? IS NULL OR EXISTS(SELECT 1 FROM post_slots WHERE id=? AND agent_id=? AND revision=? AND enabled=1))`;
-  const guardArgs=[draft.agentRevision??null,draft.agentId,draft.agentRevision??null,draft.slotRevision??null,draft.slotId??null,draft.agentId,draft.slotRevision??null];
+    AND (? IS NULL OR EXISTS(SELECT 1 FROM post_slots WHERE id=? AND agent_id=? AND revision=? AND enabled=1))
+    AND (?=0 OR NOT EXISTS(SELECT 1 FROM posts p,json_each(p.sources_json) old,json_each(?) fresh WHERE p.agent_id=? AND old.value=fresh.value))`;
+  const guardArgs=[draft.agentRevision??null,draft.agentId,draft.agentRevision??null,draft.slotRevision??null,draft.slotId??null,draft.agentId,draft.slotRevision??null,
+    draft.avoidUsedSources?1:0,JSON.stringify(draft.sources),draft.agentId];
   const result = await db.batch([
     db.prepare(`INSERT INTO post_counters(agent_id,value)
       SELECT ?,COALESCE(MAX(seq),0)+1 FROM posts WHERE agent_id=? HAVING NOT EXISTS(${prior}) AND ${guard}
