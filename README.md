@@ -2,11 +2,14 @@
 
 ## Download for Android
 
-**[Download ByLine 1.0.4 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
+**[Download ByLine 1.0.5 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
 
 Open this link on your phone, download the APK, then open it to install or update.
 Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
-· [Release verification](reports/ByLine-navigation-discovery-2026-11-07.md)
+· [Release verification](reports/ByLine-timezone-picker-2026-11-07.md)
+
+Timezone selection uses a searchable offline list in setup and Settings → Timetable.
+New accounts default to the device timezone; saved choices can be changed anytime.
 
 First-time sample generation has a [backend fix](reports/ByLine-first-sample-fix-2026-11-07.md)
 for short drafts and misleading availability errors; it works with this APK.

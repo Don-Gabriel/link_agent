@@ -1,9 +1,9 @@
 {
   "name": "ByLine",
-  "versionName": "1.0.4",
-  "versionCode": 5,
+  "versionName": "1.0.5",
+  "versionCode": 6,
   "packageId": "com.linkdin.byline",
-  "builtAtUtc": "2026-11-07T09:55:14.233419+00:00",
+  "builtAtUtc": "2026-11-07T10:45:57.297498+00:00",
   "releaseKind": "cloud",
   "apiOrigin": "https://byline-api.byline-b79.workers.dev",
   "minimumAndroidApi": 24,
@@ -15,8 +15,8 @@
     "armeabi-v7a",
     "x86_64"
   ],
-  "bytes": 56892375,
-  "sha256": "aacd07ceaf89c86f7b7ce4aa7eae528aa57d9e71dac6c602c19310a6446a088d",
+  "bytes": 58268731,
+  "sha256": "45dacd5b159bd2fa1883740e765492b7fd1c34ee7ccbae2ff4fc81429e6f74ca",
   "signingCertificateSha256": "fcfc5a0a6d34abe8ada3e525f1f5f758a4560b9fa58261f218a0fca3ac61773c",
   "signatureScheme": "APK Signature Scheme v2",
   "flutter": "3.44.1",
@@ -25,5 +25,5 @@
   "sourceInventory": "../../docs/repository-inventory.json",
   "download": "https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk",
   "phoneInstalledDuringThisBuild": false,
-  "note": "Auto-dismiss action notices after six seconds; navigation always returns to the top. 184 Flutter tests passed. Same private release signing key preserved. No phone installation performed."
+  "note": "Searchable offline timezone picker with 597 IANA zones and aliases in setup and timetable settings. Device-local defaults for new accounts; saved choices preserved. 197 Flutter tests passed. Existing release signing key preserved; no phone installation performed."
 }

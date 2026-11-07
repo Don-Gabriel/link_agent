@@ -14,6 +14,8 @@ import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/form_select.dart';
+import '../widgets/timezone_picker.dart';
+import '../timezones.dart';
 import '../widgets/primitives.dart';
 import 'settings_screen.dart';
 
@@ -142,7 +144,8 @@ class TimetableScreen extends StatelessWidget {
           label: 'Timezone',
           // Every posting time is read in this zone, so changing it moves the
           // whole timetable — the server reschedules each slot on the way.
-          value: agent.timezone,
+          value:
+              '${Timezones.label(agent.timezone)} · ${Timezones.offset(agent.timezone)}',
           onTap: state.loading ? null : () => _editTimezone(context, agent),
         ),
         const Divider(),
@@ -235,31 +238,8 @@ class TimetableScreen extends StatelessWidget {
   Future<void> _editTimezone(BuildContext context, Agent agent) async {
     final state = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
-    final controller = TextEditingController(text: agent.timezone);
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Timezone'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Asia/Kolkata'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (value == null || value.isEmpty) return;
-    // An unrecognised zone is not rejected — lib/schedule.ts falls back to UTC
-    // and logs, so a typo shows up as a wrong next-run time rather than a crash.
+    final value = await showTimezonePicker(context, value: agent.timezone);
+    if (!context.mounted || value == null || value == agent.timezone) return;
     final error = await state.setTimezone(value);
     if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
   }

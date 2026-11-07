@@ -21,7 +21,14 @@ GitHub repository access is required if the repository is private.
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
 
-Version **1.0.4 (build 5)** dismisses action popups after six seconds and resets
+Version **1.0.5 (build 6)** replaces timezone typing with a searchable list of
+597 IANA timezones in initial setup and **Me → Timetable → Timezone**. Search by
+city, region or UTC offset, or choose **Use device timezone**. Tap **Apply** to
+save the selection. New setups default to the phone's timezone; saved choices
+are preserved. The list and current UTC offsets work offline and account for
+daylight saving. [Timezone verification](../../reports/ByLine-timezone-picker-2026-11-07.md).
+
+This release includes the **1.0.4** changes that dismiss action popups after six seconds and reset
 Home, My posts and Me to the top whenever selected, including tapping the current
 tab. Both the drafts and archive lists reset when entering My posts. The cloud
 backend also rotates qualifying categories, expands source searches and avoids

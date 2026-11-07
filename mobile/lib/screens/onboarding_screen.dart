@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
+import '../timezones.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/client.dart';
@@ -36,6 +36,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   final _topic = TextEditingController();
   final _zone = TextEditingController();
   int _step = 0;
+  Future<void>? _localZoneReady;
+  bool _zoneChosen = false;
   bool _busy = false;
   String? _error;
   Timer? _poll;
@@ -75,16 +77,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       _step = 1;
     }
     if (_data['revision'] == 0) {
-      FlutterTimezone.getLocalTimezone()
-          .then((v) {
-            if (mounted) {
-              setState(() {
-                _zone.text = v.identifier;
-                _config['timezone'] = v.identifier;
-              });
-            }
-          })
-          .catchError((_) {});
+      _localZoneReady = Timezones.device().then((zone) {
+        if (mounted && !_zoneChosen && zone != null) {
+          setState(() {
+            _zone.text = zone;
+            _config['timezone'] = zone;
+          });
+        }
+      });
     }
   }
 
@@ -203,6 +203,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _voiceContinue() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await _localZoneReady;
+    if (!mounted) return;
     _config['voiceNotes'] = _voiceNotes.text.trim();
     _config['samples'] = _samples
         .map((s) => s.text.trim())
@@ -651,7 +655,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       : (v) => setState(() => _config['time'] = v),
                 ),
                 const SizedBox(height: 24),
-                ZoneField(controller: _zone, enabled: !_busy),
+                ZoneField(
+                  controller: _zone,
+                  enabled: !_busy,
+                  onChanged: (_) => _zoneChosen = true,
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'Multiple posting slots remain available in Settings after setup.',

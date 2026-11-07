@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
+export 'timezone_picker.dart' show ZoneField;
 
 /// Keeps forms readable on a monitor without restricting phone layouts.
 class ReadingWidth extends StatelessWidget {
@@ -111,99 +112,6 @@ class TimeChoice extends StatelessWidget {
       ],
     );
   }
-}
-
-class ZoneField extends StatefulWidget {
-  const ZoneField({super.key, required this.controller, this.enabled = true});
-  final TextEditingController controller;
-  final bool enabled;
-  @override
-  State<ZoneField> createState() => _ZoneFieldState();
-}
-
-class _ZoneFieldState extends State<ZoneField> {
-  final _focus = FocusNode();
-  static const _zones = [
-    'Asia/Kolkata',
-    'Asia/Dubai',
-    'Asia/Singapore',
-    'Asia/Tokyo',
-    'Europe/London',
-    'Europe/Paris',
-    'Europe/Berlin',
-    'America/New_York',
-    'America/Chicago',
-    'America/Denver',
-    'America/Los_Angeles',
-    'America/Toronto',
-    'America/Sao_Paulo',
-    'Australia/Sydney',
-    'Pacific/Auckland',
-    'Africa/Johannesburg',
-    'UTC',
-  ];
-  @override
-  void dispose() {
-    _focus.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => RawAutocomplete<String>(
-      textEditingController: widget.controller,
-      focusNode: _focus,
-      optionsBuilder: (v) => _zones.where(
-        (z) => z.toLowerCase().contains(v.text.toLowerCase().trim()),
-      ),
-      onSelected: (v) => widget.controller.text = v,
-      fieldViewBuilder: (context, controller, focus, submit) => TextField(
-        controller: controller,
-        focusNode: focus,
-        enabled: widget.enabled,
-        decoration: InputDecoration(
-          labelText: 'Timezone',
-          helperText: 'Search a city or type any IANA timezone.',
-          helperMaxLines: 2,
-          suffixIcon: IconButton(
-            tooltip: 'Search timezones',
-            onPressed: widget.enabled
-                ? () {
-                    _focus.requestFocus();
-                    widget.controller.selection = TextSelection(
-                      baseOffset: 0,
-                      extentOffset: widget.controller.text.length,
-                    );
-                  }
-                : null,
-            icon: const Icon(Icons.keyboard_arrow_down),
-          ),
-        ),
-      ),
-      optionsViewBuilder: (context, select, options) => Align(
-        alignment: Alignment.topLeft,
-        child: Material(
-          elevation: 4,
-          borderRadius: BorderRadius.circular(8),
-          color: C.ink2,
-          child: SizedBox(
-            width: constraints.maxWidth,
-            height: (options.length * 52.0).clamp(52, 240),
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                for (final option in options)
-                  ListTile(
-                    title: Text(option, style: T.body),
-                    onTap: () => select(option),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 class SetupFrame extends StatelessWidget {
