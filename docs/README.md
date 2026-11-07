@@ -6,7 +6,8 @@
 - [Machine-readable file inventory and SHA-256 hashes](repository-inventory.json)
 - [PDF coverage and checksum](handbook-build.json)
 - [Download and install the Android app](../releases/android/README.md)
-- [Current verification evidence](../reports/ByLine-release-verification-2026-11-07.md)
+- [Current authentication/setup verification](../reports/ByLine-auth-onboarding-fix-2026-11-07.md)
+- [Earlier complete release verification](../reports/ByLine-release-verification-2026-11-07.md)
 
 The PDF includes the architecture, technology usage, accounts, onboarding, discovery,
 AI, scheduling, publication, notifications, data model, API, configuration,

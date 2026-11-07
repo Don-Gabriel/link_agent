@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../state/app_state.dart';
 import '../api/client.dart';
 import '../auth_return.dart';
+import '../auth_browser.dart';
 import 'gate_screen.dart';
 import '../theme.dart';
 import '../widgets/experience.dart';
@@ -76,6 +76,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 })
                 as Map,
       );
+      if (!mounted || attempt != _attempt) return;
       if (result['url'] != null) {
         if (pending == null) {
           await state.api.savePendingSignIn({
@@ -86,11 +87,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           });
         }
         if (pending == null &&
-            !await launchUrl(
-              Uri.parse(result['url'] as String),
-              mode: LaunchMode.externalApplication,
-            )) {
-          throw Exception('Could not open sign-in.');
+            !await openAuthBrowser(Uri.parse(result['url'] as String))) {
+          await state.api.clearPendingSignIn();
+          throw Exception(
+            'No browser could open sign-in. Enable a web browser on this phone and try again.',
+          );
         }
         final id = result['id'];
         final deadline = DateTime.fromMillisecondsSinceEpoch(
@@ -118,6 +119,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           if (result['token'] != null) break;
         }
       }
+      if (!mounted || attempt != _attempt) return;
       if (result['token'] is! String) {
         await state.api.clearPendingSignIn();
         throw Exception('Sign-in expired. Please try again.');
@@ -126,13 +128,23 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       await state.api.saveNativeSession(result['token'] as String);
       await state.bootstrap();
     } catch (e) {
+      if (!mounted || attempt != _attempt) return;
       if (e is ApiException && e.error == 'sign_in_failed') {
         await state.api.clearPendingSignIn();
       }
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted && attempt == _attempt) {
+        setState(() => _error = e.toString());
+      }
     } finally {
       if (mounted && attempt == _attempt) setState(() => _busy = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _attempt++;
+    cancelDesktopAuthReturn();
+    super.dispose();
   }
 
   @override

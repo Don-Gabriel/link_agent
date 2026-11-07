@@ -37,6 +37,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "byline/auth_browser")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "open") {
+                    result.success(AuthBrowser.open(this, call.argument<String>("url")))
+                } else result.notImplemented()
+            }
         notifications = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "byline/notifications").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {

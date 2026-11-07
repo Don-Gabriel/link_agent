@@ -4,6 +4,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/client.dart';
+import '../auth_browser.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../push.dart';
@@ -25,7 +26,8 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with WidgetsBindingObserver {
   late Map<String, dynamic> _data;
   late Map<String, dynamic> _config;
   final _samples = List.generate(3, (_) => TextEditingController());
@@ -37,6 +39,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _busy = false;
   String? _error;
   Timer? _poll;
+  bool _checkingConnection = false;
+  DateTime? _connectionDeadline;
   bool get _test => _data['testMode'] == true;
   bool get _connected =>
       (_data['account'] as Map?)?['connected'] == true &&
@@ -53,6 +57,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _data = widget.initial;
     _config = Map<String, dynamic>.from(_data['config'] as Map);
     final samples = List<String>.from(_config['samples'] as List);
@@ -85,6 +90,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _voiceNotes.dispose();
     _bannedPhrases.dispose();
@@ -123,7 +129,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _connect() async {
-    final api = context.read<AppState>().api;
     setState(() {
       _busy = true;
       _error = null;
@@ -135,31 +140,65 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Could not start LinkedIn connection. Please try again.',
         );
       }
-      if (!await launchUrl(
-        Uri.parse(url),
-        mode: LaunchMode.externalApplication,
-      )) {
-        throw Exception('Could not open LinkedIn.');
+      if (!await openAuthBrowser(Uri.parse(url))) {
+        throw Exception(
+          'No browser could open sign-in. Enable a web browser on this phone and try again.',
+        );
       }
+      if (!mounted) return;
       _poll?.cancel();
-      var ticks = 0;
-      _poll = Timer.periodic(const Duration(seconds: 3), (_) async {
-        if (!mounted || ++ticks > 200) {
-          _poll?.cancel();
-          return;
-        }
-        try {
-          final d = await api.get('/api/onboarding');
-          if (mounted) {
-            setState(() => _data = Map<String, dynamic>.from(d as Map));
-            if (_connected) _poll?.cancel();
-          }
-        } catch (_) {}
-      });
+      _connectionDeadline = DateTime.now().add(const Duration(minutes: 10));
+      _poll = Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => _refreshConnection(),
+      );
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_connected) {
+      _refreshConnection();
+    }
+  }
+
+  Future<void> _refreshConnection() async {
+    if (!mounted || _checkingConnection || _busy) return;
+    _checkingConnection = true;
+    try {
+      final value = await context.read<AppState>().api.get('/api/onboarding');
+      if (!mounted) return;
+      // A late connection check must not roll back a concurrently saved setup.
+      setState(() => _data = {..._data, 'account': (value as Map)['account']});
+      if (_connected) {
+        _poll?.cancel();
+        _connectionDeadline = null;
+        setState(() => _error = null);
+      } else if (_connectionDeadline?.isBefore(DateTime.now()) == true) {
+        _poll?.cancel();
+        _connectionDeadline = null;
+        setState(
+          () => _error =
+              'LinkedIn connection expired. Tap Connect LinkedIn to try again.',
+        );
+      }
+    } catch (_) {
+      // A backgrounded Android browser flow can temporarily suspend networking.
+      // Keep the connection attempt available for the next poll or resume.
+      if (_connectionDeadline?.isBefore(DateTime.now()) == true && mounted) {
+        _poll?.cancel();
+        _connectionDeadline = null;
+        setState(
+          () => _error =
+              'Could not confirm the connection. Check your internet connection and try again.',
+        );
+      }
+    } finally {
+      _checkingConnection = false;
     }
   }
 

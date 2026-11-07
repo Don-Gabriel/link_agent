@@ -138,10 +138,10 @@
       "path": "README.md",
       "purpose": "Repository overview, current download/documentation links and original setup reference.",
       "derived": false,
-      "bytes": 10269,
-      "sha256": "42b7137ddec56618f62bd4999e293b0ec433ad91028e399df2f20d9a3e8614a6",
+      "bytes": 10289,
+      "sha256": "69d73cf1da070adbcfe5531897c2494c1cc32cc932c5b5e8ff169776e61f40c3",
       "lines": 214,
-      "lf_sha256": "53aad02b76b0eb9b0a2f1681639d3f9fa7d9c21bb0341670c3cd8271a43100b0",
+      "lf_sha256": "587320fedfb41450b6b0cfd23bb54b59006fc1dc46265e9425e52499a188fbdb",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -1659,10 +1659,10 @@
       "path": "docs/README.md",
       "purpose": "Documentation entry point and reproducible PDF generation instructions.",
       "derived": false,
-      "bytes": 2213,
-      "sha256": "3f3217d6dcaf7bb4dd4008d446f55fcd75d9fdeb6a0f984e08d21c62674ccfa0",
-      "lines": 39,
-      "lf_sha256": "51a323b62b0c087fd3cf2d275f7c5841b4f936673b716b28f7d2ed6b98d42aa1",
+      "bytes": 2321,
+      "sha256": "c6fc79072c0ca32186dcef9171c96846e05cdaf16121238c421967653245c63c",
+      "lines": 40,
+      "lf_sha256": "d3462a0793042ffd972a3eb851d8618a33afe4df771a69da00108212eeb0ef79",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -1681,10 +1681,10 @@
       "path": "docs/handbook.md",
       "purpose": "Authored architecture, user/developer/operator manual and implementation explanations for the PDF.",
       "derived": false,
-      "bytes": 55224,
-      "sha256": "5508e8c0959de51be459c1adae7a9573ed3e31f21c2700b8669bd22996c3524c",
-      "lines": 287,
-      "lf_sha256": "9a2323cb16cf1a18b771d3dd3d00f576b5ba0697a9ee13c486e65e1e95a896f3",
+      "bytes": 56642,
+      "sha256": "a1464d873ebb8f159e87d37ea7d836b587364a71a81bc8850aacbe890e1c0ae7",
+      "lines": 291,
+      "lf_sha256": "9dc8261207db5fe4c36323284d42df8d77a837ba0bf8df15d0626826e5211d83",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -2968,10 +2968,10 @@
       "path": "mobile/android/.gitignore",
       "purpose": "Git exclusion rules for generated, private or local-only files in this directory scope.",
       "derived": false,
-      "bytes": 267,
-      "sha256": "c9af75dbc2c8aa867476a09426c80b178c4aeed8b9393ae48503eedfa3273d71",
-      "lines": 14,
-      "lf_sha256": "b027c9de1011765c015e5819bf857c0d75bfcd0886fb01721c091159012e50f1",
+      "bytes": 278,
+      "sha256": "48ee6d771aa3bb518973dbf247fc9b2ff8cbadfcc06a3f9132b807e3f1df3020",
+      "lines": 15,
+      "lf_sha256": "a87983166f2ae1b7b155092a5607083c692148e689c767adab542bea730bd66b",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -2980,10 +2980,10 @@
       "path": "mobile/android/app/build.gradle.kts",
       "purpose": "Android package variants, Dart-define routing, Firebase input, SDK defaults and release signing.",
       "derived": false,
-      "bytes": 3555,
-      "sha256": "2c7b148f8e76393dd1579ee698257e6741aca7ecce39a09a002028f54ca0ecef",
-      "lines": 87,
-      "lf_sha256": "d60171093aa683fa5b2b40940ad1cbb39fd0861c6b80ac50b5b881dd0ce93ae5",
+      "bytes": 4238,
+      "sha256": "fdc7a77fe8c2034d754aaea12e7a69949e2e9dc5a2cbe26ee0561752acb9c7fa",
+      "lines": 102,
+      "lf_sha256": "adec3362e2c9ba981a33dddb26c676e2cb234eb20fcdf560a22dddc8d6a72266",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -3016,22 +3016,34 @@
       "path": "mobile/android/app/src/main/AndroidManifest.xml",
       "purpose": "Android permissions, application/activity identity, OAuth intent and notification metadata.",
       "derived": false,
-      "bytes": 3844,
-      "sha256": "ccc44d063a86e685264c69fa01e4c5e5fdcc8faac58c778dda774b8ddebb9922",
-      "lines": 71,
-      "lf_sha256": "a30f4ee967dbc4116c5d1743037421d0ee10caa36f8d541e5d8c29aaf613fd93",
+      "bytes": 4160,
+      "sha256": "b0c32715cd968aa445a0f3f1db279eb2981c3b225355dd01ebf5004a9b616a08",
+      "lines": 77,
+      "lf_sha256": "c9336b531cc93c94cc4fd7830e40e07088b3201a1366707d2da7eb000bc8c8c2",
+      "symbols": [],
+      "imports": [],
+      "tests": []
+    },
+    {
+      "path": "mobile/android/app/src/main/kotlin/com/linkdin/linkdin_mobile/AuthBrowser.kt",
+      "purpose": "Finds general HTTP/HTTPS browsers using public intent filters and explicitly targets OAuth to a browser, excluding provider app links.",
+      "derived": false,
+      "bytes": 2612,
+      "sha256": "a4c28d1aed1778c4b488916fef3ddf2ae0124da54fff230f088425650ceadec7",
+      "lines": 52,
+      "lf_sha256": "a4c28d1aed1778c4b488916fef3ddf2ae0124da54fff230f088425650ceadec7",
       "symbols": [],
       "imports": [],
       "tests": []
     },
     {
       "path": "mobile/android/app/src/main/kotlin/com/linkdin/linkdin_mobile/MainActivity.kt",
-      "purpose": "Android Flutter host and native notification channel/platform integration.",
+      "purpose": "Android Flutter host, native browser-only OAuth bridge and notification channel/platform integration.",
       "derived": false,
-      "bytes": 6722,
-      "sha256": "89a8d324ad3ada38b3eca59de78088c27820150e869b8c49b8546f233f5ba2fd",
-      "lines": 132,
-      "lf_sha256": "96fbe3b001008e7f63a151cba94f5e937870217df25152552511daf4ae273577",
+      "bytes": 7064,
+      "sha256": "7dfa7a2ef6e10074d6a189f83b5c45e2ef24c13a05346d54e4985b9b3a1f4cf8",
+      "lines": 138,
+      "lf_sha256": "02e795a9432368c428befaef4054c7aef5ebef26bb0587e393f41a7d04b160a2",
       "symbols": [
         "MainActivity"
       ],
@@ -3142,6 +3154,20 @@
       "lines": 7,
       "lf_sha256": "30b0832ed8b92dfbd6ae2abfa939ccf26333d37600056b1572bd4a397a18a74b",
       "symbols": [],
+      "imports": [],
+      "tests": []
+    },
+    {
+      "path": "mobile/android/app/src/test/kotlin/com/linkdin/linkdin_mobile/AuthBrowserTest.kt",
+      "purpose": "Robolectric Android API 24/35 regression tests: provider-app interception, browser choices, missing browsers and invalid links.",
+      "derived": false,
+      "bytes": 3869,
+      "sha256": "b3b41188f72561c2f0be36b366e92634e197da80b51a1a7de378340d1de4ca6e",
+      "lines": 81,
+      "lf_sha256": "b3b41188f72561c2f0be36b366e92634e197da80b51a1a7de378340d1de4ca6e",
+      "symbols": [
+        "AuthBrowserTest"
+      ],
       "imports": [],
       "tests": []
     },
@@ -3331,6 +3357,22 @@
       ],
       "imports": [
         "nothing has been running since Tuesday"
+      ],
+      "tests": []
+    },
+    {
+      "path": "mobile/lib/auth_browser.dart",
+      "purpose": "Shared OAuth launcher: HTTPS validation, browser-only Android bridge and external-browser fallback on other platforms.",
+      "derived": false,
+      "bytes": 926,
+      "sha256": "25843e749e79f3c6d80b638e4a3b195d0002f6c063a3c2d8e25e1996499db279",
+      "lines": 25,
+      "lf_sha256": "25843e749e79f3c6d80b638e4a3b195d0002f6c063a3c2d8e25e1996499db279",
+      "symbols": [],
+      "imports": [
+        "package:flutter/foundation.dart",
+        "package:flutter/services.dart",
+        "package:url_launcher/url_launcher.dart"
       ],
       "tests": []
     },
@@ -3676,10 +3718,10 @@
       "path": "mobile/lib/screens/onboarding_screen.dart",
       "purpose": "Resumable first-run subject, voice, sample acceptance and delivery setup.",
       "derived": false,
-      "bytes": 24982,
-      "sha256": "29d4e46b7b9c4d1d2412f186506ce5424ba9676e77b273ef847586ddbcce4009",
-      "lines": 657,
-      "lf_sha256": "1e8e3aaf1e6b33ff6ded3424d0184919ad944af129e7723ad4f1c9ad2f443714",
+      "bytes": 26520,
+      "sha256": "495f1c5639bb84377a6d4749198bb863cad4a2b44aec7dd9d4f928a8e5feb3f1",
+      "lines": 696,
+      "lf_sha256": "6fb9b64cc40b1d6deb07c1c1dfa1e81bd4dc1d5d76a6d339fadaa0ac6b62dfa9",
       "symbols": [
         "OnboardingScreen",
         "_OnboardingScreenState"
@@ -3687,6 +3729,7 @@
       "imports": [
         "../api/client.dart",
         "../api/models.dart",
+        "../auth_browser.dart",
         "../push.dart",
         "../state/app_state.dart",
         "../theme.dart",
@@ -3706,10 +3749,10 @@
       "path": "mobile/lib/screens/settings_screen.dart",
       "purpose": "Account/settings navigation, connection health, pause and operational controls.",
       "derived": false,
-      "bytes": 20305,
-      "sha256": "b0480f340177707aa9c1b04cfbf42835734ff97923140bb580e462ec7784670b",
-      "lines": 569,
-      "lf_sha256": "ac2e18183952e845d427fe31de880fe0e8667e4c62a1f625131280bd15de44f8",
+      "bytes": 20233,
+      "sha256": "3f1ef43e121d6123a4e38bbe354238ff55052d8d0be2a7df3a3aa75e43e96eeb",
+      "lines": 566,
+      "lf_sha256": "1c84149438413eb574a18bb6cc0305e391fee569ddd1822f20279d5f7a600335",
       "symbols": [
         "SettingsPage",
         "_SettingsPageState",
@@ -3721,6 +3764,7 @@
       ],
       "imports": [
         "../api/models.dart",
+        "../auth_browser.dart",
         "../state/app_state.dart",
         "../theme.dart",
         "../widgets/experience.dart",
@@ -3732,7 +3776,6 @@
         "delivery_settings_screen.dart",
         "package:flutter/material.dart",
         "package:provider/provider.dart",
-        "package:url_launcher/url_launcher.dart",
         "timetable_screen.dart",
         "voice_screen.dart"
       ],
@@ -3834,10 +3877,10 @@
       "path": "mobile/lib/screens/welcome_screen.dart",
       "purpose": "Social sign-in, provider capabilities, secure pending-flow resume and browser return.",
       "derived": false,
-      "bytes": 11292,
-      "sha256": "89718ee25488c517964e3cf83a7b50f6ce252bb04d3ab2ff398e3fdc3d29ab29",
-      "lines": 309,
-      "lf_sha256": "d016bfee44833d37b033da89d7e606d1153aaccac3145ee26f6f8db0a74b0b69",
+      "bytes": 11639,
+      "sha256": "e98a87050a4c48ac970c4e34ce96112670b581f280a7519fed3a04672e23793f",
+      "lines": 321,
+      "lf_sha256": "3411fc453973281f998b3fae1b25b8eb290d95cbccc584b3f24e033319d58a5b",
       "symbols": [
         "WelcomeScreen",
         "_WelcomeScreenState",
@@ -3845,6 +3888,7 @@
       ],
       "imports": [
         "../api/client.dart",
+        "../auth_browser.dart",
         "../auth_return.dart",
         "../state/app_state.dart",
         "../theme.dart",
@@ -3855,8 +3899,7 @@
         "dart:math",
         "gate_screen.dart",
         "package:flutter/material.dart",
-        "package:provider/provider.dart",
-        "package:url_launcher/url_launcher.dart"
+        "package:provider/provider.dart"
       ],
       "tests": []
     },
@@ -4173,9 +4216,9 @@
       "purpose": "Flutter package metadata, version, Dart constraint, direct plugins, font and asset declarations.",
       "derived": false,
       "bytes": 6833,
-      "sha256": "f3721aeebae92d26228aa71c02dcfac906709f7231c3ca8196805452a14f28b7",
+      "sha256": "b608a21e5b0ce98ef9973346a5e8b0da67306125224b0e935d0a9bf386d89420",
       "lines": 150,
-      "lf_sha256": "3f2d4f3db0a9c212459eb496087a39444e877f4e20369fca862e8a5e4379b830",
+      "lf_sha256": "6f9509bd4eaabfcce75ffef8a794d7b28f8a7860a506579ea975bf724fcd8b5f",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -4284,6 +4327,27 @@
       ]
     },
     {
+      "path": "mobile/test/auth_browser_test.dart",
+      "purpose": "Flutter widget/transport regression suite: auth browser. Exact test titles and assertions appear below.",
+      "derived": false,
+      "bytes": 2276,
+      "sha256": "3e8f41b907b36c2cffa943be9486836537247a58e247a878bda3e7d4c044e2bd",
+      "lines": 66,
+      "lf_sha256": "3e8f41b907b36c2cffa943be9486836537247a58e247a878bda3e7d4c044e2bd",
+      "symbols": [],
+      "imports": [
+        "package:flutter/foundation.dart",
+        "package:flutter/services.dart",
+        "package:flutter_test/flutter_test.dart",
+        "package:linkdin_mobile/auth_browser.dart"
+      ],
+      "tests": [
+        "Android sends the complete OAuth URL to the browser-only bridge",
+        "rejects non-HTTPS, credentials and hostless links without launching",
+        "missing browser or platform failure cannot fall back to provider app"
+      ]
+    },
+    {
       "path": "mobile/test/auth_return_test.dart",
       "purpose": "Flutter widget/transport regression suite: auth return. Exact test titles and assertions appear below.",
       "derived": false,
@@ -4368,6 +4432,38 @@
         "desktop dropdown works with keyboard arrows and Enter",
         "draft badge belongs to My posts on phone and desktop",
         "selected navigation survives desktop-to-phone resize"
+      ]
+    },
+    {
+      "path": "mobile/test/first_run_test.dart",
+      "purpose": "Flutter widget/transport regression suite: first run. Exact test titles and assertions appear below.",
+      "derived": false,
+      "bytes": 10817,
+      "sha256": "ea3f98193829b12649b2732a830469880f8fc4afc083f7ab2278e10151e69cad",
+      "lines": 294,
+      "lf_sha256": "ea3f98193829b12649b2732a830469880f8fc4afc083f7ab2278e10151e69cad",
+      "symbols": [],
+      "imports": [
+        "dart:async",
+        "dart:convert",
+        "onboarding_test.dart",
+        "package:flutter/material.dart",
+        "package:flutter/services.dart",
+        "package:flutter_test/flutter_test.dart",
+        "package:http/http.dart",
+        "package:http/testing.dart",
+        "package:linkdin_mobile/api/client.dart",
+        "package:linkdin_mobile/screens/onboarding_screen.dart",
+        "package:linkdin_mobile/screens/welcome_screen.dart",
+        "package:linkdin_mobile/state/app_state.dart",
+        "package:provider/provider.dart",
+        "package:shared_preferences/shared_preferences.dart",
+        "screens_test.dart"
+      ],
+      "tests": [
+        "fresh LinkedIn sign-in with browser available=$canOpen",
+        "fresh setup completes with ${defaultVoice ? ",
+        "LinkedIn connection survives a network interruption and refreshes on resume without overlapping requests"
       ]
     },
     {
@@ -4929,10 +5025,10 @@
       "path": "releases/android/README.md",
       "purpose": "Phone download/install/update instructions and release provenance.",
       "derived": false,
-      "bytes": 2828,
-      "sha256": "dc6713c7d6f569a83d38783ba460fee3657189f3f59fe19cd13e43df7250e821",
-      "lines": 53,
-      "lf_sha256": "dc6713c7d6f569a83d38783ba460fee3657189f3f59fe19cd13e43df7250e821",
+      "bytes": 3501,
+      "sha256": "02a148e62b3d1728d3b6c085da767b1ad8a43c6fd1aad49acbbfc608161553bc",
+      "lines": 62,
+      "lf_sha256": "02a148e62b3d1728d3b6c085da767b1ad8a43c6fd1aad49acbbfc608161553bc",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -4941,10 +5037,10 @@
       "path": "releases/android/SHA256SUMS",
       "purpose": "SHA-256 verification line for the exact downloadable APK.",
       "derived": false,
-      "bytes": 84,
-      "sha256": "d88b6f53253958e3108636aaba6ec4ae20a9ad0f044e58467074cc702b2ee131",
+      "bytes": 85,
+      "sha256": "e5869228c683b165096a1b7e468ea0c36c28c77f3f54359ab565bc7cd70fe1ba",
       "lines": 1,
-      "lf_sha256": "d88b6f53253958e3108636aaba6ec4ae20a9ad0f044e58467074cc702b2ee131",
+      "lf_sha256": "f5d1770de30cda1cd31b8278b67f52e7c253756a4b4bcce976d0f512fcbd07d7",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -4953,17 +5049,17 @@
       "path": "releases/android/byline-latest.apk",
       "purpose": "Signed universal Android cloud release ready for phone download and installation.",
       "derived": false,
-      "bytes": 56892335,
-      "sha256": "8f0b84d52aaad072c4751128bfb3ba98c87766fd8a9b0385bf8654591769c831"
+      "bytes": 56892379,
+      "sha256": "9ab71a961f1cd3ffbb58a6256d380b0abe34d1696d842fe4c540391b80e3e823"
     },
     {
       "path": "releases/android/release.json",
       "purpose": "Verified downloadable APK version, identity, SDK, ABI, signing and checksum metadata.",
       "derived": false,
-      "bytes": 1210,
-      "sha256": "cd76718b1b588eca2710709ea3ee0c345d3cfc00dcfeea240a03443db415a9dc",
+      "bytes": 1325,
+      "sha256": "17f0a2eb13deb63736b31aff8d1ab1d31875f1531782fb245f50418a9d959d40",
       "lines": 29,
-      "lf_sha256": "a60e3cca071892e0affefaf7c9f90a9b2a75572012cba1f990e9f69d455c209b",
+      "lf_sha256": "2cda8c2dd10f81c1a81e7c3daabe7ee5513947f10a2d24a0b67a459347919328",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -4988,6 +5084,18 @@
       "sha256": "06ac29ddd6666f30a37f23be90e828e160904f20cdc8178c34e1bb060552da27",
       "lines": 31,
       "lf_sha256": "c2e7796f0e84ddc4da2d86ee388cf6c38fd70547f95b7eff4d359c4af1587466",
+      "symbols": [],
+      "imports": [],
+      "tests": []
+    },
+    {
+      "path": "reports/ByLine-auth-onboarding-fix-2026-11-07.md",
+      "purpose": "Dated project evidence, plan or verification record: auth onboarding fix 2026 11 07. Historical claims retain their original date.",
+      "derived": false,
+      "bytes": 6269,
+      "sha256": "bf2f2049a54ef0d6c8827d7222cbedb6b473719caae958e7c6a4b80b9fb30f0a",
+      "lines": 102,
+      "lf_sha256": "bf2f2049a54ef0d6c8827d7222cbedb6b473719caae958e7c6a4b80b9fb30f0a",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -5410,10 +5518,10 @@
       "path": "scripts/build-handbook.py",
       "purpose": "Rebuilds PDF, exhaustive file/source/dependency reference and hash inventory from publishable Git files.",
       "derived": false,
-      "bytes": 47000,
-      "sha256": "14c7ed0e564e3d4eb9645374360e03f360e003c7633d10238cbd4aa58d863369",
-      "lines": 568,
-      "lf_sha256": "14c7ed0e564e3d4eb9645374360e03f360e003c7633d10238cbd4aa58d863369",
+      "bytes": 47626,
+      "sha256": "dd870034356e684a66b5be542230f5c6a6b67684ad04492a7f49582a570174c9",
+      "lines": 570,
+      "lf_sha256": "dd870034356e684a66b5be542230f5c6a6b67684ad04492a7f49582a570174c9",
       "symbols": [
         "Handbook"
       ],

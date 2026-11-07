@@ -8,7 +8,7 @@
 The downloadable Android release uses the dedicated [Cloudflare backend](cloud/README.md)
 and works without the development computer. The original Next.js/PostgreSQL web
 deployment described below remains a separate runtime. See the
-[current verification report](reports/ByLine-release-verification-2026-11-07.md)
+[current authentication/setup verification report](reports/ByLine-auth-onboarding-fix-2026-11-07.md)
 and [APK metadata/checksum](releases/android/release.json) for this repository snapshot.
 
 A writing workspace for LinkedIn: discover relevant stories, prepare posts in

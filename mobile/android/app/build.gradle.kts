@@ -74,6 +74,21 @@ android {
             signingConfig = signingConfigs.getByName(if (cloudClient) "bylineRelease" else "debug")
         }
     }
+    testOptions {
+        unitTests.all {
+            // Robolectric's native loader misreads URL-escaped spaces in the
+            // Windows user-home Maven cache. Keep its SDK jars with build output.
+            it.systemProperty("maven.repo.local", rootProject.layout.buildDirectory.dir("robolectric-m2").get().asFile.absolutePath)
+            it.jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED")
+        }
+    }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
 }
 
 kotlin {

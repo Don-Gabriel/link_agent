@@ -10,14 +10,23 @@ GitHub repository access is required if the repository is private.
 2. Open it from Downloads/Files. If prompted, allow that browser or file manager to
    **install unknown apps**, then tap **Install** and **Open**. Device policies and
    Android verification requirements may add prompts or restrictions.
-3. Sign in with an available provider in the system browser and return to ByLine.
-4. Choose subjects and optional voice preferences, generate and accept a sample,
-   connect LinkedIn, and choose your posting time and timezone.
+3. Sign in with an available provider in a web browser. If asked, choose Chrome,
+   Firefox or another browser. Finish LinkedIn login and approve ByLine's consent;
+   select **Return to ByLine** on the completion page if it remains open.
+4. If you signed in with Google, connect LinkedIn first. Choose subjects and optional
+   voice preferences, generate and accept a sample, then choose your posting time and timezone.
 5. Allow notifications if wanted. Review drafts in **Home** and **My posts**.
    Automatic publishing starts off; the first recurring slot is tomorrow in your timezone.
 
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
+
+Version **1.0.3 (build 4)** fixes Android sending the initial LinkedIn OAuth link to
+the LinkedIn app before consent. Sign-in and reconnection explicitly select a browser.
+Returning to setup refreshes connection status immediately. If no browser is enabled,
+ByLine shows a retryable error. Installing this APK over the previous signed cloud
+release preserves app data. If an old sign-in is still waiting, tap **Cancel** and
+start **Continue with LinkedIn** again after updating.
 
 See [release.json](release.json) for the exact version, SDK/architecture requirements,
 signing certificate and SHA-256. [SHA256SUMS](SHA256SUMS) verifies the download:

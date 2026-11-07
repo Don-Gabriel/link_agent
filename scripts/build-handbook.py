@@ -256,13 +256,16 @@ def purpose(path):
         'mobile/lib/api/models.dart': 'Dart JSON response models used by app state and screens.',
         'mobile/lib/state/app_state.dart': 'Observable account/status state, refresh, preparation and cross-screen navigation commands.',
         'mobile/lib/auth_return.dart': 'Desktop loopback sign-in return listener and cancellation.',
+        'mobile/lib/auth_browser.dart': 'Shared OAuth launcher: HTTPS validation, browser-only Android bridge and external-browser fallback on other platforms.',
+        'mobile/android/app/src/main/kotlin/com/linkdin/linkdin_mobile/AuthBrowser.kt': 'Finds general HTTP/HTTPS browsers using public intent filters and explicitly targets OAuth to a browser, excluding provider app links.',
+        'mobile/android/app/src/test/kotlin/com/linkdin/linkdin_mobile/AuthBrowserTest.kt': 'Robolectric Android API 24/35 regression tests: provider-app interception, browser choices, missing browsers and invalid links.',
         'mobile/lib/android_notifications.dart': 'Android notification platform-channel helpers and payload handling.',
         'mobile/lib/desktop_notifications.dart': 'Desktop notification capability/handling abstraction.',
         'mobile/lib/push.dart': 'Firebase token registration, permission, foreground/background and notification-tap integration.',
         'mobile/lib/theme.dart': 'ByLine Flutter colors, typography, layout tokens and system chrome style.',
         'mobile/android/app/google-services.json': 'Firebase Android client project/app identifiers; not a service-account private key.',
         'mobile/android/app/build.gradle.kts': 'Android package variants, Dart-define routing, Firebase input, SDK defaults and release signing.',
-        'mobile/android/app/src/main/kotlin/com/linkdin/linkdin_mobile/MainActivity.kt': 'Android Flutter host and native notification channel/platform integration.',
+        'mobile/android/app/src/main/kotlin/com/linkdin/linkdin_mobile/MainActivity.kt': 'Android Flutter host, native browser-only OAuth bridge and notification channel/platform integration.',
         'mobile/android/app/src/main/AndroidManifest.xml': 'Android permissions, application/activity identity, OAuth intent and notification metadata.',
     }
     if path in exact: return exact[path]
@@ -456,7 +459,7 @@ def main():
     STORY.append(toc)
     markdown((ROOT/'docs/handbook.md').read_text('utf-8'))
     heading('26. Release metadata and fresh verification',1,True)
-    for path in ['releases/android/release.json','reports/ByLine-release-verification-2026-11-07.md']:
+    for path in ['releases/android/release.json','reports/ByLine-auth-onboarding-fix-2026-11-07.md']:
         if (ROOT/path).exists():
             heading(path,2,toc=False)
             text=(ROOT/path).read_text('utf-8')
@@ -465,17 +468,16 @@ def main():
                 for block in text.split('\n\n'):
                     if block.strip(): para(block.replace('\n',' ').lstrip('# '))
     heading('27. Complete file catalogue',1,True)
-    para('Every tracked or non-ignored project file is listed below. Private/generated dependencies and local runtime data are excluded by Git rules. Derived handbook artifacts are listed without recursive content/hashes. Binary assets have metadata instead of source text. The JSON inventory has full SHA-256 values for every non-derived file.')
+    para('Every tracked or non-ignored project file is listed below. Private/generated dependencies and local runtime data are excluded by Git rules. Derived handbook artifacts are listed without recursive content/hashes. Binary assets have metadata instead of source text. The JSON inventory has full SHA-256 values for every non-derived file. Imports are collected in chapter 29 and the companion reference.')
     MD.append('# ByLine generated complete reference\n\nGenerated from publishable repository files on '+DATE+'.\n')
     MD.append('## Complete file catalogue\n')
     for e in entries:
         heading(e['path'],2,toc=False); para(e['purpose'])
         meta=f'{e.get("bytes","generated")} bytes'
         if 'lines' in e: meta+=f'; {e["lines"]} lines'
-        if 'sha256' in e: meta+='; SHA-256 '+e['sha256']
         para(meta,True)
+        if 'sha256' in e: meta+='; SHA-256 '+e['sha256']
         if e.get('symbols'): para('Declared symbols: '+', '.join(e['symbols']),True)
-        if e.get('imports'): para('Imports: '+', '.join(e['imports']),True)
         MD.extend(['### '+e['path']+'\n',e['purpose']+'\n',meta+'\n'])
         if e.get('symbols'): MD.append('Declared symbols: '+', '.join(e['symbols'])+'\n')
         if e.get('imports'): MD.append('Imports: '+', '.join(e['imports'])+'\n')

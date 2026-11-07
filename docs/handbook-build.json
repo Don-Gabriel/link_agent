@@ -1,13 +1,13 @@
 {
   "date": "7 November 2026",
-  "files_catalogued": 326,
-  "full_text_files": 276,
-  "source_lines": 41112,
+  "files_catalogued": 332,
+  "full_text_files": 282,
+  "source_lines": 41820,
   "edition": "condensed",
   "source_listings_location": "docs/generated-reference.md",
-  "pages": 120,
-  "pdf_bytes": 543390,
-  "pdf_sha256": "41b38094c425b16466a1a2b6024cdf90dba5be6d1d75f9d475ce4c1b2a856721",
-  "baseline_commit": "012d06be1a1c634a9819b4e97664ecd69f0f5d9a",
+  "pages": 116,
+  "pdf_bytes": 518342,
+  "pdf_sha256": "d7cf8e44f60a502b7697f39cd5557a90e7b47873d403293698e5a4f63d8ac81f",
+  "baseline_commit": "16e79599979fcc927b63897b580fd2f25199b609",
   "source_inventory": "docs/repository-inventory.json"
 }

@@ -10,7 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../auth_browser.dart';
 
 import '../api/models.dart';
 import '../state/app_state.dart';
@@ -373,10 +373,7 @@ class _LinkedInScreenState extends State<LinkedInScreen> {
       return;
     }
 
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
+    final opened = await openAuthBrowser(Uri.parse(url));
     if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
