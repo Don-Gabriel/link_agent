@@ -363,7 +363,9 @@ STORY=[]; MD=[]; ANCHORS=0
 
 
 def para(text, small=False):
-    STORY.append(Paragraph(html.escape(clean(text)), styles['Small2' if small else 'BodyText2']))
+    escaped = html.escape(clean(text))
+    escaped = re.sub(r'\[([^\]]+)\]\((https?://[^)\s]+)\)', r'<link href="\2" color="#145a65">\1</link>', escaped)
+    STORY.append(Paragraph(escaped, styles['Small2' if small else 'BodyText2']))
 
 
 def heading(text, level=1, breakpage=False, toc=True):

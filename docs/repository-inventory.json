@@ -5518,10 +5518,10 @@
       "path": "scripts/build-handbook.py",
       "purpose": "Rebuilds PDF, exhaustive file/source/dependency reference and hash inventory from publishable Git files.",
       "derived": false,
-      "bytes": 47626,
-      "sha256": "dd870034356e684a66b5be542230f5c6a6b67684ad04492a7f49582a570174c9",
-      "lines": 570,
-      "lf_sha256": "dd870034356e684a66b5be542230f5c6a6b67684ad04492a7f49582a570174c9",
+      "bytes": 47763,
+      "sha256": "590899ffe841012166f532d506450d603a6824604c0d83906606379071e72057",
+      "lines": 572,
+      "lf_sha256": "590899ffe841012166f532d506450d603a6824604c0d83906606379071e72057",
       "symbols": [
         "Handbook"
       ],

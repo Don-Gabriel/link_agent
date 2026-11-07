@@ -2398,7 +2398,7 @@ Builds the privately signed cloud APK from prepared Dart defines; installs nothi
 
 Rebuilds PDF, exhaustive file/source/dependency reference and hash inventory from publishable Git files.
 
-47626 bytes; 570 lines; SHA-256 dd870034356e684a66b5be542230f5c6a6b67684ad04492a7f49582a570174c9
+47763 bytes; 572 lines; SHA-256 590899ffe841012166f532d506450d603a6824604c0d83906606379071e72057
 
 Declared symbols: Handbook
 
@@ -45143,7 +45143,9 @@ STORY=[]; MD=[]; ANCHORS=0
 
 
 def para(text, small=False):
-    STORY.append(Paragraph(html.escape(clean(text)), styles['Small2' if small else 'BodyText2']))
+    escaped = html.escape(clean(text))
+    escaped = re.sub(r'\[([^\]]+)\]\((https?://[^)\s]+)\)', r'<link href="\2" color="#145a65">\1</link>', escaped)
+    STORY.append(Paragraph(escaped, styles['Small2' if small else 'BodyText2']))
 
 
 def heading(text, level=1, breakpage=False, toc=True):
