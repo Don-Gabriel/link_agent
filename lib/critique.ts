@@ -73,7 +73,7 @@ export function critique(
   if (words < style.minWords) {
     out.push({
       rule: "too_short",
-      detail: `The post is ${words} words. Your setting is ${style.minWords}-${style.maxWords}. Add substance — another concrete detail or consequence — rather than padding.`,
+      detail: `The BODY is only ${words} words, ${style.minWords-words} below the minimum. The setting is ${style.minWords}-${style.maxWords} BODY words; metadata and tags do not count. Expand to about ${Math.round((style.minWords+style.maxWords)/2)} words using the supplied evidence, explanations, implications and limitations. Do not merely rephrase the short draft or invent facts.`,
     });
   } else if (words > style.maxWords) {
     out.push({
@@ -249,7 +249,7 @@ export function severity(text: string, style: StyleConfig, violations: Violation
 export function repairInstruction(violations: Violation[]): string {
   return [
     "Your draft broke rules the author set. Fix EVERY item below and return the same JSON shape.",
-    "Keep the facts, the argument and the source material exactly as they are — this is an edit, not a rewrite.",
+    "Keep the argument and all supported facts. You may expand explanations using the original source evidence when the draft is too short. Never invent facts to meet a word count.",
     "",
     ...violations.map((v, i) => `${i + 1}. ${v.detail}`),
   ].join("\n");

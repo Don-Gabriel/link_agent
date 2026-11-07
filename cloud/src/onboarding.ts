@@ -6,7 +6,7 @@ import { generatePreview } from './generation';
 import { body,json,HttpError } from './http';
 import type { Owner } from './auth';
 import type { AppEnv } from './env';
-import { generationError } from './generation-errors';
+import { generationError,generationStatus } from './generation-errors';
 interface SetupRow {config:string;revision:number;preview:string|null;preview_revision:number|null;accepted_revision:number|null;completed_at:string|null;next_delivery_at:string|null;generating_until:string|null}
 export async function setupStatus(db:D1Database,owner:Owner) {
   const row=await db.prepare('SELECT config,revision,preview,preview_revision,accepted_revision,completed_at,next_delivery_at,generating_until FROM onboarding WHERE user_id=?').bind(owner.userId).first<SetupRow>();
@@ -38,7 +38,7 @@ export async function onboardingRoute(request:Request,env:AppEnv,owner:Owner) {
       const sample=await generatePreview(env,owner.userId,owner.name,config);
       await env.DB.prepare(`UPDATE onboarding SET preview=?,preview_revision=?,accepted_revision=NULL WHERE user_id=? AND revision=? AND preview_lease=? AND completed_at IS NULL`)
         .bind(JSON.stringify(sample),b.revision,owner.userId,b.revision,lease).run();
-    }catch(error){throw new HttpError(503,generationError(error));}
+    }catch(error){throw new HttpError(generationStatus(error),generationError(error));}
     finally {await env.DB.prepare('UPDATE onboarding SET generating_until=NULL,preview_lease=NULL WHERE user_id=? AND preview_lease=?').bind(owner.userId,lease).run();}
   }else if(b.action==='accept') {
     const accepted=await env.DB.prepare(`UPDATE onboarding SET accepted_revision=revision WHERE user_id=? AND revision=? AND preview_revision=revision AND preview IS NOT NULL AND generating_until IS NULL RETURNING user_id`).bind(owner.userId,b.revision).first();

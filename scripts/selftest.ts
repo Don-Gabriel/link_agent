@@ -665,7 +665,7 @@ console.log("\ndraft critique (the rules nothing used to verify)");
   check("the repair instruction names every violation",
     many.every((v) => instruction.includes(v.detail)), `${many.length} violations`);
   check("the repair instruction forbids inventing new material",
-    instruction.includes("this is an edit, not a rewrite"));
+    instruction.includes("Never invent facts") && instruction.includes("original source evidence"));
 }
 
 console.log("\nweekday masks");

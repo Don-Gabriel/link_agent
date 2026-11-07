@@ -66,6 +66,8 @@ export interface DiscoverOptions {
   /** Cloud deployments reserve requests for writing and notification delivery. */
   maxFetches?: number;
   maxFeeds?: number;
+  /** Interactive samples use a shorter deadline for each optional source. */
+  sourceTimeoutMs?: number;
   topics?: string[];
   /** Stable within one job, changes after each saved draft. */
   rotation?: number;
@@ -94,9 +96,9 @@ export function boundedFeedFetch(limit:number):FeedFetch {
   };
 }
 
-async function fetchText(url: string,request:FeedFetch=fetch): Promise<string> {
+async function fetchText(url: string,request:FeedFetch=fetch,timeoutMs=FETCH_TIMEOUT_MS): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await request(url, {
       signal: controller.signal,
@@ -120,9 +122,9 @@ function clip(s: string, n: number): string {
 }
 
 // ---- Hacker News (Algolia, JSON, keyless) — emerging tech
-async function fromHackerNews(wide: boolean,request?:FeedFetch): Promise<Candidate[]> {
+async function fromHackerNews(wide: boolean,request?:FeedFetch,timeoutMs?:number): Promise<Candidate[]> {
   const body = await fetchText(
-    `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${wide ? 20 : 12}`,request,
+    `https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=${wide ? 20 : 12}`,request,timeoutMs,
   );
   const data = JSON.parse(body) as {
     hits: {
@@ -571,10 +573,11 @@ export async function discover(recordFeedResult: FeedRecorder, options: Discover
   const activeSet = new Set(active);
   const results: Candidate[] = [];
   const request=options.maxFetches===undefined?fetch:boundedFeedFetch(options.maxFetches);
+  const timeoutMs=Math.min(FETCH_TIMEOUT_MS,Math.max(1000,options.sourceTimeoutMs??FETCH_TIMEOUT_MS));
 
   if (activeSet.has("emerging-tech")) {
     try {
-      const hits = await runSource('hackernews',()=>fromHackerNews(wide,request));
+      const hits = await runSource('hackernews',()=>fromHackerNews(wide,request,timeoutMs));
       results.push(...hits);
       await recordFeedResult("hackernews", { ok: true, items: hits.length });
     } catch (err) {
@@ -595,7 +598,7 @@ export async function discover(recordFeedResult: FeedRecorder, options: Discover
       const url = wide && feed.wideUrl ? feed.wideUrl : feed.url;
       const limit = wide ? feed.wideLimit : feed.limit;
       try {
-        const items = await runSource(feed.name,async()=>parseFeed(await fetchText(url,request), feed.name, feed.category, limit));
+        const items = await runSource(feed.name,async()=>parseFeed(await fetchText(url,request,timeoutMs), feed.name, feed.category, limit));
         results.push(...items);
         // Zero parsed items counts as a failure, not a quiet day: parseFeed does
         // not filter by date, so even a dormant blog returns its old entries.

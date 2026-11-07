@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {boundedFeedFetch,balanceFeeds,feedsForCategories} from '../../lib/discovery-core';
+import {boundedFeedFetch,balanceFeeds,feedsForCategories,discover} from '../../lib/discovery-core';
 import {withProviderRetry,durableCompletion} from '../src/ai';
 
 test('redirect loops and concurrent sources cannot spend the writing request budget',async()=>{
@@ -21,6 +21,18 @@ test('source selection covers every selected category before adding more feeds',
   const selected=balanceFeeds(available,[...categories],4);
   assert.equal(selected.length,4);
   assert.deepEqual(new Set(selected.map(f=>f.category)),new Set(categories));
+});
+
+test('interactive source deadlines abort slow feeds while retaining another publisher',async()=>{
+  const original=globalThis.fetch;let aborted=false;
+  globalThis.fetch=async(input,init)=>{
+    if(String(input).includes('bing.com'))return new Response('<rss><channel><item><title>A fresh solar research finding</title><link>https://publisher.example/solar</link></item></channel></rss>');
+    return new Promise((_resolve,reject)=>init!.signal!.addEventListener('abort',()=>{aborted=true;reject(new Error('Source timed out'));},{once:true}));
+  };
+  try{
+    const result=await discover(async()=>{},{categories:['energy:solar-energy'],sourceTimeoutMs:1000,maxFetches:24,maxFeeds:20});
+    assert.equal(aborted,true);assert.equal(result.length,1);assert.equal(result[0].url,'https://publisher.example/solar');
+  }finally{globalThis.fetch=original;}
 });
 
 test('temporary AI failures retry once; quota and runtime budgets do not retry',async()=>{

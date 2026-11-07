@@ -8,6 +8,9 @@ Open this link on your phone, download the APK, then open it to install or updat
 Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
 · [Release verification](reports/ByLine-navigation-discovery-2026-11-07.md)
 
+First-time sample generation has a [backend fix](reports/ByLine-first-sample-fix-2026-11-07.md)
+for short drafts and misleading availability errors; it works with this APK.
+
 **Start here:** [Complete project handbook (PDF)](output/pdf/ByLine-Complete-Project-Handbook.pdf)
 | [Download Android APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)
 | [Phone installation guide](releases/android/README.md)

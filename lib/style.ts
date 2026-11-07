@@ -300,7 +300,9 @@ export function styleBlock(style: StyleConfig): string {
     "HARD VOICE CONSTRAINTS — violating any of these is a failure:",
     style.structure==='bullets'&&style.minWords>180
       ?`STRUCTURE: a short lead, then 4-6 bullet sections beginning with "${BULLET_MARK} ", then a short close. Each section may contain several short sentences to reach the requested word count. Use short words and concise phrasing; the full post including its link and tags must fit LinkedIn's 3000-character limit.`
-      :STRUCTURE_RULES[style.structure],
+      :style.structure==='prose'&&style.minWords>=180
+        ?`STRUCTURE: ${Math.ceil(style.minWords/55)} substantial paragraphs, each about ${Math.round((style.minWords>300?style.minWords:(style.minWords+style.maxWords)/2)/Math.ceil(style.minWords/55))} words, with 3-4 complete sentences per paragraph. Explain the development, its practical implications and limits. No lists. A brief summary is too short for this author's requested word range.`
+        :STRUCTURE_RULES[style.structure],
     EMOJI_RULES[style.emoji],
     HOOK_RULES[style.hook],
     CTA_RULES[style.cta],

@@ -4,6 +4,8 @@ import {writePost,writerOutputBudget,type WriteArgs} from '../../lib/writer-core
 import {defaultSetup,setupPersona} from '../../lib/setup-config';
 import {DEFAULT_STYLE} from '../../lib/style';
 import {critique} from '../../lib/critique';
+import {setupStyle} from '../../lib/setup-config';
+import {generationError,generationStatus} from '../src/generation-errors';
 
 const style={...DEFAULT_STYLE,minWords:400,maxWords:500,hashtagCount:9};
 const args:WriteArgs={
@@ -12,6 +14,36 @@ const args:WriteArgs={
   runnersUp:[],memory:{facts:[],source:'none',degraded:false},priorPosts:[],
 };
 const draft=(words:number)=>({text:'A clear opening. '+Array(words-3).fill('code').join(' '),rationale:'This source supports a concrete engineering discussion without adding unsupported personal claims.',fingerprint:'engineering evidence and practical software evaluation',continuity:null,hashtags:Array.from({length:9},(_,i)=>`Topic${i}`),used_quote:false});
+
+test('first-time 200–300 word samples use full evidence and repair the body without counting tags',async()=>{
+  const setup={...defaultSetup,voice:'inspirational',style:{minWords:200,maxWords:300,hashtagCount:15}};
+  const expectedStyle=setupStyle(setup);
+  const source='Original research evidence. '+ 'Supporting detail. '.repeat(28)+'A final verified caveat.';
+  let calls=0;
+  const result=await writePost(async request=>{
+    assert.match(request.system,/4 substantial paragraphs/);
+    assert.match(request.system,/EXACTLY 15/);
+    assert.match(request.user,/A final verified caveat/);
+    assert.doesNotMatch(request.user,/pick at most|or none/);
+    if(calls){
+      assert.match(request.system,/BODY is only 80 words, 120 below/);
+      assert.match(request.user,/metadata do not count/);
+      assert.match(request.user,/ORIGINAL SOURCE EVIDENCE/);
+    }
+    return {ok:true,text:JSON.stringify({...draft(calls++?240:80),hashtags:Array.from({length:15},(_,i)=>`Tag${i}`)}),model:'test'};
+  },{...args,style:expectedStyle,persona:setupPersona(setup,'Setup test'),winner:{...args.winner,summary:source}});
+  assert.ok(result.ok);assert.equal(calls,2);
+  assert.deepEqual(critique(result.data.text,expectedStyle,{hashtags:result.data.hashtags,usedQuote:result.data.used_quote}),[]);
+});
+
+test('preview validation and quota errors are not reported as server outages',()=>{
+  for(const reason of ['no_candidates','No source closely matches your subjects yet. Try again later or adjust your subjects.',
+    'The sample needs another pass to match your writing preferences.'])assert.equal(generationStatus(new Error(reason)),422);
+  assert.equal(generationStatus(new Error('provider_quota_reached')),429);
+  assert.equal(generationStatus(new Error('provider_http_503')),503);
+  assert.equal(generationStatus(new Error('D1_ERROR secret SQL')),503);
+  assert.ok(!generationError(new Error('D1_ERROR secret SQL')).includes('secret'));
+});
 
 test('the repair gate checks the complete post length including its source and tags',async()=>{
   const overlong={...draft(410),text:'A clear opening. '+Array(407).fill('evidence').join(' ')};

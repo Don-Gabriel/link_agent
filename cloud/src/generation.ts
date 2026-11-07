@@ -46,7 +46,7 @@ export async function generatePreview(env:AppEnv,userId:string,name:string,confi
   options.rotation+=Math.max(0,(setup?.preview_attempts??1)-1);
   options.excludeUrls.push(...(previous?.sources??[]));
   if(previous?.title)options.priorCoverage.push(previous.title);
-  const candidates=await discover((name,result)=>feedResult(env.DB,name,result),options);
+  const candidates=await discover((name,result)=>feedResult(env.DB,name,result),{...options,sourceTimeoutMs:4000});
   const complete=completion(env,userId);
   const recent=[...(previous?.category?[previous.category]:[]),...rows.slice(0,24).flatMap(p=>p.category?[p.category]:[])];
   const prior=[...(previous?.title?[previous.title]:[]),...rows.slice(0,20).map(p=>p.fingerprint)];
@@ -56,7 +56,11 @@ export async function generatePreview(env:AppEnv,userId:string,name:string,confi
   if(!source)throw new Error('No source closely matches your subjects yet. Try again later or adjust your subjects.');
   const draft=await writePost(complete,{persona,style,winner:source,runnersUp:[],memory,priorPosts:[],repairAttempts:2,samples:config.samples.map(text=>({text,origin:'corpus'}))});
   if(!draft.ok)throw new Error(draft.reason);
-  if(critique(draft.data.text,style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote}).length)throw new Error('The sample needs another pass to match your writing preferences.');
+  const violations=critique(draft.data.text,style,{hashtags:draft.data.hashtags,usedQuote:draft.data.used_quote});
+  if(violations.length){
+    console.warn(JSON.stringify({event:'preview_quality_failed',rules:violations.map(v=>v.rule),words:draft.data.text.trim().split(/\s+/).length,minWords:style.minWords,maxWords:style.maxWords}));
+    throw new Error('The sample needs another pass to match your writing preferences.');
+  }
   return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,testMode:false};
 }
 export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,step:RunStep) {
