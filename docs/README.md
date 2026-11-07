@@ -11,7 +11,9 @@
 The PDF includes the architecture, technology usage, accounts, onboarding, discovery,
 AI, scheduling, publication, notifications, data model, API, configuration,
 developer setup, operations, troubleshooting, every repository file's purpose,
-resolved dependencies, complete project text source, tests and historical UI previews.
+resolved npm dependencies, test titles and selected phone UI previews. The PDF is a
+100-120 page reading edition. Complete project text source and historical documents
+remain in the linked generated reference rather than filling hundreds of PDF pages.
 
 Rebuild from the repository root with Python 3 and `reportlab`/`pypdf` installed:
 

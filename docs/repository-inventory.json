@@ -1659,10 +1659,10 @@
       "path": "docs/README.md",
       "purpose": "Documentation entry point and reproducible PDF generation instructions.",
       "derived": false,
-      "bytes": 2009,
-      "sha256": "db8f078c2cfa3db054296e92f826b04962f532f9cd84108fab521f644627bee3",
-      "lines": 37,
-      "lf_sha256": "db8f078c2cfa3db054296e92f826b04962f532f9cd84108fab521f644627bee3",
+      "bytes": 2213,
+      "sha256": "3f3217d6dcaf7bb4dd4008d446f55fcd75d9fdeb6a0f984e08d21c62674ccfa0",
+      "lines": 39,
+      "lf_sha256": "51a323b62b0c087fd3cf2d275f7c5841b4f936673b716b28f7d2ed6b98d42aa1",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -1681,10 +1681,10 @@
       "path": "docs/handbook.md",
       "purpose": "Authored architecture, user/developer/operator manual and implementation explanations for the PDF.",
       "derived": false,
-      "bytes": 54596,
-      "sha256": "11df5dd057a1f2033edfd88d4b52729275ae16bce32ebc3e68369625e7fbfeec",
+      "bytes": 55224,
+      "sha256": "5508e8c0959de51be459c1adae7a9573ed3e31f21c2700b8669bd22996c3524c",
       "lines": 287,
-      "lf_sha256": "11df5dd057a1f2033edfd88d4b52729275ae16bce32ebc3e68369625e7fbfeec",
+      "lf_sha256": "9a2323cb16cf1a18b771d3dd3d00f576b5ba0697a9ee13c486e65e1e95a896f3",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -4896,7 +4896,7 @@
     },
     {
       "path": "output/pdf/ByLine-Complete-Project-Handbook.pdf",
-      "purpose": "Complete human-readable handbook with catalogue and source appendices.",
+      "purpose": "Condensed human-readable handbook with every-file catalogue and linked exhaustive source reference.",
       "derived": true
     },
     {
@@ -5128,10 +5128,10 @@
       "path": "reports/ByLine-release-verification-2026-11-07.md",
       "purpose": "Dated project evidence, plan or verification record: release verification 2026 11 07. Historical claims retain their original date.",
       "derived": false,
-      "bytes": 4683,
-      "sha256": "515718ec146e4eb1d23818395731b97686246a09112ace66fd68b9b758e870e3",
-      "lines": 79,
-      "lf_sha256": "515718ec146e4eb1d23818395731b97686246a09112ace66fd68b9b758e870e3",
+      "bytes": 5282,
+      "sha256": "3a8468ebdcb1e4f844ac2751d315e55400d6f097efe439902ad60bc7c0917b72",
+      "lines": 88,
+      "lf_sha256": "4758069b655cd31e4639d5d4d9ce27587b2ec20d384c0bb00819a293d94e6eb1",
       "symbols": [],
       "imports": [],
       "tests": []
@@ -5410,10 +5410,10 @@
       "path": "scripts/build-handbook.py",
       "purpose": "Rebuilds PDF, exhaustive file/source/dependency reference and hash inventory from publishable Git files.",
       "derived": false,
-      "bytes": 45111,
-      "sha256": "496b4e0198098ee0ee9bb2ba32d6c364b4f16aaad5b9e7fda0c7e2323d1c91b8",
-      "lines": 554,
-      "lf_sha256": "496b4e0198098ee0ee9bb2ba32d6c364b4f16aaad5b9e7fda0c7e2323d1c91b8",
+      "bytes": 47000,
+      "sha256": "14c7ed0e564e3d4eb9645374360e03f360e003c7633d10238cbd4aa58d863369",
+      "lines": 568,
+      "lf_sha256": "14c7ed0e564e3d4eb9645374360e03f360e003c7633d10238cbd4aa58d863369",
       "symbols": [
         "Handbook"
       ],

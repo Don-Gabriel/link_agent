@@ -77,3 +77,12 @@ all third-party behavior or production availability.
 The GitHub connector provided read access but not write access. Repository publication
 uses the workstation's already authenticated owner Git/CLI credentials. Private
 server and signing credentials remain ignored and are not part of the release.
+
+## Condensed reading edition
+
+At the owner's request, the PDF was revised to a 100-120 page reading edition.
+All file-purpose entries, architecture/stack explanations, phone setup, API/schema
+and configuration references remain. Full application source and historical
+reports remain in docs/generated-reference.md. The PDF shows one phone-width
+preview per screen; wider variants remain in the repository. This is a documentation
+revision; application code, the APK and the earlier test results are unchanged.

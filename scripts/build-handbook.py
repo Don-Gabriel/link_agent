@@ -1,4 +1,4 @@
-"""Build the exhaustive ByLine handbook from tracked and publishable working files.
+"""Build the 100-120 page ByLine handbook and exhaustive repository reference.
 
 Requires reportlab and pypdf. Run from any directory: python scripts/build-handbook.py
 No secrets, ignored caches, live databases or third-party source are read.
@@ -226,7 +226,7 @@ def purpose(path):
         return {'docs/repository-inventory.json': 'Generated machine-readable file, hash, purpose, symbol and import inventory.',
                 'docs/generated-reference.md': 'Generated searchable complete file/reference/source appendix in Markdown.',
                 'docs/handbook-build.json': 'Generated PDF page/coverage statistics and PDF SHA-256.',
-                'output/pdf/ByLine-Complete-Project-Handbook.pdf': 'Complete human-readable handbook with catalogue and source appendices.'}[path]
+                'output/pdf/ByLine-Complete-Project-Handbook.pdf': 'Condensed human-readable handbook with every-file catalogue and linked exhaustive source reference.'}[path]
     exact = {
         'docs/handbook.md': 'Authored architecture, user/developer/operator manual and implementation explanations for the PDF.',
         'docs/README.md': 'Documentation entry point and reproducible PDF generation instructions.',
@@ -445,9 +445,9 @@ def main():
     base=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     STORY.extend([Spacer(1,95),Paragraph('BYLINE',ParagraphStyle('Cover',fontName='Helvetica-Bold',fontSize=44,leading=50,textColor=colors.HexColor('#123e46'))),Spacer(1,22)])
     para('THE COMPLETE PROJECT HANDBOOK')
-    para('Architecture, every file, technology usage, Android installation, operations and complete source reference.')
+    para('Architecture, every file, technology usage, Android installation and operations. Condensed reading edition.')
     STORY.append(Spacer(1,20)); para(DATE)
-    para(f'{len(entries)} repository files catalogued. {len(source_entries)} full text listings, containing {total_lines:,} original lines, plus both complete npm resolution inventories.')
+    para(f'Every one of the {len(entries)} repository files is catalogued. Both npm dependency inventories are included. The companion repository reference preserves {len(source_entries)} full text listings and {total_lines:,} source lines without inflating this PDF.')
     para('Includes an installable signed Android APK in releases/android/byline-latest.apk. See the embedded release record for its verified identity and checksum.')
     para('Baseline commit before this documentation/release packaging: '+base,True)
     para('Working-source hashes in docs/repository-inventory.json identify the exact packaged source independently of that baseline. The final Git commit also contains this document.',True)
@@ -482,7 +482,7 @@ def main():
     heading('28. Direct packages and exact resolved dependencies',1,True)
     for path in ['package.json','cloud/package.json','mobile/pubspec.yaml']:
         heading(path,2,toc=False); code((ROOT/path).read_text('utf-8'),False)
-    para('The following npm inventories preserve every resolved package path (including nested/platform variants), version, flags, dependencies, peers, engine/platform restrictions, source URL and integrity. They are complete package-entry inventories, not third-party implementation source. Flutter exact resolutions are reproduced in full in mobile/pubspec.lock in the source appendix.')
+    para('The following npm inventories preserve every resolved package path (including nested/platform variants), version, flags, dependencies, peers, engine/platform restrictions, source URL and integrity. They are complete package-entry inventories, not third-party implementation source. Flutter exact resolutions are in mobile/pubspec.lock and the companion repository source reference.')
     for path in ['package-lock.json','cloud/package-lock.json']:
         heading(path,2,toc=False)
         lines='\n'.join(npm_reference(path)); code(lines,False)
@@ -521,30 +521,44 @@ def main():
         if e.get('tests'):
             heading(e['path'],2,toc=False)
             for title in e['tests']: para(title,True)
-    para('The index extracts literal test/group titles. Assertion labels, dynamically generated cases and complete test bodies are preserved in the source listings.')
-    heading('32. Complete project-owned text source',1,True)
-    para('All project text files except this handbook narrative and generated documentation artifacts are included here. npm lockfiles are represented completely in chapter 28. Binary content is catalogued separately. Line numbers refer to original source lines; wrapped continuation lines begin with >. Non-ASCII characters are displayed as ASCII escapes or normalized punctuation for portable font rendering. Download the Git file for byte-exact source; the inventory SHA-256 identifies it. Historical documents/comments are included verbatim in meaning and retain their date, even when later implementation supersedes them.')
+    para('The index extracts literal test/group titles. Assertion labels, dynamically generated cases and complete test bodies are preserved in the companion source reference.')
+    heading('32. Finding the exact implementation',1,True)
+    para('This reading edition retains the explanations, every-file catalogue, dependency inventories, configuration/import index, API navigation, D1 schema and test-case index. The thousands of lines of raw application code are available as a separate searchable repository reference, rather than repeated in this PDF.')
+    STORY.append(Paragraph('<link href="https://github.com/Don-Gabriel/link_agent/blob/main/docs/generated-reference.md" color="#145a65">Open the complete source reference on GitHub</link>',styles['BodyText2']))
+    para('Repository path: docs/generated-reference.md. Download the raw Markdown if GitHub truncates its preview. It contains the full project-owned text listings, historical reports and lockfile resolution details. Individual files remain available at their paths in the repository.')
+    for title,description in [
+        ('A screen or interaction','Find its mobile/lib/screens or mobile/lib/widgets path in chapter 27, then follow its imports to AppState and ApiClient.'),
+        ('An endpoint or validation rule','Use chapter 30 for method/path routing; inspect the named cloud/src handler or app/api route in the companion reference.'),
+        ('A database field or concurrency rule','Use the D1 schema in chapter 30; inspect lib/schema.ts for PostgreSQL and the relevant adapter for transaction behavior.'),
+        ('An AI prompt or editorial edge case','Inspect lib/writer-core.ts, lib/judge-core.ts, lib/critique.ts and the deployment-specific AI adapter.'),
+        ('A package, configuration key or helper','Use chapters 28-29 for versions and usage locations, then the complete source file for the exact branch.'),
+        ('A historical decision or test assertion','Use reports/ for dated evidence, chapter 31 for test titles and the source reference for complete assertions.'),
+    ]:
+        heading(title,2,toc=False);para(description)
+    para('The inventory records source hashes, including LF-normalized text hashes for cross-platform comparison. Source snippets printed in this PDF use line numbers and wrap long lines; the repository contains the original bytes. Historical comments and reports may describe an earlier implementation.')
     for e in source_entries:
-        heading(e['path'],2,True,toc=False)
-        para(e['purpose'],True)
         source=(ROOT/e['path']).read_text('utf-8-sig')
-        code(source)
         MD.extend(['## Source: '+e['path']+'\n','````text\n'+source+'\n````\n'])
-    heading('33. Existing UI preview gallery',1,True)
-    para('These are the repository\'s historical design preview PNGs. They illustrate the named screen and viewport; they were not newly captured from the APK during this documentation run. Every preview is included at an aspect-ratio-preserving size.')
+    heading('33. Mobile UI preview gallery',1,True)
+    para('One historical phone-width preview per screen is shown. These are design previews already in the repository, not fresh APK captures. Desktop/tablet variants remain in reports/ui-preview and in the file catalogue.')
+    first_preview=True
     for e in entries:
-        if e['path'].startswith('reports/ui-preview/') and e['path'].endswith('.png'):
-            heading(e['path'],2,True,toc=False)
-            img=Image(str(ROOT/e['path'])); scale=min(490/img.imageWidth,650/img.imageHeight)
+        if e['path'].startswith('reports/ui-preview/') and e['path'].endswith('-390.png'):
+            heading(e['path'],2,not first_preview,toc=False)
+            first_preview=False
+            img=Image(str(ROOT/e['path'])); scale=min(490/img.imageWidth,580/img.imageHeight)
             img.drawWidth=img.imageWidth*scale; img.drawHeight=img.imageHeight*scale; STORY.append(img)
     heading('34. Scope and source integrity',1,True)
-    para(f'Catalogue: {len(entries)} files. Full text listings: {len(source_entries)}. Original lines in those listings: {total_lines:,}. Both npm lockfiles are fully indexed separately. Binary assets are accounted for by path, role, byte size and SHA-256; UI previews are rendered in the gallery.')
+    para(f'PDF catalogue: {len(entries)} files. Companion source reference: {len(source_entries)} full text listings and {total_lines:,} original lines. Both npm lockfiles are fully indexed in the PDF. Binary assets are accounted for by path, role, byte size and SHA-256; selected phone previews are rendered in the gallery.')
     para('Excluded from publication: Git internals, populated .env files, node_modules, Flutter/Android/Next build caches, local databases, private signing keys, service-account credentials and generated local Worker binding types. These are dependencies, secrets or runtime data, not omitted project source. Recreate generated dependencies with the documented setup commands and restore secrets from authorized secure storage.')
-    para('This is a source snapshot rather than a warranty about changing third-party services. For any exact condition, use the file catalogue and line-numbered source; for subsequent changes use Git history. The generated Markdown reference and JSON inventory make the same material searchable outside the PDF.')
+    para('This is a source snapshot rather than a warranty about changing third-party services. For any exact condition, use the file catalogue and companion source reference; for subsequent changes use Git history. The generated Markdown reference retains the exhaustive source material outside this condensed PDF.')
     REFERENCE.write_text('\n'.join(MD),encoding='utf-8')
     Handbook(OUT).multiBuild(STORY)
     reader=PdfReader(str(OUT))
+    if not 100 <= len(reader.pages) <= 120:
+        raise ValueError(f'Condensed handbook must be 100-120 pages; got {len(reader.pages)}')
     stats={'date':DATE,'files_catalogued':len(entries),'full_text_files':len(source_entries),'source_lines':total_lines,
+           'edition':'condensed','source_listings_location':'docs/generated-reference.md',
            'pages':len(reader.pages),'pdf_bytes':OUT.stat().st_size,'pdf_sha256':hashlib.sha256(OUT.read_bytes()).hexdigest(),
            'baseline_commit':base,'source_inventory':'docs/repository-inventory.json'}
     (ROOT/'docs/handbook-build.json').write_text(json.dumps(stats,indent=2)+'\n',encoding='utf-8')
