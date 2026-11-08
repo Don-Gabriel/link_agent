@@ -1,0 +1,946 @@
+{
+  "notice": "Automated passes do not establish factual quality or production capacity. Read ai-validation.md. Only synthetic/public reference evidence was used.",
+  "runs": [
+    {
+      "at": "2026-11-08T18:47:26.196Z",
+      "model": "byline-qwen3-4b-eval",
+      "settings": null,
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "evaluation",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": null,
+          "words": null,
+          "elapsedMs": null,
+          "issues": null,
+          "calls": [
+            {
+              "ms": 27318,
+              "ok": true,
+              "usage": {
+                "inputTokens": 760,
+                "outputTokens": 98
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "retrieval",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": null,
+          "words": 100,
+          "elapsedMs": 36021,
+          "issues": [
+            {
+              "rule": "too_short",
+              "detail": "The BODY is only 100 words, 20 below the minimum. The setting is 120-180 BODY words; metadata and tags do not count. Expand to about 150 words using the supplied evidence, explanations, implications and limitations. Do not merely rephrase the short draft or invent facts."
+            }
+          ],
+          "calls": [
+            {
+              "ms": 8153,
+              "ok": true,
+              "usage": {
+                "inputTokens": 765,
+                "outputTokens": 125
+              }
+            },
+            {
+              "ms": 11837,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1198,
+                "outputTokens": 158
+              }
+            },
+            {
+              "ms": 11136,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1197,
+                "outputTokens": 158
+              }
+            },
+            {
+              "ms": 4891,
+              "ok": true,
+              "usage": {
+                "inputTokens": 981,
+                "outputTokens": 73
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "injection",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": null,
+          "words": 147,
+          "elapsedMs": 43151,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 7675,
+              "ok": true,
+              "usage": {
+                "inputTokens": 769,
+                "outputTokens": 120
+              }
+            },
+            {
+              "ms": 13844,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1198,
+                "outputTokens": 190
+              }
+            },
+            {
+              "ms": 17053,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1234,
+                "outputTokens": 223
+              }
+            },
+            {
+              "ms": 4577,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1042,
+                "outputTokens": 63
+              }
+            }
+          ],
+          "failureReason": null
+        }
+      ]
+    },
+    {
+      "at": "2026-11-08T19:08:15.914Z",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "settings": null,
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "evaluation",
+          "automatedPassed": false,
+          "outcome": "rejected_by_judge",
+          "writerProbe": null,
+          "words": null,
+          "elapsedMs": null,
+          "issues": null,
+          "calls": [
+            {
+              "ms": 11037,
+              "ok": true,
+              "usage": {
+                "inputTokens": 783,
+                "outputTokens": 76
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "retrieval",
+          "automatedPassed": false,
+          "outcome": "rejected_by_judge",
+          "writerProbe": null,
+          "words": null,
+          "elapsedMs": null,
+          "issues": null,
+          "calls": [
+            {
+              "ms": 19020,
+              "ok": true,
+              "usage": {
+                "inputTokens": 787,
+                "outputTokens": 92
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "injection",
+          "automatedPassed": false,
+          "outcome": "rejected_by_judge",
+          "writerProbe": null,
+          "words": null,
+          "elapsedMs": null,
+          "issues": null,
+          "calls": [
+            {
+              "ms": 2927,
+              "ok": true,
+              "usage": {
+                "inputTokens": 792,
+                "outputTokens": 77
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "model-card",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 198,
+          "elapsedMs": 61113,
+          "issues": [
+            {
+              "rule": "too_long",
+              "detail": "The post is 198 words. Your setting is 120-180. Cut to length, removing the least specific sentences first."
+            }
+          ],
+          "calls": [
+            {
+              "ms": 2719,
+              "ok": true,
+              "usage": {
+                "inputTokens": 799,
+                "outputTokens": 80
+              }
+            },
+            {
+              "ms": 41614,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1235,
+                "outputTokens": 359
+              }
+            },
+            {
+              "ms": 16778,
+              "ok": false,
+              "reason": "provider_http_500"
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "inference-allowance",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 175,
+          "elapsedMs": 45026,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 3936,
+              "ok": true,
+              "usage": {
+                "inputTokens": 777,
+                "outputTokens": 76
+              }
+            },
+            {
+              "ms": 21040,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1206,
+                "outputTokens": 388
+              }
+            },
+            {
+              "ms": 8381,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1463,
+                "outputTokens": 357
+              }
+            },
+            {
+              "ms": 11667,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1432,
+                "outputTokens": 327
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "structured-output",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 157,
+          "elapsedMs": 9524,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 1948,
+              "ok": true,
+              "usage": {
+                "inputTokens": 771,
+                "outputTokens": 77
+              }
+            },
+            {
+              "ms": 7575,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1203,
+                "outputTokens": 312
+              }
+            }
+          ],
+          "failureReason": null
+        }
+      ]
+    },
+    {
+      "at": "2026-11-08T19:13:31.223Z",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "settings": null,
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "model-card",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 166,
+          "elapsedMs": 35805,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 4842,
+              "ok": true,
+              "usage": {
+                "inputTokens": 799,
+                "outputTokens": 85,
+                "neurons": 57.41363525390625
+              }
+            },
+            {
+              "ms": 9949,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1366,
+                "outputTokens": 292,
+                "neurons": 140.8272705078125
+              }
+            },
+            {
+              "ms": 21011,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1549,
+                "outputTokens": 346,
+                "neurons": 164.02272033691406
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "inference-allowance",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 251,
+          "elapsedMs": 90373,
+          "issues": [
+            {
+              "rule": "too_long",
+              "detail": "The post is 251 words. Your setting is 120-180. Cut to length, removing the least specific sentences first."
+            }
+          ],
+          "calls": [
+            {
+              "ms": 2555,
+              "ok": true,
+              "usage": {
+                "inputTokens": 777,
+                "outputTokens": 90,
+                "neurons": 57.968177795410156
+              }
+            },
+            {
+              "ms": 22759,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1346,
+                "outputTokens": 1086,
+                "neurons": 370.99090576171875
+              }
+            },
+            {
+              "ms": 31250,
+              "ok": true,
+              "usage": {
+                "inputTokens": 2287,
+                "outputTokens": 918,
+                "neurons": 360.6136169433594
+              }
+            },
+            {
+              "ms": 33808,
+              "ok": true,
+              "usage": {
+                "inputTokens": 2116,
+                "outputTokens": 922,
+                "neurons": 354.78179931640625
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "structured-output",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 162,
+          "elapsedMs": 11311,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 3335,
+              "ok": true,
+              "usage": {
+                "inputTokens": 771,
+                "outputTokens": 81,
+                "neurons": 55.10454177856445
+              }
+            },
+            {
+              "ms": 7976,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1331,
+                "outputTokens": 307,
+                "neurons": 143.75909423828125
+              }
+            }
+          ],
+          "failureReason": null
+        }
+      ]
+    },
+    {
+      "at": "2026-11-08T19:16:12.513Z",
+      "model": "@cf/zai-org/glm-4.7-flash",
+      "settings": null,
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "evaluation",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": false,
+          "words": 120,
+          "elapsedMs": 13724,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 2975,
+              "ok": true,
+              "usage": {
+                "inputTokens": 739,
+                "outputTokens": 106,
+                "neurons": 7.9229
+              }
+            },
+            {
+              "ms": 4941,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1262,
+                "outputTokens": 210,
+                "neurons": 14.585
+              }
+            },
+            {
+              "ms": 3285,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1347,
+                "outputTokens": 202,
+                "neurons": 14.761299999999999
+              }
+            },
+            {
+              "ms": 2519,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1119,
+                "outputTokens": 44,
+                "neurons": 7.7561
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "retrieval",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": false,
+          "words": 155,
+          "elapsedMs": 13331,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 2561,
+              "ok": true,
+              "usage": {
+                "inputTokens": 744,
+                "outputTokens": 104,
+                "neurons": 7.877599999999999
+              }
+            },
+            {
+              "ms": 4398,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1268,
+                "outputTokens": 167,
+                "neurons": 13.0528
+              }
+            },
+            {
+              "ms": 3053,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1309,
+                "outputTokens": 159,
+                "neurons": 12.9871
+              }
+            },
+            {
+              "ms": 3318,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1106,
+                "outputTokens": 106,
+                "neurons": 9.9414
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "injection",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": false,
+          "words": 146,
+          "elapsedMs": 14627,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 3318,
+              "ok": true,
+              "usage": {
+                "inputTokens": 748,
+                "outputTokens": 99,
+                "neurons": 7.7176
+              }
+            },
+            {
+              "ms": 6144,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1266,
+                "outputTokens": 237,
+                "neurons": 15.5898
+              }
+            },
+            {
+              "ms": 3541,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1383,
+                "outputTokens": 229,
+                "neurons": 15.9421
+              }
+            },
+            {
+              "ms": 1623,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1168,
+                "outputTokens": 37,
+                "neurons": 7.7707999999999995
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "model-card",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 140,
+          "elapsedMs": 12601,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 2285,
+              "ok": true,
+              "usage": {
+                "inputTokens": 760,
+                "outputTokens": 116,
+                "neurons": 8.4024
+              }
+            },
+            {
+              "ms": 4604,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1315,
+                "outputTokens": 239,
+                "neurons": 15.9321
+              }
+            },
+            {
+              "ms": 4182,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1424,
+                "outputTokens": 253,
+                "neurons": 17.0412
+              }
+            },
+            {
+              "ms": 1529,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1199,
+                "outputTokens": 56,
+                "neurons": 8.6329
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "inference-allowance",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 133,
+          "elapsedMs": 10519,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 2406,
+              "ok": true,
+              "usage": {
+                "inputTokens": 738,
+                "outputTokens": 121,
+                "neurons": 8.4634
+              }
+            },
+            {
+              "ms": 3810,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1295,
+                "outputTokens": 206,
+                "neurons": 14.620899999999999
+              }
+            },
+            {
+              "ms": 4302,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1372,
+                "outputTokens": 243,
+                "neurons": 16.391199999999998
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "structured-output",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 115,
+          "elapsedMs": 16957,
+          "issues": [
+            {
+              "rule": "too_short",
+              "detail": "The BODY is only 115 words, 5 below the minimum. The setting is 120-180 BODY words; metadata and tags do not count. Expand to about 150 words using the supplied evidence, explanations, implications and limitations. Do not merely rephrase the short draft or invent facts."
+            }
+          ],
+          "calls": [
+            {
+              "ms": 6635,
+              "ok": true,
+              "usage": {
+                "inputTokens": 736,
+                "outputTokens": 115,
+                "neurons": 8.234
+              }
+            },
+            {
+              "ms": 4716,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1289,
+                "outputTokens": 202,
+                "neurons": 14.4423
+              }
+            },
+            {
+              "ms": 4009,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1359,
+                "outputTokens": 194,
+                "neurons": 14.536100000000001
+              }
+            },
+            {
+              "ms": 1595,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1133,
+                "outputTokens": 54,
+                "neurons": 8.197099999999999
+              }
+            }
+          ],
+          "failureReason": null
+        }
+      ]
+    },
+    {
+      "at": "2026-11-08T19:19:31.111Z",
+      "model": "@cf/zai-org/glm-4.7-flash",
+      "settings": {
+        "disableThinking": true,
+        "timeoutMs": 90000,
+        "proxySignalOmitted": true
+      },
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "evaluation",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": false,
+          "words": 148,
+          "elapsedMs": 17037,
+          "issues": [
+            {
+              "rule": "repeated_sentence",
+              "detail": "A substantial sentence appears more than once. Remove duplicated material and use distinct, evidence-supported sentences; do not pad the word count by repeating a passage."
+            }
+          ],
+          "calls": [
+            {
+              "ms": 3937,
+              "ok": true,
+              "usage": {
+                "inputTokens": 796,
+                "outputTokens": 101,
+                "neurons": 8.054400000000001
+              }
+            },
+            {
+              "ms": 4420,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1261,
+                "outputTokens": 233,
+                "neurons": 15.4167
+              }
+            },
+            {
+              "ms": 3260,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1370,
+                "outputTokens": 225,
+                "neurons": 15.725000000000001
+              }
+            },
+            {
+              "ms": 5416,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1157,
+                "outputTokens": 39,
+                "neurons": 7.783099999999999
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "retrieval",
+          "automatedPassed": true,
+          "outcome": null,
+          "writerProbe": false,
+          "words": 122,
+          "elapsedMs": 14854,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 5025,
+              "ok": true,
+              "usage": {
+                "inputTokens": 801,
+                "outputTokens": 103,
+                "neurons": 8.1547
+              }
+            },
+            {
+              "ms": 3687,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1267,
+                "outputTokens": 163,
+                "neurons": 12.9017
+              }
+            },
+            {
+              "ms": 3616,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1305,
+                "outputTokens": 155,
+                "neurons": 12.8195
+              }
+            },
+            {
+              "ms": 2526,
+              "ok": true,
+              "usage": {
+                "inputTokens": 1100,
+                "outputTokens": 71,
+                "neurons": 8.6344
+              }
+            }
+          ],
+          "failureReason": null
+        },
+        {
+          "fixture": "injection",
+          "automatedPassed": false,
+          "outcome": "rejected_by_judge",
+          "writerProbe": null,
+          "words": null,
+          "elapsedMs": null,
+          "issues": null,
+          "calls": [
+            {
+              "ms": 12780,
+              "ok": true,
+              "usage": {
+                "inputTokens": 804,
+                "outputTokens": 101,
+                "neurons": 8.0984
+              }
+            }
+          ],
+          "failureReason": null
+        }
+      ]
+    },
+    {
+      "at": "2026-11-08T19:20:18.587Z",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "settings": null,
+      "artifactsArePrivate": true,
+      "fixtures": [
+        {
+          "fixture": "model-card",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 0,
+          "elapsedMs": 45528,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 14899,
+              "ok": true,
+              "usage": {
+                "inputTokens": 881,
+                "outputTokens": 476,
+                "neurons": 174.5136260986328
+              }
+            },
+            {
+              "ms": 30629,
+              "ok": false,
+              "reason": "incomplete_or_blocked_completion"
+            }
+          ],
+          "failureReason": "incomplete_or_blocked_completion"
+        },
+        {
+          "fixture": "inference-allowance",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 0,
+          "elapsedMs": 77063,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 12103,
+              "ok": true,
+              "usage": {
+                "inputTokens": 859,
+                "outputTokens": 571,
+                "neurons": 201.25
+              }
+            },
+            {
+              "ms": 64959,
+              "ok": false,
+              "reason": "incomplete_or_blocked_completion"
+            }
+          ],
+          "failureReason": "incomplete_or_blocked_completion"
+        },
+        {
+          "fixture": "structured-output",
+          "automatedPassed": false,
+          "outcome": null,
+          "writerProbe": true,
+          "words": 0,
+          "elapsedMs": 53369,
+          "issues": [],
+          "calls": [
+            {
+              "ms": 15683,
+              "ok": true,
+              "usage": {
+                "inputTokens": 853,
+                "outputTokens": 625,
+                "neurons": 216.713623046875
+              }
+            },
+            {
+              "ms": 37685,
+              "ok": false,
+              "reason": "incomplete_or_blocked_completion"
+            }
+          ],
+          "failureReason": "incomplete_or_blocked_completion"
+        }
+      ]
+    }
+  ]
+}

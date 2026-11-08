@@ -2,11 +2,17 @@ import type { Completion } from '../../lib/llm-contract';
 import { boundedText } from '../../lib/http-body';
 import { localClock } from '../../lib/schedule';
 import type { AppEnv } from './env';
+import { serviceCompletion } from './ai-service';
+import { isRetryableAiReason } from '../../lib/ai-compatible';
 
 export const USER_AI_LIMIT=40;
 export const PROVIDER_AI_LIMIT=100;
 export const AI_MODEL='gemini-3.5-flash-lite';
 export const AI_FALLBACK_MODEL='gemini-3.1-flash-lite';
+export function modelReview(env:AppEnv):string[] {
+  return env.AI_PROVIDER&&env.AI_PROVIDER!=='gemini'&&env.AI_REQUIRE_REVIEW!=='false'
+    ? ['Review factual claims and personal experience before approving this AI-assisted draft.'] : [];
+}
 export const isTransientAiFailure=(reason:string)=>['provider_http_500','provider_http_502','provider_http_503','provider_http_504','provider_unavailable'].includes(reason);
 export async function reserveAi(db:D1Database,owner:string,model:string,day:string,at=new Date(),userCap=USER_AI_LIMIT,providerCap=PROVIDER_AI_LIMIT) {
   const row=await db.prepare(`INSERT INTO ai_reservations(id,owner,model,day,created_at)
@@ -27,7 +33,9 @@ export function withProviderRetry(complete:Completion,wait:(ms:number)=>Promise<
   };
 }
 /** Every attempt reserves quota; transient failures get one bounded retry, never a paid fallback. */
-export function completion(env:AppEnv,owner:string):Completion {
+export function completion(env:AppEnv,owner:string,operationId:string=crypto.randomUUID(),deadlineMs?:number):Completion {
+  if(env.AI_PROVIDER==='compatible'||env.AI_PROVIDER==='workers-ai')return serviceCompletion(env,owner,operationId,deadlineMs);
+  if(env.AI_PROVIDER&&env.AI_PROVIDER!=='gemini')return async()=>({ok:false,reason:'ai_configuration_invalid'});
   let remaining=12;
   const limited=(model:string):Completion=>{
     const single=singleCompletion(env,owner,model);
@@ -41,7 +49,7 @@ export function completion(env:AppEnv,owner:string):Completion {
 export function durableCompletion(complete:Completion):Completion {
   return async args=>{
     const result=await complete(args);
-    if(!result.ok&&isTransientAiFailure(result.reason))throw new Error(result.reason);
+    if(!result.ok&&(isTransientAiFailure(result.reason)||isRetryableAiReason(result.reason)))throw new Error(result.reason);
     return result;
   };
 }

@@ -21,6 +21,11 @@ GitHub repository access is required if the repository is private.
 Customers do not enter Gemini keys or database credentials. This is an Android APK;
 there is no iPhone IPA/TestFlight build in this repository.
 
+Version **1.0.8 (build 9)** uses the Cloudflare Workers AI rollout. New AI drafts
+require factual review before publishing. The backend supports replaceable inference
+providers, queued jobs and server-enforced usage limits. The existing release signing
+key is preserved. [Release verification](../../reports/ByLine-ai-release-2026-11-09.md).
+
 Version **1.0.7 (build 8)** removes deleted drafts immediately from Home and My posts,
 including their preparation card and waiting-on-you activity. Install this APK over
 your existing app; the signing key is unchanged.

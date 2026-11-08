@@ -1,5 +1,12 @@
 # Complete ByLine documentation
 
+- [Current AI architecture, alternatives and limits](ai-service-research.md)
+- [AI validation and deployed backend release](ai-validation.md)
+- [Android 1.0.8 release verification](../reports/ByLine-ai-release-2026-11-09.md)
+
+The PDF, generated source reference and file inventory below are the **7 November
+2026 snapshot**. The linked AI and Android release records cover subsequent changes.
+
 - [Download the complete PDF](../output/pdf/ByLine-Complete-Project-Handbook.pdf)
 - [Readable handbook source](handbook.md)
 - [Every file, dependency and source listing](generated-reference.md)

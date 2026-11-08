@@ -8,7 +8,7 @@ import { body,json,text,HttpError } from './http';
 import { loadAgent,postView,type CloudPost } from './models';
 import { saveDraft } from './drafts';
 import { ownedImages,publish,resolveSend,type Reviewed } from './publish';
-import { completion } from './ai';
+import { completion,modelReview } from './ai';
 import type { AppEnv } from './env';
 import type { Owner } from './auth';
 export function tags(value:unknown) {
@@ -48,13 +48,14 @@ export async function postsRoute(request:Request,env:AppEnv,owner:Owner) {
   if(b.polish&&b.publishNow)throw new HttpError(409,'Review the polished draft before publishing.');
   let hashtags=tags(b.hashtags),polishedBy:string|undefined;
   if(b.polish) {
-    const c=await voiceContext(env.DB,owner.agentId),r=await polishCustomPost(completion(env,owner.userId),c.persona,value,c.agent.style,c.voice);
+    const c=await voiceContext(env.DB,owner.agentId),r=await polishCustomPost(completion(env,owner.userId,requestId,Date.now()+120000),c.persona,value,c.agent.style,c.voice);
     if(r.ok&&!critique(r.data.text,c.agent.style,{hashtags:r.data.hashtags}).length){value=r.data.text;polishedBy=r.data.servedBy;if(!hashtags.length)hashtags=r.data.hashtags;}
   }
   const media=b.mediaIds??[];await ownedImages(env.DB,owner.agentId,media);
   if(!checkLength(assemblePost({body:value,hashtags,maxHashtags:15})).withinLimit)throw new HttpError(400,'The post exceeds LinkedIn’s text limit.');
   const at=b.publishNow?null:future(b.scheduledFor);
-  const seq=await saveDraft(env.DB,{agentId:owner.agentId,requestId,text:value,rationale:polishedBy?'Written by you and polished with AI.':'Written by you.',fingerprint:value.slice(0,100),sources:[],hashtags,media:media as string[],scheduledFor:at,cleared:!!at,category:isCategoryId(b.category)?b.category:undefined});
+  const notes=polishedBy?modelReview(env):[];
+  const seq=await saveDraft(env.DB,{agentId:owner.agentId,requestId,text:value,rationale:polishedBy?'Written by you and polished with AI.':'Written by you.',fingerprint:value.slice(0,100),sources:[],hashtags,media:media as string[],scheduledFor:at,cleared:!!at&&!notes.length,reviewNotes:notes,category:isCategoryId(b.category)?b.category:undefined});
   const saved=await env.DB.prepare('SELECT text,hashtags_json,media_json FROM posts WHERE agent_id=? AND seq=?').bind(owner.agentId,seq).first<{text:string;hashtags_json:string;media_json:string}>();
   if(saved!.text!==value||saved!.hashtags_json!==JSON.stringify(hashtags)||saved!.media_json!==JSON.stringify(media))return json({error:'Your earlier save succeeded. Review the saved draft before changing it.',seq},409);
   if(b.publishNow){const r=await publish(env,owner.agentId,seq);return json({...r,id:`p${seq}`,seq},r.ok?200:502);}
@@ -71,7 +72,7 @@ export async function postAction(request:Request,env:AppEnv,owner:Owner,seq:numb
   if(b.action==='rewrite'||b.action==='followup') {
     if((b.action==='rewrite'&&post.status==='published')||(b.action==='followup'&&post.status!=='published'))throw new HttpError(409,'This action does not apply to the current post.');
     if(post.status==='unknown'||await env.DB.prepare("SELECT id FROM distributions WHERE agent_id=? AND seq=? AND status IN ('in_flight','unknown')").bind(owner.agentId,seq).first())throw new HttpError(409,'Resolve the pending send before changing this post.');
-    const c=await voiceContext(env.DB,owner.agentId),complete=completion(env,owner.userId);
+    const c=await voiceContext(env.DB,owner.agentId),complete=completion(env,owner.userId,crypto.randomUUID(),Date.now()+120000);
     const r=b.action==='rewrite'?await rewriteDraft(complete,c.persona,post.text,c.agent.style,Number.isInteger(b.variant)?Math.abs(Number(b.variant))%4:0,c.voice)
       :await writeFollowUp(complete,c.persona,{text:post.text,publishedAt:post.published_at},c.agent.style,c.voice);
     if(!r.ok)throw new HttpError(503,'The writer is unavailable. Your original post is saved.');
@@ -115,7 +116,7 @@ export async function rewriteRoute(request:Request,env:AppEnv,owner:Owner,previe
   }
   if(value.length<20)throw new HttpError(400,'Add a draft or writing sample first.');
   const style=preview?parseStyle({...c.agent.style,...(b.style&&typeof b.style==='object'?b.style:{})}):c.agent.style;
-  const complete=completion(env,owner.userId),r=preview?await polishCustomPost(complete,c.persona,value,style,c.voice):await rewriteDraft(complete,c.persona,value,style,Number.isInteger(b.variant)?Math.abs(Number(b.variant))%4:0,c.voice);
+  const complete=completion(env,owner.userId,crypto.randomUUID(),Date.now()+120000),r=preview?await polishCustomPost(complete,c.persona,value,style,c.voice):await rewriteDraft(complete,c.persona,value,style,Number.isInteger(b.variant)?Math.abs(Number(b.variant))%4:0,c.voice);
   if(!r.ok)throw new HttpError(503,'The writer is temporarily unavailable. Your original text is saved.');
   const after=assemblePost({body:r.data.text,hashtags:r.data.hashtags,maxHashtags:style.hashtagCount});
   if(preview)return json({ok:true,sourceLabel,before:value,after,hook:hookOf(after),length:checkLength(after),style,servedBy:r.data.servedBy});

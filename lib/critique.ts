@@ -65,6 +65,9 @@ export function critique(
   const out: Violation[] = [];
   const body = text.trim();
   const lines = body.split("\n").map((l) => l.trim());
+  const sentences=body.split(/(?<=[.!?])\s+/).map(s=>s.trim().toLowerCase());
+  const substantial=sentences.filter(s=>s.length>=60&&countWords(s)>=10);
+  if(new Set(substantial).size<substantial.length)out.push({rule:'repeated_sentence',detail:'A substantial sentence appears more than once. Remove duplicated material and use distinct, evidence-supported sentences; do not pad the word count by repeating a passage.'});
 
   // ---- length
   const words = countWords(body);

@@ -2,6 +2,7 @@ import type { AppEnv } from './env';
 import { HttpError } from './http';
 import { type SlotRow } from './slots';
 import { draftNoticeTime } from './notifications';
+import {positiveInteger} from '../../lib/ai-compatible';
 export interface GenerationJob {kind:'slot'|'manual';agentId:string;userId:string;agentRevision:number;slotRevision?:number;slotId?:string;runDate?:string;scheduledFor?:string;requested?:boolean}
 /** Persist failure and its notification together; replay cannot duplicate it. */
 export async function failJob(db:D1Database,id:string,agentId:string,reason:string) {
@@ -23,7 +24,8 @@ export async function enqueueSlot(db:D1Database,slot:SlotRow,userId:string,agent
       AND EXISTS(SELECT 1 FROM post_slots WHERE id=? AND enabled=1 AND revision=?)
       AND NOT EXISTS(SELECT 1 FROM posts WHERE agent_id=? AND slot_id=? AND slot_date=?)
       ON CONFLICT(slot_id,run_date) DO UPDATE SET job_id=excluded.job_id,outcome='pending',stage='discovering',detail=NULL,attempts=attempts+1,retry_at=?
-      WHERE post_seq IS NULL AND attempts<3 AND retry_at<? AND (outcome!='pending' OR retry_at<?)`)
+      WHERE post_seq IS NULL AND attempts<3 AND retry_at<? AND (outcome!='pending' OR retry_at<?)
+      AND NOT EXISTS(SELECT 1 FROM generation_jobs WHERE id=slot_runs.job_id AND state IN ('queued','working'))`)
       .bind(slot.id,date,scheduledFor,id,slot.agent_id,agentRevision,slot.id,slot.revision,slot.agent_id,slot.id,date,now,now,new Date(Date.now()-20*60000).toISOString()),
     db.prepare(`INSERT INTO generation_jobs(id,agent_id,payload) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM slot_runs WHERE slot_id=? AND run_date=? AND job_id=?)`)
       .bind(id,slot.agent_id,JSON.stringify(payload),slot.id,date,id),
@@ -41,14 +43,25 @@ export async function enqueueManual(db:D1Database,payload:GenerationJob) {
 }
 /** The database outbox survives a failed Workflow create; the next cloud tick retries it. */
 export async function dispatchJobs(env:AppEnv) {
+  const service=env.AI_PROVIDER==='compatible'||env.AI_PROVIDER==='workers-ai';
+  const cap=positiveInteger(env.AI_ACTIVE_JOBS,service?2:10,100);
   const jobs=(await env.DB.prepare("SELECT id,payload FROM generation_jobs WHERE state='queued' ORDER BY created_at LIMIT 10").all<{id:string;payload:string}>()).results;
   for(const job of jobs) {
+    // Atomic admission keeps bursts queued instead of starting an unbounded number
+    // of Workflows which would all compete for the same inference server.
+    const claim=await env.DB.prepare(`UPDATE generation_jobs SET state='working',updated_at=? WHERE id=? AND state='queued'
+      AND (SELECT count(*) FROM generation_jobs WHERE state='working')<? RETURNING id`)
+      .bind(new Date().toISOString(),job.id,cap).first();
+    if(!claim)continue;
     try {
       // createBatch ignores IDs that already exist, including after a lost acknowledgement.
       const created=await env.CONTENT.createBatch([{id:job.id,params:JSON.parse(job.payload) as GenerationJob}]);
       if(!created.length)await (await env.CONTENT.get(job.id)).status();
-      await env.DB.prepare("UPDATE generation_jobs SET state='working',updated_at=? WHERE id=? AND state='queued'").bind(new Date().toISOString(),job.id).run();
-    }catch {console.warn(JSON.stringify({event:'generation_dispatch_failed',job:job.id}));}
+    }catch {
+      // createBatch is idempotent if the provider accepted before the response was lost.
+      await env.DB.prepare("UPDATE generation_jobs SET state='queued',updated_at=? WHERE id=? AND state='working'").bind(new Date().toISOString(),job.id).run();
+      console.warn(JSON.stringify({event:'generation_dispatch_failed',job:job.id}));
+    }
   }
 }
 
@@ -73,6 +86,12 @@ export async function reconcileJobs(env:AppEnv) {
       }
       const reason='Background preparation stopped before completion. Please prepare the draft again.';
       await failJob(env.DB,job.id,job.agent_id,reason);
-    }catch {console.warn(JSON.stringify({event:'generation_reconcile_deferred',job:job.id}));}
+    }catch {
+      // Recover a crash between our atomic admission and Workflow creation. An
+      // existing instance is safe to redispatch with the same stable ID.
+      await env.DB.prepare("UPDATE generation_jobs SET state='queued',updated_at=? WHERE id=? AND state='working' AND stage IS NULL")
+        .bind(new Date().toISOString(),job.id).run();
+      console.warn(JSON.stringify({event:'generation_reconcile_deferred',job:job.id}));
+    }
   }
 }

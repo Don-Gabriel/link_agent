@@ -1,9 +1,9 @@
 {
   "name": "ByLine",
-  "versionName": "1.0.7",
-  "versionCode": 8,
+  "versionName": "1.0.8",
+  "versionCode": 9,
   "packageId": "com.linkdin.byline",
-  "builtAtUtc": "2026-11-07T11:52:45.606903+00:00",
+  "builtAtUtc": "2026-11-08T19:32:52.1145934Z",
   "releaseKind": "cloud",
   "apiOrigin": "https://byline-api.byline-b79.workers.dev",
   "minimumAndroidApi": 24,
@@ -15,15 +15,16 @@
     "armeabi-v7a",
     "x86_64"
   ],
-  "bytes": 59813026,
-  "sha256": "809144917ab9500d061d909e138716ab4a962d44febed3a95e43185e7aad476a",
+  "bytes": 59813030,
+  "sha256": "6449c8391744f6d8b0a998cb7a8d1c6c9105eef532029a596773c81d8d9eb7fe",
   "signingCertificateSha256": "fcfc5a0a6d34abe8ada3e525f1f5f758a4560b9fa58261f218a0fca3ac61773c",
   "signatureScheme": "APK Signature Scheme v2",
   "flutter": "3.44.1",
   "dart": "3.12.1",
   "buildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-cloud-android.ps1",
-  "sourceInventory": "../../docs/repository-inventory.json",
   "download": "https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk",
   "phoneInstalledDuringThisBuild": false,
-  "note": "Deleted drafts disappear immediately across Home and My posts, including cached responses and failed refreshes. Deleted occurrences and waiting-on-you timeline entries are hidden. Recurring timetable remains intact. Existing signing key preserved; no phone installation performed."
+  "note": "Cloudflare Workers AI with GLM-4.7-Flash and mandatory factual review. Replaceable inference service, queued jobs, usage limits and replay protection. Existing signing key preserved. No phone installation or paid upgrade performed.",
+  "verificationReport": "../../reports/ByLine-ai-release-2026-11-09.md",
+  "backendVersion": "4394b8f4-f619-47fa-8dcb-ad7cca2954eb"
 }

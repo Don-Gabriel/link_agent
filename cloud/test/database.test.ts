@@ -172,7 +172,7 @@ test('notification batches stay bounded and each author receives only their own 
 
 test('all application tables migrate with foreign keys and JSON validation', async () => {
   const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all();
-  assert.equal(tables.results.length, 28);
+  assert.equal(tables.results.length, 32);
   await assert.rejects(db.prepare("INSERT INTO byline_sessions(id,user_id,expires_at) VALUES('missing','missing','2099-01-01T00:00:00.000Z')").run(), /FOREIGN KEY/);
   await assert.rejects(db.prepare("INSERT INTO system_status(key,value) VALUES('invalid','invalid json')").run(), /CHECK/);
 });

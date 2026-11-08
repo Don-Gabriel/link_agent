@@ -15,6 +15,12 @@ const args:WriteArgs={
 };
 const draft=(words:number)=>({text:'A clear opening. '+Array(words-3).fill('code').join(' '),rationale:'This source supports a concrete engineering discussion without adding unsupported personal claims.',fingerprint:'engineering evidence and practical software evaluation',continuity:null,hashtags:Array.from({length:9},(_,i)=>`Topic${i}`),used_quote:false});
 
+test('duplicated passages from a model are flagged without banning short rhetorical repetition',()=>{
+  const repeated='This approach makes it easier to check claims, yet the lack of verified evidence undermines reliability.';
+  assert.ok(critique(`${repeated} Another paragraph. ${repeated}`,DEFAULT_STYLE).some(v=>v.rule==='repeated_sentence'));
+  assert.ok(!critique('Check the evidence. Check the evidence. Then decide.',DEFAULT_STYLE).some(v=>v.rule==='repeated_sentence'));
+});
+
 test('first-time 200–300 word samples use full evidence and repair the body without counting tags',async()=>{
   const setup={...defaultSetup,voice:'inspirational',style:{minWords:200,maxWords:300,hashtagCount:15}};
   const expectedStyle=setupStyle(setup);

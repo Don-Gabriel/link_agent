@@ -35,7 +35,7 @@ export async function onboardingRoute(request:Request,env:AppEnv,owner:Owner) {
       .bind(lease,new Date(now.getTime()+3*60000).toISOString(),day,day,owner.userId,b.revision,now.toISOString(),day).first();
     if(!acquired)throw new HttpError(409,'A sample is running, settings changed, or today’s sample allowance was reached.');
     try {
-      const sample=await generatePreview(env,owner.userId,owner.name,config);
+      const sample=await generatePreview(env,owner.userId,owner.name,config,lease);
       await env.DB.prepare(`UPDATE onboarding SET preview=?,preview_revision=?,accepted_revision=NULL WHERE user_id=? AND revision=? AND preview_lease=? AND completed_at IS NULL`)
         .bind(JSON.stringify(sample),b.revision,owner.userId,b.revision,lease).run();
     }catch(error){throw new HttpError(generationStatus(error),generationError(error));}

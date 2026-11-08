@@ -1,6 +1,8 @@
 # ByLine cloud backend
 
-Flutter's API runs on Cloudflare Workers, D1, Cron Triggers and Workflows. Gemini generates drafts, Firebase delivers notifications, and LinkedIn uses each author's OAuth grant. The computer can be off after deployment. The original Next.js/PostgreSQL backend remains separate and is not deployed by this package.
+Flutter's API runs on Cloudflare Workers, D1, Cron Triggers and Workflows. Workers AI generates review-required drafts, Firebase delivers notifications, and LinkedIn uses each author's OAuth grant. The computer can be off after deployment. The original Next.js/PostgreSQL backend remains separate and is not deployed by this package.
+
+The replaceable AI service selects Workers AI with GLM-4.7-Flash for the current review-required pilot. Authenticated self-hosted compatible endpoints and explicit legacy Gemini remain available. See [AI operations and rollout](AI.md), [research](../docs/ai-service-research.md) and [validation](../docs/ai-validation.md). The AI changes do not enable a paid plan.
 
 ## Deployment ownership
 
@@ -33,11 +35,11 @@ Research combines Google News, Bing News and curated feeds. Free-text interests 
 
 For routine code-only updates, use `npx wrangler deploy --keep-vars` after the checks above; this preserves deployed variables and existing secrets. The secrets-file command above is for initial provisioning or intentional secret updates.
 
-Temporary AI network/5xx failures try Gemini 3.1 Flash-Lite after the primary Gemini 3.5 Flash-Lite; both were verified accessible on the existing free-tier project on 5 November 2026. Each actual request reserves the same author's daily allowance and the selected model's shared allowance. If both are temporarily unavailable, the existing durable Workflow step backoff applies. Successful source steps remain saved. Individual source failures are not retried inside a workflow: discovery moves on so a blocked publisher cannot consume the shared feed budget. Quota exhaustion and exhausted invocation budgets do not trigger repeated transport requests. Failure notifications report the real outcome; they do not imply a draft was saved. Free-tier model availability and quotas still require periodic review against Google's pricing and project limits.
+For the explicit legacy Gemini route only, temporary AI network/5xx failures try Gemini 3.1 Flash-Lite after the primary Gemini 3.5 Flash-Lite; both were verified accessible on the existing free-tier project on 5 November 2026. Each actual request reserves the same author's daily allowance and the selected model's shared allowance. If both are temporarily unavailable, the existing durable Workflow step backoff applies. Successful source steps remain saved. Individual source failures are not retried inside a workflow: discovery moves on so a blocked publisher cannot consume the shared feed budget. Quota exhaustion and exhausted invocation budgets do not trigger repeated transport requests. Failure notifications report the real outcome; they do not imply a draft was saved. Free-tier model availability and quotas still require periodic review against Google's pricing and project limits.
 
 The scheduler reconciles failed workflow instances, recovers already-saved drafts and queues LinkedIn expiry reminders. `/api/health?check=scheduler` returns 503 when the last tick is missing or older than 16 minutes; `/api/health` checks database availability. Use the scheduler-aware URL for external uptime monitoring. An in-provider health check alone cannot alert during a total provider outage.
 
-This is bounded free hosting, not unlimited capacity or guaranteed availability. D1 has read/write/storage limits, Workflows has usage limits, and Gemini has API quotas. Global and per-author AI reservation caps are enforced; no paid fallback is configured. Keep Gemini project billing disabled for this zero-cost setup. LinkedIn credentials expire and users must reconnect.
+This is bounded free hosting, not unlimited capacity or guaranteed availability. D1 has read/write/storage limits, Workflows has usage limits, and the selected inference service has compute quotas. Global and per-author AI reservation caps are enforced; no paid fallback is configured. Keep Gemini project billing disabled for this zero-cost setup. LinkedIn credentials expire and users must reconnect.
 
 A total Cloudflare outage also stops its timer. Independent monitoring and tested off-provider backups remain launch requirements for paying customers. Existing Neon data is quota-paused and has not been migrated. The Vercel website still uses its original backend.
 

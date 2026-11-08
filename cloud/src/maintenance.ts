@@ -54,6 +54,8 @@ export async function cleanExpired(db:D1Database) {
     db.prepare('DELETE FROM login_attempts WHERE at<?').bind(before(86400000)),
     db.prepare('DELETE FROM byline_sessions WHERE expires_at<? OR revoked_at<?').bind(before(0),before(86400000)),
     db.prepare('DELETE FROM ai_usage WHERE created_at<?').bind(before(30*86400000)),
+    db.prepare('DELETE FROM ai_requests WHERE updated_at<?').bind(Date.now()-86400000),
+    db.prepare('DELETE FROM ai_service_days WHERE day<?').bind(before(30*86400000).slice(0,10)),
     db.prepare('DELETE FROM ai_reservations WHERE day<?').bind(before(30*86400000).slice(0,10)),
     db.prepare('DELETE FROM ai_user_days WHERE day<?').bind(before(30*86400000).slice(0,10)),
     db.prepare('DELETE FROM ai_provider_days WHERE day<?').bind(before(30*86400000).slice(0,10)),

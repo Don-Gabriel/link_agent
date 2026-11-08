@@ -4,11 +4,16 @@
 
 ## Download for Android
 
-**[Download ByLine 1.0.7 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
+**[Download ByLine 1.0.8 APK](https://github.com/Don-Gabriel/link_agent/raw/refs/heads/main/releases/android/byline-latest.apk)**
 
 Open this link on your phone, download the APK, then open it to install or update.
 Android 7.0 or newer is required. [Installation steps](releases/android/README.md)
-· [Release verification](reports/ByLine-draft-deletion-2026-11-07.md)
+· [Release verification](reports/ByLine-ai-release-2026-11-09.md)
+
+**1.0.8** connects to the Cloudflare Workers AI rollout with review-required drafts.
+The backend now supports replaceable inference providers, queued generation,
+server-enforced usage limits and bounded retries. No Gemini key is needed for the
+current mobile backend. [AI research and limits](docs/ai-service-research.md)
 
 **1.0.7** fixes draft deletion across Home and My posts. Deleted drafts no longer leave a
 completed preparation card or a “waiting on you” entry. Future timetable slots remain intact.

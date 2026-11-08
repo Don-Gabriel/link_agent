@@ -37,6 +37,18 @@ async function call(token:string,path:string,method='GET',payload?:unknown) {
   return runtime.dispatchFetch(`https://byline.example${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(payload===undefined?{}:{body:JSON.stringify(payload)})});
 }
 
+test('AI allowance reads are authenticated and owner-bound; clients cannot assign their own plan',async()=>{
+  const a=await author('allowance-owner'),b=await author('allowance-other');
+  await db.prepare("INSERT INTO ai_account_limits(owner,plan_key,daily_attempt_limit) VALUES(?,'internal-test-plan',7)").bind(a.userId).run();
+  assert.equal((await runtime.dispatchFetch('https://byline.example/api/ai/usage')).status,401);
+  const own=await (await call(a.token,'/api/ai/usage')).json() as {plan:string;limit:number};
+  assert.equal(own.plan,'internal-test-plan');assert.equal(own.limit,7);
+  const other=await (await call(b.token,`/api/ai/usage?owner=${a.userId}`)).json() as {plan:string;limit:number};
+  assert.equal(other.plan,'pilot');assert.equal(other.limit,40);
+  assert.equal((await call(b.token,'/api/ai/usage','POST',{owner:a.userId,plan:'unlimited',daily_attempt_limit:99999})).status,404);
+  assert.equal((await db.prepare('SELECT daily_attempt_limit FROM ai_account_limits WHERE owner=?').bind(a.userId).first())?.daily_attempt_limit,7);
+});
+
 test('timezone changes move prepared timetable drafts, revoke approvals and preserve custom times',async()=>{
   const a=await author('prepared-timezone');
   const slot=(await (await call(a.token,'/api/slots','POST',{localTime:'09:00'})).json() as {slot:{id:string}}).slot;

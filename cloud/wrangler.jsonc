@@ -9,6 +9,16 @@
 	"main": "src/index.ts",
 	"workers_dev": true,
 	"preview_urls": false,
+	"ai": {"binding":"AI"},
+	"vars": {
+		"AI_PROVIDER":"workers-ai",
+		"AI_MODEL":"@cf/zai-org/glm-4.7-flash",
+		"AI_DISABLE_THINKING":"true",
+		"AI_MAX_CONCURRENCY":"1",
+		"AI_ACTIVE_JOBS":"2",
+		"AI_DAILY_ATTEMPT_LIMIT":"40",
+		"AI_REQUIRE_REVIEW":"true"
+	},
 	"workflows": [
 		{"name":"byline-content","binding":"CONTENT","class_name":"ContentWorkflow"},
 		{"name":"byline-maintenance","binding":"MAINTENANCE","class_name":"MaintenanceWorkflow"}

@@ -4,12 +4,14 @@ export interface CompleteArgs {
   /** Smaller prompt variant for low-TPM models (Gemma). Optional. */
   compactUser?: string;
   jsonMode?: boolean;
+  /** Optional constrained-output schema for compatible self-hosted servers. */
+  jsonSchema?: Record<string, unknown>;
   maxOutputTokens?: number;
 }
 
 export type CompleteResult =
-  | { ok: true; text: string; model: string }
-  | { ok: false; reason: string };
+  | { ok: true; text: string; model: string; usage?: { inputTokens: number | null; outputTokens: number | null; neurons?: number } }
+  | { ok: false; reason: string; retryAfterMs?: number };
 
 
 export type Completion = (args: CompleteArgs) => Promise<CompleteResult>;

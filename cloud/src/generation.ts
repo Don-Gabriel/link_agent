@@ -5,7 +5,7 @@ import { parseSetup,setupCategories,setupPersona,setupStyle,type SetupConfig } f
 import { critique, countWords, reviewNotes } from '../../lib/critique';
 import { nextSlotRun } from '../../lib/schedule';
 import { pickSamples } from '../../lib/voice-prompt';
-import { completion,durableCompletion } from './ai';
+import { completion,durableCompletion,modelReview } from './ai';
 import { loadAgent } from './models';
 import { saveDraft } from './drafts';
 import { failJob,type GenerationJob } from './jobs';
@@ -37,7 +37,9 @@ async function feedResult(db:D1Database,name:string,outcome:{ok:true;items:numbe
     fails_in_a_row=CASE WHEN excluded.last_ok_at IS NULL THEN fails_in_a_row+1 ELSE 0 END,last_error=excluded.last_error,updated_at=excluded.updated_at`)
     .bind(name,ok?now:null,ok?null:now,ok?0:1,ok?null:'Feed is unavailable or returned no stories.',now).run();
 }
-export async function generatePreview(env:AppEnv,userId:string,name:string,config:SetupConfig) {
+export async function generatePreview(env:AppEnv,userId:string,name:string,config:SetupConfig,operationId:string=crypto.randomUUID()) {
+  // Return before the mobile writer timeout (135s) and the preview lease (180s).
+  const deadlineMs=Date.now()+120000;
   const categories=setupCategories(config),persona=setupPersona(config,name),style=setupStyle(config);
   const agent=await env.DB.prepare('SELECT id FROM agents WHERE owner_id=?').bind(userId).first<{id:string}>();
   const rows=agent?await recentCoverage(env.DB,agent.id):[];
@@ -48,7 +50,7 @@ export async function generatePreview(env:AppEnv,userId:string,name:string,confi
   options.excludeUrls.push(...(previous?.sources??[]));
   if(previous?.title)options.priorCoverage.push(previous.title);
   const candidates=await discover((name,result)=>feedResult(env.DB,name,result),{...options,sourceTimeoutMs:4000});
-  const complete=completion(env,userId);
+  const complete=completion(env,userId,operationId,deadlineMs);
   const recent=[...(previous?.category?[previous.category]:[]),...rows.slice(0,24).flatMap(p=>p.category?[p.category]:[])];
   const prior=[...(previous?.title?[previous.title]:[]),...rows.slice(0,20).map(p=>p.fingerprint)];
   const judged=await judgeCandidates(complete,persona,categories,candidates,memory,prior,recent);
@@ -61,10 +63,10 @@ export async function generatePreview(env:AppEnv,userId:string,name:string,confi
   if(violations.length){
     console.warn(JSON.stringify({event:'preview_saved_for_review',rules:violations.map(v=>v.rule),words:countWords(draft.data.text),minWords:style.minWords,maxWords:style.maxWords}));
   }
-  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,reviewNotes:reviewNotes(violations,draft.data.text,style),testMode:false};
+  return {text:draft.data.text.trim()+(draft.data.hashtags.length?'\n\n'+draft.data.hashtags.map(h=>'#'+h).join(' '):''),sources:[source.url],title:source.title,category:source.category,reviewNotes:[...reviewNotes(violations,draft.data.text,style),...modelReview(env)],testMode:false};
 }
 export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,step:RunStep) {
-  const complete=durableCompletion(completion(env,payload.userId));
+  const complete=durableCompletion(completion(env,payload.userId,id));
   try {
     const context=await step('load-author',async()=>{
       const a=await loadAgent(env.DB,payload.agentId);
@@ -106,7 +108,7 @@ export async function generateJob(env:AppEnv,id:string,payload:GenerationJob,ste
     const seq=await step('save-draft',()=>saveDraft(env.DB,{agentId:payload.agentId,requestId:id,text:draft.data.text.trim(),rationale:draft.data.rationale,
       fingerprint:draft.data.fingerprint,sources:[winner.url],category:winner.category,hashtags:draft.data.hashtags,scores:winner.scores,continuity:draft.data.continuity,
       usedQuote:draft.data.used_quote,slotId:payload.slotId,slotDate:payload.runDate,agentRevision:payload.agentRevision,slotRevision:payload.slotRevision,
-      avoidUsedSources:true,reviewNotes:reviewNotes(violations,draft.data.text,context.settings.style),scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
+      avoidUsedSources:true,reviewNotes:[...reviewNotes(violations,draft.data.text,context.settings.style),...modelReview(env)],scheduledFor:payload.scheduledFor&&Date.parse(payload.scheduledFor)>Date.now()?payload.scheduledFor:null}));
     await step('settle',async()=>{
       const now=new Date().toISOString();
       const queries=[env.DB.prepare("UPDATE slot_runs SET post_seq=?,generated_at=?,outcome='drafted',stage='ready' WHERE job_id=? AND post_seq IS NULL").bind(seq,now,id),

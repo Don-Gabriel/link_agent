@@ -8,7 +8,8 @@ import {defaultSetup,setupPersona,setupStyle} from '../../lib/setup-config';
 const origin=process.env.BYLINE_CLOUD_ORIGIN;
 if(!origin||!/^https:\/\/[a-z0-9.-]+$/.test(origin))throw new Error('Set BYLINE_CLOUD_ORIGIN to the approved HTTPS backend origin');
 const secrets=JSON.parse(readFileSync(new URL('../../.byline-local/cloud-secrets.json',import.meta.url),'utf8'));
-if(secrets.LINKEDIN_LIVE!=='false')throw new Error('Run this initial release smoke with publishing disabled');
+const isolatedAi=process.argv.includes('--isolated-ai');
+if(secrets.LINKEDIN_LIVE!=='false'&&!isolatedAi)throw new Error('Run this initial release smoke with publishing disabled, or use --isolated-ai for an author without grants, devices, slots or auto-publishing.');
 const user=crypto.randomUUID(),agent=crypto.randomUUID(),session=crypto.randomUUID(),expires=Date.now()+30*60000;
 const config={...defaultSetup,categories:['ai-ml'],style:{minWords:80,maxWords:160,hashtagCount:0,signature:null}};
 const quote=(s:string)=>`'${s.replaceAll("'","''")}'`;
@@ -25,31 +26,44 @@ function sql(source:string) {
   finally {unlinkSync(file);}
 }
 const token=await signSession(secrets.APP_SECRET,user,session,expires);
-async function request(path:string,method='GET',payload?:unknown) {
+interface SmokeDraft {text:string;seq:number;reviewNotes?:string[]}
+interface SmokeStatus {initialized:boolean;scheduler:unknown;queue:SmokeDraft[]}
+async function request<T=unknown>(path:string,method='GET',payload?:unknown):Promise<T> {
   const r=await fetch(origin+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(payload===undefined?{}:{body:JSON.stringify(payload)}),signal:AbortSignal.timeout(180000)});
   const value=await r.json();
   if(!r.ok)throw new Error(`${path}: HTTP ${r.status}, ${JSON.stringify(value).slice(0,250)}`);
-  return value;
+  return value as T;
 }
 const report:Record<string,unknown>={at:new Date().toISOString(),origin,phoneTouched:false,linkedinPublished:false};
+function assertIsolatedAuthor() {
+  const row=sql(`SELECT a.auto_publish,
+    (SELECT count(*) FROM linkedin_accounts WHERE agent_id=a.id) AS grants,
+    (SELECT count(*) FROM device_tokens WHERE agent_id=a.id) AS devices,
+    (SELECT count(*) FROM post_slots WHERE agent_id=a.id) AS slots
+    FROM agents a WHERE id=${quote(agent)};`)[0]?.results?.[0];
+  if(!row||row.auto_publish||row.grants||row.devices||row.slots)throw new Error('The verification author is not isolated');
+}
 try {
   sql(`INSERT INTO byline_users(id,provider,subject,name) VALUES(${quote(user)},'linkedin',${quote('deployment-smoke-'+user)},'Deployment verification');
     INSERT INTO agents(id,name,domain,persona_json,persona_hash,owner_id,paused,timezone,categories_json,style_json) VALUES(${quote(agent)},'Deployment verification','AI research',${quote(JSON.stringify(setupPersona(config,'Deployment verification')))},'smoke',${quote(user)},1,'UTC','["ai-ml"]',${quote(JSON.stringify(setupStyle(config)))});
     INSERT INTO onboarding(user_id,config,revision) VALUES(${quote(user)},${quote(JSON.stringify(config))},1);
     INSERT INTO byline_sessions(id,user_id,expires_at) VALUES(${quote(session)},${quote(user)},${quote(new Date(expires).toISOString())});`);
-  const status=await request('/api/status');
+  const status=await request<SmokeStatus>('/api/status');
+  if(isolatedAi)assertIsolatedAuthor();
   console.log(JSON.stringify({stage:'authenticated',initialized:status.initialized,scheduler:status.scheduler}));
-  const preview=await request('/api/onboarding','POST',{action:'preview',revision:1});
+  const preview=await request<{preview?:SmokeDraft&{testMode:boolean;title:string}}>('/api/onboarding','POST',{action:'preview',revision:1});
   if(!preview.preview?.text||preview.preview.testMode!==false)throw new Error('A real preview was not returned');
   report.preview=preview.preview;
+  if(isolatedAi&&!preview.preview.reviewNotes?.length)throw new Error('The new model preview must require factual review');
   console.log(JSON.stringify({stage:'real-cloud-preview',title:preview.preview.title,words:preview.preview.text.split(/\s+/).length}));
   sql(`UPDATE onboarding SET completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id=${quote(user)};
     UPDATE agents SET paused=0 WHERE id=${quote(agent)};`);
+  if(isolatedAi)assertIsolatedAuthor();
   await request('/api/cycle/run','POST',{});
   console.log(JSON.stringify({stage:'cloud-workflow-accepted'}));
   for(let i=0;i<60;i++) {
     await new Promise(r=>setTimeout(r,5000));
-    const s=await request('/api/status');
+    const s=await request<SmokeStatus>('/api/status');
     if(s.queue.length) {
       report.workflowDraft=s.queue[0];report.scheduler=s.scheduler;
       console.log(JSON.stringify({stage:'cloud-workflow-draft',seq:s.queue[0].seq,words:s.queue[0].text.split(/\s+/).length,scheduler:s.scheduler}));
@@ -58,6 +72,14 @@ try {
     if(i%6===5)console.log(JSON.stringify({stage:'waiting-for-cloud-workflow',seconds:(i+1)*5}));
   }
   if(!report.workflowDraft)throw new Error('Cloud workflow did not produce a draft within five minutes');
+  if(isolatedAi) {
+    const draft=report.workflowDraft as {reviewNotes?:string[]};
+    if(!draft.reviewNotes?.length)throw new Error('The new model draft must require factual review');
+    report.allowance=await request('/api/ai/usage');
+    report.inference=sql(`SELECT model,success,count(*) AS attempts,sum(neurons) AS neurons FROM ai_usage WHERE owner=${quote(user)} GROUP BY model,success;`)[0]?.results;
+    const inference=report.inference as {model:string}[];
+    if(!inference.length||inference.some(r=>!r.model.startsWith('@cf/')))throw new Error('Expected native Workers AI inference without a Gemini fallback');
+  }
   report.ok=true;
 } catch(error) {report.ok=false;report.error=error instanceof Error?error.message:'Verification failed';process.exitCode=1;console.log(JSON.stringify({ok:false,error:report.error}));}
 finally {

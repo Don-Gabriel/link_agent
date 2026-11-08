@@ -10,6 +10,8 @@ import { mediaRoute } from './media';
 import { deleteAccount } from './delete-account';
 import { reviewRoute,cycleRoute } from './scheduler';
 import type { AppEnv } from './env';
+import { aiAllowance } from './ai-service';
+import { dispatchMaintenance } from './maintenance-dispatch';
 export { ContentWorkflow } from './workflow';
 export { MaintenanceWorkflow } from './scheduler';
 
@@ -33,6 +35,7 @@ export default {
       if(['/api/linkedin/callback','/api/native-auth/callback'].includes(path)&&method==='GET')return await authCallback(request,env);
       const owner=await authenticate(request,env);
       if(!owner)return json({error:'unauthorized'},401);
+      if(path==='/api/ai/usage'&&method==='GET')return json(await aiAllowance(env,owner.userId));
       if(path==='/api/auth'&&method==='DELETE') {
         await env.DB.prepare('UPDATE byline_sessions SET revoked_at=? WHERE id=? AND user_id=?').bind(new Date().toISOString(),owner.sessionId,owner.userId).run();
         return json({ok:true});
@@ -67,7 +70,6 @@ export default {
     }
   },
   async scheduled(event:ScheduledController,env:AppEnv) {
-    const id=`minute-${Math.floor(event.scheduledTime/60000)}`;
-    await env.MAINTENANCE.createBatch([{id,params:{cleanup:new Date(event.scheduledTime).getUTCMinutes()===0}}]);
+    await dispatchMaintenance(env,event.scheduledTime);
   },
 } satisfies ExportedHandler<AppEnv>;
